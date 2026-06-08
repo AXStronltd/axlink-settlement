@@ -2,7 +2,13 @@ import { Router, Request, Response } from 'express';
 import { executeTransfer, executeWithdrawal, executeBankDeposit, executeCryptoBuy } from '../services/transfer.service';
 import { prisma, getUser, createUser, getBalance } from '../services/ledger.service';
 import { createVaultAccount } from '../services/fireblocks.service';
+import { createVirtualAccount } from '../services/brainrock.service';
 import { SUPPORTED_CURRENCIES } from '../services/fx.service';
+
+const CURRENCY_COUNTRY: Record<string, string> = {
+  GBP: 'GB', EUR: 'DE', USD: 'US', KES: 'KE',
+  NGN: 'NG', GHS: 'GH', ZAR: 'ZA', UGX: 'UG', TZS: 'TZ',
+};
 
 const router = Router();
 
@@ -22,12 +28,40 @@ router.post('/users', async (req: Request, res: Response) => {
     return;
   }
 
-  // Create Fireblocks vault first
-  const vault = await createVaultAccount(`fincruise_${email}`, true);
+  // Provision Fireblocks vault + Brainrock virtual IBAN in parallel
+  const [vault, virtualAccount] = await Promise.all([
+    createVaultAccount(`fincruise_${email}`, true),
+    createVirtualAccount({
+      userId: email,
+      currency,
+      country: CURRENCY_COUNTRY[currency] ?? 'GB',
+    }).catch(() => null), // non-fatal — can be provisioned later
+  ]);
+
   const vaultId = (vault as { id?: string })?.id ?? '';
 
   const user = await createUser({ email, name, vaultId, currency });
-  res.status(201).json({ userId: user.id, vaultId, currency });
+
+  // Persist Brainrock virtual account details
+  if (virtualAccount) {
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        brainrockAccountId: virtualAccount.id,
+        virtualIban:        virtualAccount.iban,
+        virtualIbanBic:     virtualAccount.bic,
+      },
+    });
+  }
+
+  res.status(201).json({
+    userId:      user.id,
+    vaultId,
+    currency,
+    depositAccount: virtualAccount
+      ? { iban: virtualAccount.iban, bic: virtualAccount.bic, currency }
+      : null,
+  });
 });
 
 // GET /api/users/:id — get user + balances

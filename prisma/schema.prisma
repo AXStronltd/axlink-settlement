@@ -14,14 +14,17 @@ model User {
   name            String
   kycStatus       String   @default("PENDING")
 
+  // Brainrock — virtual IBAN per user (fiat deposits arrive here)
+  brainrockAccountId String?         // Brainrock virtual account ID
+  virtualIban        String?         // Virtual IBAN shown to user for bank transfers
+  virtualIbanBic     String?         // BIC for the virtual IBAN
+
   // Fireblocks — one vault per user, USDT address per asset
   vaultId         String   @unique   // Fireblocks vault ID (e.g. "vault_james_001")
   usdtAddress     String?            // Fireblocks USDT_SOL deposit address for this vault
-                                     // B2BinPay sends USDT directly here — no treasury hop
 
   // B2BinPay — one wallet per user for receiving fiat on-ramp
   b2bWalletId     String?            // B2BinPay wallet ID paired to this user
-                                     // Fiat arrives here → B2BinPay converts → USDT → usdtAddress
 
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -96,8 +99,9 @@ model Withdrawal {
   note        String?
   status      String   @default("PENDING")
 
-  offrampId   String?  // B2BinPay payout ID
-  fbTxId      String?  // Fireblocks debit TX
+  offrampId          String?  // B2BinPay payout ID
+  fbTxId             String?  // Fireblocks debit TX
+  brainrockPaymentId String?  // Brainrock outbound payment ID (fiat delivery)
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt

@@ -26,11 +26,13 @@ import { prisma, debit, credit, checkSufficientBalance, getUser, audit } from '.
 import { toUSD, usdToUsdt, fromUSD } from './fx.service';
 import { createDeposit, createPayout, calculatePayoutFee } from './b2binpay.service';
 import { createTransfer as fbTransfer } from './fireblocks.service';
+import { sendPayment, resolvePaymentType, type PaymentDestination } from './brainrock.service';
 import { consumeQuote, createQuote } from './quote.service';
 
 const USDT_ASSET = process.env.FIREBLOCKS_USDT_ASSET ?? 'USDT_SOL';
 const B2B_WALLET_ID = process.env.B2BINPAY_WALLET_ID ?? '';
 const TREASURY_VAULT = process.env.FIREBLOCKS_TREASURY_VAULT ?? '';
+const BRAINROCK_TREASURY = process.env.BRAINROCK_TREASURY_ACCOUNT_ID ?? '';
 const CALLBACK = `${process.env.API_BASE_URL}/webhooks/b2binpay`;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -151,20 +153,19 @@ export async function handleWithdrawalRequest(params: {
   userId: string;
   currency: string;
   amount: number;
-  rail: string;           // "mpesa" | "bank_transfer" | "rtgs"
-  railDestination: string; // phone number, bank account, IBAN
-  bankName: string;
+  destination: PaymentDestination; // where fiat goes: bank, M-Pesa, IBAN
+  recipientName: string;
 }) {
-  const { userId, currency, amount, rail, railDestination, bankName } = params;
+  const { userId, currency, amount, destination, recipientName } = params;
   const trackingId = `wdr_${randomUUID()}`;
 
   const user = await getUser(userId);
-
-  // Balance check first
   await checkSufficientBalance(userId, currency, amount);
 
   const usdAmount = await toUSD(amount, currency);
   const usdtAmount = usdToUsdt(usdAmount);
+
+  destination.type = destination.type ?? resolvePaymentType(currency, destination);
 
   const withdrawal = await prisma.withdrawal.create({
     data: {
@@ -174,73 +175,83 @@ export async function handleWithdrawalRequest(params: {
       amount,
       usdAmount,
       usdtAmount,
-      bankAccount: railDestination,
-      bankName: `${rail}:${bankName}`,
+      bankAccount: destination.mobileNumber ?? destination.iban ?? destination.accountNumber ?? '',
+      bankName: `${destination.type}:${recipientName}`,
       status: 'PROCESSING',
     },
   });
 
-  await audit('Withdrawal', withdrawal.id, 'REQUESTED', { rail, usdAmount });
+  await audit('Withdrawal', withdrawal.id, 'REQUESTED', { destination: destination.type, usdAmount });
 
   try {
-    // ── Step A: Debit user ledger (atomic) ────────────────────────────
+    // ── A: Debit user ledger ──────────────────────────────────────────
     await prisma.$transaction(async (tx: Parameters<typeof debit>[0]) => {
       await debit(tx, userId, currency, amount);
     });
 
     await audit('Withdrawal', withdrawal.id, 'LEDGER_DEBITED', { amount, currency });
 
-    // ── Step B: Fireblocks vault debit ────────────────────────────────
-    // Move USDT from user vault → FinCruse treasury vault
+    // ── B: Fireblocks — user vault → FinCruse treasury vault (USDT) ──
     const fbTx = await fbTransfer({
       assetId: USDT_ASSET,
       amount: usdtAmount.toString(),
       sourceVaultId: user.vaultId,
       destVaultId: TREASURY_VAULT,
-      note: `FinCruse withdrawal ${trackingId} via ${rail}`,
+      note: `FinCruse withdrawal ${trackingId}`,
       externalTxId: trackingId,
     });
 
     await audit('Withdrawal', withdrawal.id, 'FIREBLOCKS_DEBITED', { fbTxId: fbTx?.id });
 
-    // ── Step C: B2BinPay off-ramp ─────────────────────────────────────
-    // USDT → local fiat. B2BinPay pays out to our payout partner
+    // ── C: B2BinPay off-ramp — USDT → fiat (credits FinCruse B2BinPay balance) ──
     const estimate = await calculatePayoutFee({
       walletId: B2B_WALLET_ID,
-      address: railDestination,
+      address: destination.mobileNumber ?? destination.iban ?? destination.accountNumber ?? '',
       amount: amount.toString(),
       currencyId: currency,
     });
 
-    const payout = await createPayout({
+    const b2bPayout = await createPayout({
       walletId: B2B_WALLET_ID,
       currencyId: currency,
-      address: railDestination,
+      address: BRAINROCK_TREASURY,
       amount: amount.toString(),
       feeAmount: estimate.fee.medium,
       trackingId: `b2b_wdr_${trackingId}`,
       callbackUrl: CALLBACK,
       idempotencyKey: randomUUID(),
-      label: `FinCruse withdrawal ${trackingId}`,
+      label: `FinCruse withdrawal ${trackingId} → Brainrock treasury`,
     });
 
-    await audit('Withdrawal', withdrawal.id, 'B2BINPAY_OFFRAMP_CREATED', { offrampId: payout.id });
+    await audit('Withdrawal', withdrawal.id, 'B2BINPAY_OFFRAMP_CREATED', { offrampId: b2bPayout.id });
 
-    // ── Step D: Payout rail instruction ──────────────────────────────
-    // B2BinPay instructs our payout partner to send fiat to railDestination
-    // (M-Pesa STK push, bank RTGS, etc.)
-    // The payout partner sends confirmation webhook → we update status there
+    // ── D: Brainrock — fiat from FinCruse treasury → user's bank/M-Pesa ──
+    const brainrockPayment = await sendPayment({
+      fromAccountId: BRAINROCK_TREASURY,
+      destination: { ...destination, name: recipientName },
+      amount,
+      currency,
+      reference: trackingId,
+      description: `FinCruse withdrawal ${trackingId}`,
+    });
 
+    await audit('Withdrawal', withdrawal.id, 'BRAINROCK_PAYOUT_SENT', {
+      brainrockPaymentId: brainrockPayment.id,
+      destination: destination.type,
+    });
+
+    // Confirmation comes via Brainrock webhook (payment.sent / payment.failed)
     const done = await prisma.withdrawal.update({
       where: { id: withdrawal.id },
       data: {
-        status: 'PENDING_PAYOUT', // waiting for payout rail confirmation
+        status: 'PENDING_PAYOUT',
         fbTxId: fbTx?.id as string | undefined,
-        offrampId: payout.id,
+        offrampId: b2bPayout.id,
+        brainrockPaymentId: brainrockPayment.id,
       },
     });
 
-    await audit('Withdrawal', withdrawal.id, 'PENDING_PAYOUT_RAIL', { rail, railDestination });
+    await audit('Withdrawal', withdrawal.id, 'PENDING_PAYOUT', { brainrockPaymentId: brainrockPayment.id });
     return done;
 
   } catch (err) {
@@ -263,8 +274,9 @@ export async function handleP2PTransfer(params: {
   amount: number;
   quoteId?: string;
   note?: string;
+  receiverDestination?: PaymentDestination; // for cross-border: where receiver gets fiat
 }) {
-  const { senderId, receiverId, fromCurrency, toCurrency, amount, quoteId, note } = params;
+  const { senderId, receiverId, fromCurrency, toCurrency, amount, quoteId, note, receiverDestination } = params;
   const trackingId = `p2p_${randomUUID()}`;
   const sameCurrency = fromCurrency.toUpperCase() === toCurrency.toUpperCase();
 
@@ -331,17 +343,17 @@ export async function handleP2PTransfer(params: {
       });
       fbTxId = fbTx?.id as string | undefined;
 
-      // Off-ramp: USDT → receiver local fiat
+      // Off-ramp: USDT → local fiat (credits FinCruse B2BinPay balance)
       const est = await calculatePayoutFee({
         walletId: B2B_WALLET_ID,
-        address: receiver.vaultId,
+        address: BRAINROCK_TREASURY,
         amount: toAmount.toString(),
         currencyId: toCurrency,
       });
       const pay = await createPayout({
         walletId: B2B_WALLET_ID,
         currencyId: toCurrency,
-        address: receiver.vaultId,
+        address: BRAINROCK_TREASURY,
         amount: toAmount.toString(),
         feeAmount: est.fee.medium,
         trackingId: `offramp_${trackingId}`,
@@ -349,6 +361,24 @@ export async function handleP2PTransfer(params: {
         idempotencyKey: randomUUID(),
       });
       offrampId = pay.id;
+
+      // Brainrock: deliver local fiat to receiver's bank/M-Pesa (if destination provided)
+      // If no destination, credit receiver's FinCruse ledger (they can withdraw later)
+      if (receiverDestination) {
+        const dest = {
+          ...receiverDestination,
+          name: receiver.name,
+          type: receiverDestination.type ?? resolvePaymentType(toCurrency, receiverDestination),
+        };
+        await sendPayment({
+          fromAccountId: BRAINROCK_TREASURY,
+          destination: dest,
+          amount: toAmount,
+          currency: toCurrency,
+          reference: `p2p_${trackingId}`,
+          description: `FinCruse transfer from ${sender.name}`,
+        });
+      }
     }
 
     // ── Step B: Credit receiver ledger ────────────────────────────────

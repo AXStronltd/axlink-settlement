@@ -5,6 +5,7 @@ import {
   handleP2PTransfer,
   handlePayoutRailConfirmed,
 } from '../services/orchestrator.service';
+import type { PaymentDestination } from '../services/brainrock.service';
 
 const router = Router();
 
@@ -61,33 +62,40 @@ router.post('/payout-rail/confirmed', async (req: Request, res: Response) => {
 
 // ── Withdrawal Request ────────────────────────────────────────────────────────
 // User requests to withdraw fiat to their bank/M-Pesa
+// destination.type is auto-resolved if not provided
 router.post('/withdraw', async (req: Request, res: Response) => {
-  const { userId, currency, amount, rail, railDestination, bankName } = req.body as {
+  const { userId, currency, amount, recipientName, destination } = req.body as {
     userId: string;
     currency: string;
     amount: number;
-    rail: string;
-    railDestination: string;
-    bankName: string;
+    recipientName: string;
+    destination: PaymentDestination;
   };
 
-  if (!userId || !currency || !amount || !rail || !railDestination || !bankName) {
-    res.status(400).json({ error: 'userId, currency, amount, rail, railDestination, bankName are required' });
+  if (!userId || !currency || !amount || !destination || !recipientName) {
+    res.status(400).json({
+      error: 'userId, currency, amount, recipientName, destination are required',
+      example: {
+        userId: 'user_id',
+        currency: 'KES',
+        amount: 10000,
+        recipientName: 'James Mwangi',
+        destination: { type: 'mpesa', mobileNumber: '+254712345678' },
+      },
+    });
     return;
   }
 
-  console.log(`[Orchestrator] Withdrawal: ${amount} ${currency} via ${rail} to ${railDestination}`);
-
   const withdrawal = await handleWithdrawalRequest({
-    userId, currency, amount, rail, railDestination, bankName,
+    userId, currency, amount, recipientName, destination,
   });
 
   res.status(201).json({
     withdrawalId: withdrawal.id,
     trackingId: withdrawal.trackingId,
     status: withdrawal.status,
-    flow: `Ledger debit → Fireblocks vault → B2BinPay off-ramp → ${rail}`,
-    message: `Withdrawal of ${amount} ${currency} initiated via ${rail}`,
+    flow: `Ledger debit → Fireblocks vault → B2BinPay off-ramp → Brainrock → ${destination.type}`,
+    message: `Withdrawal of ${amount} ${currency} initiated to ${destination.type}`,
   });
 });
 

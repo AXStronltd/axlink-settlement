@@ -1,85 +1,228 @@
 # FinCruse Settlement Service
 
-Crypto-rail settlement backend for FinCruse. Users interact with a traditional digital bank — no crypto visible. Behind the scenes: **B2BinPay** converts fiat ↔ USDT, **Fireblocks** holds per-user USDT vaults on Solana, and the **Orchestrator** coordinates the full flow automatically.
+**Users see a neobank. Crypto never appears.** All conversion happens silently in the backend across four layers.
 
 ---
 
-## Architecture
+## Four-Layer Architecture
 
 ```
-User (fiat)
-    │
-    ▼
-FinCruse Orchestrator  ──────────────────────────────────────┐
-    │                                                         │
-    ├── DEPOSIT (fiat IN)                                     │
-    │   Payout rail webhook → B2BinPay on-ramp               │
-    │   → USDT sent directly to user's Fireblocks vault       │
-    │   → Fireblocks webhook confirms → Ledger credits user   │
-    │                                                         │
-    ├── WITHDRAWAL (fiat OUT)                                 │
-    │   Ledger debit → Fireblocks vault → B2BinPay off-ramp   │
-    │   → Payout rail (M-Pesa / bank) → User                  │
-    │                                                         │
-    └── P2P TRANSFER (user → user)                           │
-        Same currency: 0 B2BinPay, 1 Fireblocks vault move   │
-        Cross-currency: B2BinPay on-ramp + Fireblocks + off-ramp
+USER (app — sees fiat only, no crypto ever)
+        │
+        ▼
+┌───────────────────────────────────────────────────────────────────────┐
+│                         FinCruse Platform                              │
+│                                                                        │
+│  LAYER 1 — FIAT RAIL          LAYER 2–3 — CRYPTO RAIL (hidden)        │
+│  ┌────────────────────┐       ┌─────────────────┐  ┌───────────────┐  │
+│  │    Brainrock       │ ←──→  │    B2BinPay     │→ │  Fireblocks   │  │
+│  │  (or Square)       │       │  fiat ↔ USDT    │  │  USDT vaults  │  │
+│  │                    │       │  LP (wholesale)  │  │  on Solana    │  │
+│  │  Per-user virtual  │       └─────────────────┘  └───────────────┘  │
+│  │  IBAN / M-Pesa /   │                                                │
+│  │  bank transfers    │       LAYER 4 — LEDGER                        │
+│  └────────────────────┘       ┌────────────────────────────────────┐  │
+│                                │  Prisma + PostgreSQL               │  │
+│                                │  Virtual fiat balances per user    │  │
+│                                │  Atomic debit / credit / audit     │  │
+│                                └────────────────────────────────────┘  │
+│                                                                        │
+│                        FinCruse Orchestrator                           │
+│              (coordinates all four layers per transaction)             │
+└───────────────────────────────────────────────────────────────────────┘
+```
 
-Revenue model: FX spread baked into rate — no visible fee to user.
-No SWIFT. Solana gas ≈ $0.00025 per tx.
+| Layer | Provider | Role |
+|-------|----------|------|
+| Fiat banking | **Brainrock** (or Square / Railsr) | Virtual IBANs, inbound detection, fiat payouts |
+| Liquidity | **B2BinPay** | Converts fiat ↔ USDT at institutional rates |
+| Custody | **Fireblocks** | Holds USDT per-user vault on Solana (~$0.00025 gas) |
+| Ledger | **Prisma + PostgreSQL** | Tracks fiat balances, all flows atomic |
+
+Revenue model: **FX spread baked into rate** — no visible fee. B2BinPay gives institutional rate, FinCruse marks up, user sees a clean rate.
+
+---
+
+## Complete User Journeys
+
+### Journey 1 — User Signup
+
+**What user sees:** "Account created. Your deposit details: GB29 XXXX XXXX ..."
+
+```
+POST /api/users { "email": "james@example.com", "name": "James", "currency": "KES" }
+
+Orchestrator in parallel:
+  → Fireblocks: createVaultAccount("fincruise_james@example.com")
+  → Brainrock: createVirtualAccount({ userId, currency: "KES", country: "KE" })
+
+Returns:
+{
+  "userId": "user_abc",
+  "vaultId": "vault_123",           ← Fireblocks (internal, never shown)
+  "currency": "KES",
+  "depositAccount": {
+    "iban": "GB29NWBK60161331926819",  ← shown to user as their account
+    "bic":  "NWBKGB2L",
+    "currency": "KES"
+  }
+}
 ```
 
 ---
 
-## Stack
+### Journey 2 — Deposit (Fiat IN)
 
-| Layer | Technology |
-|-------|-----------|
-| Runtime | Node.js + TypeScript |
-| Framework | Express 5 |
-| ORM | Prisma 7 + PostgreSQL |
-| Crypto custody | Fireblocks (USDT_SOL) |
-| Liquidity provider | B2BinPay v3 |
-| Settlement rail | Solana (via Fireblocks) |
+**What user sees:** "£500 received"  
+**What happens behind the scenes:**
+
+```
+1. User sends £500 from Barclays → their FinCruse IBAN (Brainrock)
+
+2. Brainrock → POST /api/webhooks/brainrock
+   { "type": "payment.received", "data": { "accountId": "va_james", "amount": 500, "currency": "GBP" } }
+
+3. Orchestrator finds user by brainrockAccountId
+   → Creates BankDeposit record (status: PROCESSING)
+
+4. B2BinPay on-ramp:
+   → createDeposit() — tell B2BinPay to expect £500 GBP
+   → createPayout(currencyId: "USDT_SOL", address: james.usdtAddress, amount: ~$634 USDT)
+   → B2BinPay converts GBP → USDT, sends directly to James's Fireblocks vault address
+
+5. Fireblocks → POST /api/webhooks/fireblocks
+   { "type": "TRANSACTION_STATUS_UPDATED", "data": { "status": "COMPLETED", "assetId": "USDT_SOL", "destination": { "id": "vault_123" } } }
+
+6. Webhook handler:
+   → Finds user by vaultId
+   → Finds pending BankDeposit
+   → Ledger credit: +£500 GBP to James's account
+   → BankDeposit status: COMPLETED
+
+7. User sees: "£500 deposited" — zero crypto exposure
+```
 
 ---
 
-## What's Already Built
+### Journey 3 — P2P Transfer: Same Currency (GBP → GBP)
 
-- Full orchestrator: deposit, withdrawal, P2P transfer flows
-- JIT quote engine with 30s rate lock + FX spread revenue model
-- Atomic ledger (debit / credit with balance checks)
-- Fireblocks vault management (create, list, transfer)
-- B2BinPay on-ramp / off-ramp / fee estimation
-- Webhook handlers with signature verification (B2BinPay HMAC + Fireblocks RSA)
-- Live flow visualiser at `/monitor`
-- End-to-end demo at `/demo`
-- Audit log on every transaction event
+**What user sees:** "£300 sent to Sarah. Arrived instantly."
+
+```
+POST /api/orchestrator/transfer
+{ "senderId": "mike", "receiverId": "sarah", "fromCurrency": "GBP", "toCurrency": "GBP", "amount": 300 }
+
+Flow (0 B2BinPay calls, 1 Fireblocks):
+  Ledger: debit Mike -£300
+  Fireblocks: vault_mike → vault_sarah (USDT_SOL, ~$381)
+  Ledger: credit Sarah +£300
+  Done in ~2 seconds. No bank involved. No FX.
+```
 
 ---
 
-## External Integrations to Connect
+### Journey 4 — P2P Transfer: Cross-Border (GBP → KES)
 
-These are the three external systems the blockchain engineer needs to wire up. Everything else is done.
+**What Mike sees:** "£300 sent to James. Rate: 1 GBP = 159.20 KES"  
+**What James sees:** "KSh 47,760 received from Mike"
 
-### 1. Fireblocks (Crypto Custody)
+```
+Step 1 — JIT Rate Lock (30 seconds):
+  POST /api/quote { "fromCurrency": "GBP", "toCurrency": "KES", "fromAmount": 300 }
+  → B2BinPay institutional rate: 1 GBP = 162.04 KES
+  → FinCruse applies 1.8% spread: customer rate = 159.12 KES
+  → Locked for 30s. quoteId: "q_abc"
 
-**What it does:** Holds per-user USDT vaults on Solana. Every FinCruse user gets one Fireblocks vault. B2BinPay sends USDT directly to the vault address — no treasury hop.
+Step 2 — Execute (uses locked rate):
+  POST /api/orchestrator/transfer
+  { "senderId": "mike", "receiverId": "james", "fromCurrency": "GBP",
+    "toCurrency": "KES", "amount": 300, "quoteId": "q_abc" }
 
-**Steps:**
-1. Go to [sandbox.fireblocks.io](https://sandbox.fireblocks.io) → **Settings → Users & API Keys → Add API User**
-2. Generate RSA key pair locally:
+  2a. Ledger: debit Mike -£300
+  2b. B2BinPay on-ramp: £300 GBP → ~$381 USDT (credits FinCruse wallet)
+  2c. Fireblocks: vault_mike → vault_james (~$381 USDT on Solana, gas $0.00025)
+  2d. B2BinPay off-ramp: ~$381 USDT → KSh 47,760 (credits FinCruse Brainrock treasury)
+  2e. Brainrock: KSh 47,760 from FinCruse treasury → James's M-Pesa/bank
+  2f. Ledger: credit James +KSh 47,760
+
+  FinCruse earns: ~$6.87 USD spread on this transaction
+  B2BinPay cost:  ~$1.14 USD institutional fee
+  Profit:         ~$5.73 USD
+  SWIFT cost:     $0 (not used)
+
+Mike never sees: USDT, Fireblocks, Solana
+James never sees: USDT, Fireblocks, Solana
+```
+
+---
+
+### Journey 5 — Withdrawal (Fiat OUT)
+
+**What user sees:** "KSh 10,000 sent to M-Pesa +254712345678"
+
+```
+POST /api/orchestrator/withdraw
+{
+  "userId": "user_james",
+  "currency": "KES",
+  "amount": 10000,
+  "recipientName": "James Mwangi",
+  "destination": { "type": "mpesa", "mobileNumber": "+254712345678" }
+}
+
+Flow:
+  A. Balance check: James has ≥ KSh 10,000
+  B. Ledger: debit James -KSh 10,000
+  C. Fireblocks: vault_james → FinCruse treasury vault (USDT equivalent)
+  D. B2BinPay off-ramp: USDT → KSh 10,000 (credits FinCruse Brainrock treasury)
+  E. Brainrock: sends KSh 10,000 from FinCruse treasury → +254712345678 (M-Pesa STK push)
+  F. Brainrock webhook: "payment.sent" → withdrawal marked COMPLETED
+     If payout fails: Brainrock fires "payment.failed" → ledger credit reversed automatically
+
+James gets M-Pesa notification: "KSh 10,000 received from FinCruse"
+```
+
+---
+
+## What to Connect (Blockchain Engineer)
+
+### 1. Brainrock (Fiat Banking Layer)
+
+**Provides:** Virtual IBANs per user, inbound payment webhooks, outbound bank/M-Pesa payments.
+
+Setup:
+1. Create account at Brainrock → get API key
+2. Create FinCruse treasury account (for sending payouts)
+3. Register webhook URL: `https://your-domain/api/webhooks/brainrock`
+
+```env
+BRAINROCK_API_KEY=
+BRAINROCK_WEBHOOK_SECRET=
+BRAINROCK_SANDBOX=true
+BRAINROCK_TREASURY_ACCOUNT_ID=
+```
+
+**Integration file:** `src/services/brainrock.service.ts`  
+The API shape is pre-built. Map the method names to actual Brainrock endpoints.
+
+> **Alternative:** Square (US corridors), Railsr/Bankable (EU), ClearBank (UK).  
+> Same service interface — just change `BASE_URL` and field names.
+
+---
+
+### 2. Fireblocks (Crypto Custody)
+
+1. [sandbox.fireblocks.io](https://sandbox.fireblocks.io) → **Settings → Users & API Keys → Add API User**
+2. Generate keys:
    ```bash
    openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:4096 -out fireblocks_secret.key
    openssl req -new -key fireblocks_secret.key -out fireblocks.csr \
      -subj "/C=KE/O=FinCruse/CN=fincruise-settlement"
    ```
-3. Upload `fireblocks.csr` → copy the API Key shown
-4. Create treasury vault: **Vaults → Add Vault Account → name "FinCruse Treasury"** → add USDT_SOL asset → copy vault ID
-5. Set webhook URL in Console: `https://your-domain/api/webhooks/fireblocks`
-6. Copy the Fireblocks public key (Console → Webhooks → Public Key)
+3. Upload `fireblocks.csr` → copy API Key
+4. Create treasury vault → add USDT_SOL → copy vault ID
+5. Set webhook URL → copy public key
 
-**Env vars to fill:**
 ```env
 FIREBLOCKS_API_KEY=
 FIREBLOCKS_SECRET_KEY_PATH=./fireblocks_secret.key
@@ -90,23 +233,17 @@ FIREBLOCKS_SETTLEMENT_ADDRESS=
 FIREBLOCKS_WEBHOOK_PUBLIC_KEY=
 ```
 
-**Integration point in code:**
-- `src/services/fireblocks.service.ts` — vault CRUD, transfers, webhook verification
-- `src/routes/webhook.routes.ts` — Fireblocks webhook handler (credits ledger on USDT confirmed)
+**Integration file:** `src/services/fireblocks.service.ts` — complete, no changes needed.
 
 ---
 
-### 2. B2BinPay (Liquidity Provider — fiat ↔ USDT)
+### 3. B2BinPay (Liquidity Provider)
 
-**What it does:** Converts fiat → USDT (on-ramp) and USDT → fiat (off-ramp) at institutional rates. FinCruse marks up the rate — that's the revenue.
+1. [sandbox.b2binpay.com](https://sandbox.b2binpay.com) → **Profile → Access list → API → Regenerate**
+2. Copy 3 credentials (shown once)
+3. Copy wallet ID from **Wallets**
+4. Register callback: `https://your-domain/api/webhooks/b2binpay`
 
-**Steps:**
-1. Go to [sandbox.b2binpay.com](https://sandbox.b2binpay.com) → **Profile → Access list → API → Regenerate**
-2. Copy the 3 credentials shown (shown ONCE)
-3. Go to **Wallets** → copy your wallet ID
-4. Register callback URL in B2BinPay dashboard: `https://your-domain/api/webhooks/b2binpay`
-
-**Env vars to fill:**
 ```env
 B2BINPAY_CLIENT_ID=
 B2BINPAY_CLIENT_SECRET=
@@ -115,22 +252,16 @@ B2BINPAY_WALLET_ID=
 B2BINPAY_SANDBOX=true
 ```
 
-**Integration point in code:**
-- `src/services/b2binpay.service.ts` — auth, deposits, payouts, rates, webhook HMAC
-- `src/routes/webhook.routes.ts` — B2BinPay webhook handler
+**Integration file:** `src/services/b2binpay.service.ts` — complete, no changes needed.
 
 ---
 
-### 3. Database (PostgreSQL)
+### 4. Database
 
-**Steps:**
 ```bash
-# Set DATABASE_URL in .env, then:
-npx prisma migrate dev --name init   # dev
-npx prisma migrate deploy            # production
+DATABASE_URL=postgresql://user:pass@host:5432/fincruise_settlement
+npx prisma migrate deploy
 ```
-
-**Schema:** `prisma/schema.prisma` — User, Account, Transfer, Withdrawal, BankDeposit, CryptoBuy, AuditLog
 
 ---
 
@@ -141,7 +272,7 @@ git clone <repo>
 cd fincruise-settlement
 npm install
 cp .env.example .env
-# Fill in .env (see External Integrations above)
+# Fill in .env
 
 npx prisma migrate dev --name init
 npm run dev
@@ -152,6 +283,9 @@ Health check:
 curl http://localhost:4000/api/health
 ```
 
+Live visualiser: `http://localhost:4000/monitor`  
+End-to-end demo: `http://localhost:4000/demo`
+
 ---
 
 ## API Reference
@@ -159,65 +293,51 @@ curl http://localhost:4000/api/health
 | Method | Route | Description |
 |--------|-------|-------------|
 | GET | `/api/health` | Health check |
-| POST | `/api/users` | Create user + Fireblocks vault |
-| GET | `/api/users/:id` | User + balances |
-| POST | `/api/quote` | JIT rate lock (30s) |
-| GET | `/api/quote/:id` | Quote status |
-| POST | `/api/orchestrator/transfer` | P2P transfer |
-| POST | `/api/orchestrator/withdraw` | Withdrawal to bank/M-Pesa |
-| POST | `/api/orchestrator/payout-rail/fiat-arrived` | Deposit webhook from payout partner |
-| POST | `/api/orchestrator/payout-rail/confirmed` | Withdrawal confirmation |
+| POST | `/api/users` | Create user + Fireblocks vault + Brainrock IBAN |
+| GET | `/api/users/:id` | User + all balances |
+| POST | `/api/quote` | JIT rate lock (30s, spread baked in) |
+| GET | `/api/quote/:id` | Quote status + countdown |
+| POST | `/api/orchestrator/transfer` | P2P transfer (same or cross-currency) |
+| POST | `/api/orchestrator/withdraw` | Withdraw to bank / M-Pesa |
+| POST | `/api/orchestrator/payout-rail/fiat-arrived` | Manual deposit trigger |
+| POST | `/api/orchestrator/payout-rail/confirmed` | Manual payout confirmation |
 | GET | `/api/rates?symbols=USDT,GBP` | Live FX rates |
-| GET | `/api/fireblocks/vaults` | List vaults |
+| GET | `/api/fireblocks/vaults` | List Fireblocks vaults |
 | POST | `/api/fireblocks/vaults` | Create vault |
 | GET | `/api/fireblocks/assets` | Supported assets |
-| POST | `/api/webhooks/b2binpay` | B2BinPay callbacks |
-| POST | `/api/webhooks/fireblocks` | Fireblocks callbacks |
+| POST | `/api/webhooks/brainrock` | Brainrock inbound payment events |
+| POST | `/api/webhooks/b2binpay` | B2BinPay transfer status |
+| POST | `/api/webhooks/fireblocks` | Fireblocks transaction confirmation |
 | GET | `/monitor` | Live money flow visualiser |
-| GET | `/demo` | End-to-end demo |
+| GET | `/demo` | End-to-end demo (Mike → James) |
 
 ---
 
-## Deposit Flow (Fiat IN)
+## Withdrawal Destination Examples
 
-```bash
-POST /api/orchestrator/payout-rail/fiat-arrived
-{
-  "userId": "user_james_id",
-  "currency": "KES",
-  "amount": 10000,
-  "rail": "M-Pesa",
-  "railReference": "QHX7Y8Z"
-}
+```json
+// M-Pesa (Kenya, Tanzania, Uganda, Ghana, Nigeria)
+{ "type": "mpesa", "mobileNumber": "+254712345678" }
+
+// UK Faster Payments
+{ "type": "faster_payments", "sortCode": "60-16-13", "accountNumber": "31926819" }
+
+// SEPA (EU)
+{ "type": "sepa", "iban": "DE89370400440532013000", "bic": "COBADEFFXXX" }
+
+// African bank transfer
+{ "type": "bank_transfer", "bankCode": "KCB001", "bankAccountNumber": "1234567890" }
 ```
-
-Orchestrator:
-1. Looks up user's Fireblocks USDT vault address
-2. Tells B2BinPay: convert KES → USDT, send to that vault address
-3. B2BinPay sends USDT directly to Fireblocks
-4. Fireblocks webhook fires → ledger credits user
 
 ---
 
-## P2P Transfer Flow (USD → KES)
+## Registered Webhook URLs (Production)
 
-```bash
-# 1. Lock rate for 30s
-POST /api/quote
-{ "fromCurrency": "USD", "toCurrency": "KES", "fromAmount": 300 }
-# → { "quoteId": "q_abc123", "rate": 127.05, "toAmount": 38115, "expiresIn": 30 }
-
-# 2. Execute at locked rate
-POST /api/orchestrator/transfer
-{
-  "senderId": "user_mike",
-  "receiverId": "user_james",
-  "fromCurrency": "USD",
-  "toCurrency": "KES",
-  "amount": 300,
-  "quoteId": "q_abc123"
-}
-```
+| Service | URL |
+|---------|-----|
+| Brainrock | `https://api-finance.axstron.com/api/webhooks/brainrock` |
+| Fireblocks | `https://api-finance.axstron.com/api/webhooks/fireblocks` |
+| B2BinPay | `https://api-finance.axstron.com/api/webhooks/b2binpay` |
 
 ---
 
@@ -228,16 +348,3 @@ POST /api/orchestrator/transfer
 fireblocks_secret.key
 fireblocks.csr
 ```
-
-All three are in `.gitignore`.
-
----
-
-## Production Webhook URLs
-
-| Service | URL |
-|---------|-----|
-| Fireblocks | `https://your-domain/api/webhooks/fireblocks` |
-| B2BinPay | `https://your-domain/api/webhooks/b2binpay` |
-
-Update `API_BASE_URL` in `.env` to your production domain before deploying.

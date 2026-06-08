@@ -4,6 +4,7 @@ import onrampRoutes from './routes/onramp.routes';
 import offrampRoutes from './routes/offramp.routes';
 import ratesRoutes from './routes/rates.routes';
 import webhookRoutes from './routes/webhook.routes';
+import brainrockRoutes from './routes/brainrock.routes';
 import fireblocksRoutes from './routes/fireblocks.routes';
 import transferRoutes from './routes/transfer.routes';
 import quoteRoutes from './routes/quote.routes';
@@ -22,7 +23,7 @@ if (missing.length) {
   process.exit(1);
 }
 const PLACEHOLDER = ['your_', 'YOUR_'];
-const placeholders = ['FIREBLOCKS_API_KEY', 'B2BINPAY_CLIENT_ID', 'B2BINPAY_CLIENT_SECRET', 'FIREBLOCKS_TREASURY_VAULT']
+const placeholders = ['FIREBLOCKS_API_KEY', 'B2BINPAY_CLIENT_ID', 'B2BINPAY_CLIENT_SECRET', 'FIREBLOCKS_TREASURY_VAULT', 'BRAINROCK_API_KEY', 'BRAINROCK_TREASURY_ACCOUNT_ID']
   .filter(k => { const v = process.env[k] ?? ''; return !v || PLACEHOLDER.some(p => v.startsWith(p)); });
 if (placeholders.length) {
   console.warn(`[startup] WARNING: these env vars are unset or placeholder: ${placeholders.join(', ')}`);
@@ -55,8 +56,9 @@ app.get(['/', '/api'], (_req, res) => {
     message: 'FinCruse Settlement API',
     version: '1.0.0',
     callbackUrls: {
-      b2binpay: `${base}/webhooks/b2binpay`,
+      b2binpay:   `${base}/webhooks/b2binpay`,
       fireblocks: `${base}/webhooks/fireblocks`,
+      brainrock:  `${base}/webhooks/brainrock`,
     },
     routes: {
       onramp: `${base}/onramp/deposit`,
@@ -91,6 +93,7 @@ app.get('/demo', (_req, res) => { res.setHeader('Cache-Control','no-store'); res
 app.use('/api/quote', quoteRoutes);
 app.use('/api', transferRoutes);
 app.use('/api/webhooks', webhookRoutes);
+app.use('/api/webhooks', brainrockRoutes);
 
 // Global error handler
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
