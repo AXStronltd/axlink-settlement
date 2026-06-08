@@ -1,0 +1,168 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ── User & accounts ──────────────────────────────────────────────────────────
+
+model User {
+  id              String   @id @default(cuid())
+  email           String   @unique
+  name            String
+  kycStatus       String   @default("PENDING")
+
+  // Fireblocks — one vault per user, USDT address per asset
+  vaultId         String   @unique   // Fireblocks vault ID (e.g. "vault_james_001")
+  usdtAddress     String?            // Fireblocks USDT_SOL deposit address for this vault
+                                     // B2BinPay sends USDT directly here — no treasury hop
+
+  // B2BinPay — one wallet per user for receiving fiat on-ramp
+  b2bWalletId     String?            // B2BinPay wallet ID paired to this user
+                                     // Fiat arrives here → B2BinPay converts → USDT → usdtAddress
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  accounts         Account[]
+  sentTransfers    Transfer[]   @relation("sender")
+  receivedTransfers Transfer[]  @relation("receiver")
+  withdrawals      Withdrawal[]
+  bankDeposits     BankDeposit[]
+  cryptoBuys       CryptoBuy[]
+}
+
+// One account per currency per user (KES, GBP, USD, NGN, etc.)
+model Account {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  currency    String   // ISO code: KES, GBP, USD, NGN, GHS, ZAR, EUR
+  balance     Decimal  @default(0) @db.Decimal(20, 8) // local currency
+  balanceUsd  Decimal  @default(0) @db.Decimal(20, 8) // USD base value
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([userId, currency])
+}
+
+// ── Transfers (internal — user to user) ──────────────────────────────────────
+
+model Transfer {
+  id           String   @id @default(cuid())
+  trackingId   String   @unique
+  senderId     String
+  sender       User     @relation("sender", fields: [senderId], references: [id])
+  receiverId   String
+  receiver     User     @relation("receiver", fields: [receiverId], references: [id])
+  fromCurrency String
+  toCurrency   String
+  fromAmount   Decimal  @db.Decimal(20, 8) // what sender pays
+  toAmount     Decimal  @db.Decimal(20, 8) // what receiver gets
+  usdAmount    Decimal  @db.Decimal(20, 8) // internal USD base
+  usdtAmount   Decimal  @db.Decimal(20, 8) // USDT moved via Fireblocks
+  fxRate       Decimal? @db.Decimal(20, 8) // rate applied if cross-currency
+  note         String?
+  status       String   @default("PENDING")
+  // PENDING | PROCESSING | COMPLETED | FAILED
+
+  // B2BinPay references (0, 1, or 2 depending on flow)
+  onrampId     String?  // B2BinPay deposit ID
+  offrampId    String?  // B2BinPay payout ID
+
+  // Fireblocks reference
+  fbTxId       String?
+  fbTxHash     String?
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+// ── Withdrawals (FinCruse → external bank) ────────────────────────────────────
+
+model Withdrawal {
+  id          String   @id @default(cuid())
+  trackingId  String   @unique
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  currency    String
+  amount      Decimal  @db.Decimal(20, 8)
+  usdAmount   Decimal  @db.Decimal(20, 8)
+  usdtAmount  Decimal  @db.Decimal(20, 8)
+  bankAccount String   // destination bank/mobile account
+  bankName    String
+  note        String?
+  status      String   @default("PENDING")
+
+  offrampId   String?  // B2BinPay payout ID
+  fbTxId      String?  // Fireblocks debit TX
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ── Bank deposits (external bank → FinCruse) ──────────────────────────────────
+
+model BankDeposit {
+  id          String   @id @default(cuid())
+  trackingId  String   @unique
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  currency    String
+  amount      Decimal  @db.Decimal(20, 8)
+  usdAmount   Decimal  @db.Decimal(20, 8)
+  usdtAmount  Decimal  @db.Decimal(20, 8)
+  bankName    String
+  reference   String?  // bank reference number
+  status      String   @default("PENDING")
+
+  onrampId    String?  // B2BinPay deposit ID
+  fbTxId      String?  // Fireblocks credit TX
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ── Crypto buy (user deliberately buys USDT) ─────────────────────────────────
+
+model CryptoBuy {
+  id          String   @id @default(cuid())
+  trackingId  String   @unique
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  fromCurrency String
+  fromAmount  Decimal  @db.Decimal(20, 8)
+  usdtAmount  Decimal  @db.Decimal(20, 8)
+  usdAmount   Decimal  @db.Decimal(20, 8)
+  status      String   @default("PENDING")
+  fbTxId      String?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ── Exchange rate cache ───────────────────────────────────────────────────────
+
+model ExchangeRate {
+  id        String   @id @default(cuid())
+  fromCurr  String
+  toCurr    String
+  rate      Decimal  @db.Decimal(20, 8)
+  source    String   @default("b2binpay")
+  expiresAt DateTime
+
+  @@unique([fromCurr, toCurr])
+}
+
+// ── Settlement audit log ──────────────────────────────────────────────────────
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  entityType String   // Transfer | Withdrawal | BankDeposit | CryptoBuy
+  entityId   String
+  event      String   // CREATED | STATUS_CHANGED | ERROR
+  data       Json
+  createdAt  DateTime @default(now())
+}
