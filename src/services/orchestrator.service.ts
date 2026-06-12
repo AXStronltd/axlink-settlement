@@ -31,6 +31,7 @@ import { sendTransfer as choiceBankTransfer, isChoiceBankCurrency, type ChoiceBa
 import { sendB2C, isDarajaCurrency, normalizeMsisdn } from './daraja.service';
 import { consumeQuote, createQuote } from './quote.service';
 import { requestValidation, type PaymentType } from './kafka.service';
+import { drawFromBuffer } from './buffer.service';
 
 // Validate via event bus before any ledger write. Throws if rejected.
 async function validateOrReject(type: PaymentType, payload: Parameters<typeof requestValidation>[0]['payload']): Promise<void> {
@@ -264,17 +265,17 @@ export async function handleWithdrawalRequest(params: {
 
     await audit('Withdrawal', withdrawal.id, 'LEDGER_DEBITED', { amount, currency });
 
-    // ── B: Fireblocks — user vault → FinCruse treasury vault (USDT) ──
-    const fbTx = await fbTransfer({
-      assetId: USDT_ASSET,
-      amount: usdtAmount.toString(),
-      sourceVaultId: user.vaultId,
-      destVaultId: TREASURY_VAULT,
+    // ── B: Buffer draw — treasury vault covers payout instantly ──────────
+    // User's vault balance was already debited on deposit (they hold claims, not USDT).
+    // Treasury buffer covers the payout; B2BinPay off-ramp replenishes async.
+    const draw = await drawFromBuffer({
+      amountUsdt: usdtAmount,
+      destVaultId: user.vaultId, // transient — immediately used for off-ramp
+      trackingId,
       note: `FinCruse withdrawal ${trackingId}`,
-      externalTxId: trackingId,
     });
 
-    await audit('Withdrawal', withdrawal.id, 'FIREBLOCKS_DEBITED', { fbTxId: fbTx?.id });
+    await audit('Withdrawal', withdrawal.id, 'BUFFER_DRAWN', { fbTxId: draw.txId, usdtAmount });
 
     // ── C: B2BinPay off-ramp — USDT → fiat (credits FinCruse B2BinPay balance) ──
     const estimate = await calculatePayoutFee({
@@ -324,7 +325,7 @@ export async function handleWithdrawalRequest(params: {
       where: { id: withdrawal.id },
       data: {
         status: 'PENDING_PAYOUT',
-        fbTxId: fbTx?.id as string | undefined,
+        fbTxId: draw.txId,
         offrampId: b2bPayout.id,
         brainrockPaymentId: payout.paymentId,
       },
@@ -397,39 +398,38 @@ export async function handleP2PTransfer(params: {
     let fbTxId: string | undefined;
 
     if (sameCurrency) {
-      // ── SAME CURRENCY: 0 B2BinPay, 1 Fireblocks ────────────────────
-      const fbTx = await fbTransfer({
-        assetId: USDT_ASSET,
-        amount: usdtAmount.toString(),
-        sourceVaultId: sender.vaultId,
+      // ── SAME CURRENCY: buffer treasury → receiver vault (instant) ────
+      // No B2BinPay. Buffer replenishment happens async when balance dips low.
+      const draw = await drawFromBuffer({
+        amountUsdt: usdtAmount,
         destVaultId: receiver.vaultId,
-        note: note ?? `FinCruse P2P ${trackingId}`,
-        externalTxId: trackingId,
+        trackingId,
+        note: note ?? `FinCruse P2P same-currency ${trackingId}`,
       });
-      fbTxId = fbTx?.id as string | undefined;
+      fbTxId = draw.txId;
 
     } else {
-      // ── CROSS-CURRENCY: B2BinPay on-ramp + Fireblocks + B2BinPay off-ramp
-      // On-ramp: sender fiat → USDT
+      // ── CROSS-CURRENCY: buffer draw (instant) + async B2BinPay replenishment ──
+      // Step 1 (instant): treasury buffer → receiver vault (Solana, <1 s)
+      const draw = await drawFromBuffer({
+        amountUsdt: usdtAmount,
+        destVaultId: receiver.vaultId,
+        trackingId,
+        note: `FinCruse P2P cross-currency ${trackingId}`,
+      });
+      fbTxId = draw.txId;
+
+      // Step 2 (async, not in critical path): B2BinPay on-ramp — sender fiat → USDT → treasury
+      // This replenishes the buffer for the amount just drawn.
       const dep = await createDeposit({
         walletId: B2B_WALLET_ID,
         trackingId: `onramp_${trackingId}`,
         callbackUrl: CALLBACK,
-        label: `FinCruse P2P onramp ${trackingId}`,
+        label: `AxLink buffer replenishment for P2P ${trackingId}`,
       });
       onrampId = dep.id;
 
-      // Fireblocks: sender vault → receiver vault
-      const fbTx = await fbTransfer({
-        assetId: USDT_ASSET,
-        amount: usdtAmount.toString(),
-        sourceVaultId: sender.vaultId,
-        destVaultId: receiver.vaultId,
-        externalTxId: trackingId,
-      });
-      fbTxId = fbTx?.id as string | undefined;
-
-      // Off-ramp: USDT → local fiat (credits FinCruse B2BinPay balance)
+      // Step 3 (async): B2BinPay off-ramp — USDT → receiver local fiat (if delivering externally)
       const est = await calculatePayoutFee({
         walletId: B2B_WALLET_ID,
         address: BRAINROCK_TREASURY,

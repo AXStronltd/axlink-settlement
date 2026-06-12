@@ -19,6 +19,11 @@ import('./services/payment-validator.service').then(m => m.startPaymentValidator
   console.error('[startup] Payment validator failed to start:', err)
 );
 
+// Start buffer monitor — watches treasury USDT float, triggers replenishment when low
+import('./services/buffer-monitor.service').then(m => m.startBufferMonitor()).catch(err =>
+  console.error('[startup] Buffer monitor failed to start:', err)
+);
+
 // Fail fast on missing required env vars
 const REQUIRED_ENV = ['DATABASE_URL', 'API_BASE_URL'];
 const missing = REQUIRED_ENV.filter(k => !process.env[k]);
@@ -73,6 +78,12 @@ app.get(['/', '/api'], (_req, res) => {
       daraja_stk:     `${base}/webhooks/daraja/stk`,
     },
   });
+});
+
+// Buffer status — ops visibility into treasury float
+app.get('/api/buffer/status', async (_req, res) => {
+  const { getBufferStatus } = await import('./services/buffer.service');
+  res.json(await getBufferStatus());
 });
 
 // Core API
