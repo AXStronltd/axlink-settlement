@@ -31,7 +31,6 @@ import { sendTransfer as choiceBankTransfer, isChoiceBankCurrency, type ChoiceBa
 import { sendB2C, isDarajaCurrency, normalizeMsisdn } from './daraja.service';
 import { consumeQuote, createQuote } from './quote.service';
 import { requestValidation, type PaymentType } from './kafka.service';
-import { drawFromBuffer } from './buffer.service';
 
 // Validate via event bus before any ledger write. Throws if rejected.
 async function validateOrReject(type: PaymentType, payload: Parameters<typeof requestValidation>[0]['payload']): Promise<void> {
@@ -265,17 +264,17 @@ export async function handleWithdrawalRequest(params: {
 
     await audit('Withdrawal', withdrawal.id, 'LEDGER_DEBITED', { amount, currency });
 
-    // ── B: Buffer draw — treasury vault covers payout instantly ──────────
-    // User's vault balance was already debited on deposit (they hold claims, not USDT).
-    // Treasury buffer covers the payout; B2BinPay off-ramp replenishes async.
-    const draw = await drawFromBuffer({
-      amountUsdt: usdtAmount,
-      destVaultId: user.vaultId, // transient — immediately used for off-ramp
-      trackingId,
+    // ── B: Fireblocks — user vault → FinCruse treasury vault (USDT) ──
+    const fbTx = await fbTransfer({
+      assetId: USDT_ASSET,
+      amount: usdtAmount.toString(),
+      sourceVaultId: user.vaultId,
+      destVaultId: TREASURY_VAULT,
       note: `FinCruse withdrawal ${trackingId}`,
+      externalTxId: trackingId,
     });
 
-    await audit('Withdrawal', withdrawal.id, 'BUFFER_DRAWN', { fbTxId: draw.txId, usdtAmount });
+    await audit('Withdrawal', withdrawal.id, 'FIREBLOCKS_DEBITED', { fbTxId: fbTx?.id });
 
     // ── C: B2BinPay off-ramp — USDT → fiat (credits FinCruse B2BinPay balance) ──
     const estimate = await calculatePayoutFee({
@@ -325,7 +324,7 @@ export async function handleWithdrawalRequest(params: {
       where: { id: withdrawal.id },
       data: {
         status: 'PENDING_PAYOUT',
-        fbTxId: draw.txId,
+        fbTxId: fbTx?.id as string | undefined,
         offrampId: b2bPayout.id,
         brainrockPaymentId: payout.paymentId,
       },
@@ -398,38 +397,51 @@ export async function handleP2PTransfer(params: {
     let fbTxId: string | undefined;
 
     if (sameCurrency) {
-      // ── SAME CURRENCY: buffer treasury → receiver vault (instant) ────
-      // No B2BinPay. Buffer replenishment happens async when balance dips low.
-      const draw = await drawFromBuffer({
-        amountUsdt: usdtAmount,
+      // ── SAME CURRENCY: sender vault → receiver vault (0 B2BinPay) ────
+      const fbTx = await fbTransfer({
+        assetId: USDT_ASSET,
+        amount: usdtAmount.toString(),
+        sourceVaultId: sender.vaultId,
         destVaultId: receiver.vaultId,
-        trackingId,
-        note: note ?? `FinCruse P2P same-currency ${trackingId}`,
+        note: note ?? `FinCruse P2P ${trackingId}`,
+        externalTxId: trackingId,
       });
-      fbTxId = draw.txId;
+      fbTxId = fbTx?.id as string | undefined;
+
+    } else if (quote.lpSource === 'axlink-fireblocks') {
+      // ── AXLINK FIREBLOCKS LP WON: direct treasury → receiver vault ───
+      // No B2BinPay. AxLink's own USDT reserves settle this transfer.
+      // This path activates when external LPs are down or AxLink wins the rate race.
+      const fbTx = await fbTransfer({
+        assetId: USDT_ASSET,
+        amount: usdtAmount.toString(),
+        sourceVaultId: TREASURY_VAULT,
+        destVaultId: receiver.vaultId,
+        note: `AxLink Fireblocks internal settlement ${trackingId}`,
+        externalTxId: trackingId,
+      });
+      fbTxId = fbTx?.id as string | undefined;
 
     } else {
-      // ── CROSS-CURRENCY: buffer draw (instant) + async B2BinPay replenishment ──
-      // Step 1 (instant): treasury buffer → receiver vault (Solana, <1 s)
-      const draw = await drawFromBuffer({
-        amountUsdt: usdtAmount,
-        destVaultId: receiver.vaultId,
-        trackingId,
-        note: `FinCruse P2P cross-currency ${trackingId}`,
-      });
-      fbTxId = draw.txId;
-
-      // Step 2 (async, not in critical path): B2BinPay on-ramp — sender fiat → USDT → treasury
-      // This replenishes the buffer for the amount just drawn.
+      // ── CROSS-CURRENCY: B2BinPay on-ramp + Fireblocks + B2BinPay off-ramp ──
+      // B2BinPay (or AxLink internal) won the RFQ — use standard fiat exchange flow.
       const dep = await createDeposit({
         walletId: B2B_WALLET_ID,
         trackingId: `onramp_${trackingId}`,
         callbackUrl: CALLBACK,
-        label: `AxLink buffer replenishment for P2P ${trackingId}`,
+        label: `FinCruse P2P onramp ${trackingId}`,
       });
       onrampId = dep.id;
 
-      // Step 3 (async): B2BinPay off-ramp — USDT → receiver local fiat (if delivering externally)
+      const fbTx = await fbTransfer({
+        assetId: USDT_ASSET,
+        amount: usdtAmount.toString(),
+        sourceVaultId: sender.vaultId,
+        destVaultId: receiver.vaultId,
+        externalTxId: trackingId,
+      });
+      fbTxId = fbTx?.id as string | undefined;
+
       const est = await calculatePayoutFee({
         walletId: B2B_WALLET_ID,
         address: BRAINROCK_TREASURY,

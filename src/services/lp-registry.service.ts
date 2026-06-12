@@ -120,5 +120,22 @@ export async function broadcastRFQ(
 
   console.log(`[AxLink RFQ] Winner: ${winner.lp.id} — ${winner.quote.toAmount} ${toN} @ rate ${winner.quote.rate.toFixed(6)}`);
 
+  // Emit Kafka event when AxLink's own Fireblocks vault is stepping in as LP
+  // (i.e., at least one external LP failed/was down and AxLink covered the gap)
+  const externalFailed = allResponses.some(r => r.error && r.lp !== 'axlink' && r.lp !== 'axlink-fireblocks');
+  if (winner.lp.id === 'axlink-fireblocks' && externalFailed) {
+    console.warn(`[AxLink RFQ] ⚡ Fireblocks vault stepping in — external LP(s) unavailable. Routing settlement via AxLink treasury.`);
+    import('./kafka.service').then(({ getEventBus, TOPICS }) =>
+      getEventBus().then(bus => bus.publish(TOPICS.PAYMENT_SETTLED, {
+        event: 'rfq.axlink_fireblocks_fallback',
+        pair: `${fromN}:${toN}`,
+        fromAmount,
+        toAmount: winner.quote.toAmount,
+        failedLPs: allResponses.filter(r => r.error).map(r => r.lp),
+        timestamp: new Date().toISOString(),
+      }))
+    ).catch(() => { /* non-critical */ });
+  }
+
   return { winner: winner.lp, quote: winner.quote, allResponses };
 }

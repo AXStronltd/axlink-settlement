@@ -13,8 +13,10 @@
 import { registerLP } from './lp-registry.service';
 import { axlinkInternalLP } from './fx.service';
 import { b2binpayLP } from './b2binpay.service';
+import { axlinkFireblocksLP } from './axlink-fireblocks-lp.service';
 
-registerLP(axlinkInternalLP); // always-available fallback
-registerLP(b2binpayLP);       // fiat liquidity — competes on corridor rates
+registerLP(axlinkFireblocksLP); // AxLink's own USDT vault — bids when it has capacity; direct settlement when it wins
+registerLP(b2binpayLP);         // external fiat LP — competes on corridor rates
+registerLP(axlinkInternalLP);   // always-available rate-table fallback (last resort)
 
-console.log('[AxLink] JIT RFQ system ready — LPs registered');
+console.log('[AxLink] JIT RFQ system ready — 3 LPs registered (Fireblocks vault + B2BinPay + AxLink internal)');
