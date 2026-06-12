@@ -1,0 +1,930 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>FinCruse — Neobank</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💳</text></svg>">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --brand:#5b21b6;--brand2:#7c3aed;--brand3:#a78bfa;
+  --green:#10b981;--red:#ef4444;--amber:#f59e0b;
+  --bg:#f1f5f9;--card:#fff;--text:#0f172a;--muted:#64748b;--border:#e2e8f0;
+}
+html,body{height:100%;background:#1e1b4b;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',system-ui,sans-serif;color:var(--text);-webkit-font-smoothing:antialiased}
+body{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px}
+.phone{width:390px;height:844px;background:var(--bg);border-radius:44px;overflow:hidden;position:relative;box-shadow:0 60px 120px rgba(0,0,0,.55),0 0 0 1px rgba(255,255,255,.08);display:flex;flex-direction:column}
+@media(max-width:440px){body{background:var(--bg);padding:0;align-items:flex-start}.phone{width:100vw;height:100dvh;border-radius:0;box-shadow:none}}
+.screen{position:absolute;inset:0;display:flex;flex-direction:column;opacity:0;pointer-events:none;transition:opacity .22s ease;background:var(--bg);overflow:hidden}
+.screen.active{opacity:1;pointer-events:all}
+/* ── WELCOME ── */
+#sw{background:linear-gradient(160deg,#0f0c29 0%,#302b63 50%,#24243e 100%);align-items:center;justify-content:center;padding:40px 32px;gap:32px}
+.w-logo{text-align:center}
+.w-logo-ic{width:84px;height:84px;background:rgba(255,255,255,.12);backdrop-filter:blur(20px);border-radius:28px;display:flex;align-items:center;justify-content:center;font-size:42px;margin:0 auto 18px;border:1px solid rgba(255,255,255,.2);box-shadow:0 20px 40px rgba(0,0,0,.3)}
+.w-logo h1{color:#fff;font-size:34px;font-weight:800;letter-spacing:-1px}
+.w-logo p{color:rgba(255,255,255,.5);font-size:15px;margin-top:8px;line-height:1.5}
+.w-feats{width:100%}
+.w-feat{display:flex;align-items:center;gap:14px;padding:10px 0;border-bottom:1px solid rgba(255,255,255,.07)}
+.w-feat:last-child{border:none}
+.w-feat-i{font-size:22px;width:32px;text-align:center}
+.w-feat-t{color:rgba(255,255,255,.75);font-size:14px;line-height:1.4}
+.w-feat-t strong{color:#fff;display:block}
+.w-actions{width:100%;display:flex;flex-direction:column;gap:12px}
+/* ── BUTTONS ── */
+.btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:16px;border-radius:14px;border:none;font-size:16px;font-weight:700;cursor:pointer;transition:opacity .15s,transform .1s;letter-spacing:-.2px;font-family:inherit}
+.btn:active{transform:scale(.97);opacity:.88}
+.btn:disabled{opacity:.45;cursor:not-allowed;pointer-events:none}
+.btn-white{background:#fff;color:#1e1b4b}
+.btn-ghost{background:rgba(255,255,255,.1);color:#fff;border:1px solid rgba(255,255,255,.2)}
+.btn-brand{background:var(--brand);color:#fff}
+.btn-green{background:var(--green);color:#fff}
+.btn-outline{background:transparent;color:var(--brand);border:2px solid var(--brand)}
+.btn-sm{padding:11px 18px;font-size:14px;width:auto;border-radius:11px}
+/* ── TOPBAR ── */
+.topbar{height:56px;min-height:56px;display:flex;align-items:center;padding:0 18px;gap:10px;background:var(--card);border-bottom:1px solid var(--border);flex-shrink:0;position:sticky;top:0;z-index:10}
+.topbar-back{width:36px;height:36px;background:var(--bg);border:none;border-radius:11px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:18px;flex-shrink:0;transition:background .15s}
+.topbar-back:active{background:var(--border)}
+.topbar h2{flex:1;font-size:17px;font-weight:700;letter-spacing:-.3px}
+/* ── FORMS ── */
+.sb{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch}
+.sb::-webkit-scrollbar{display:none}
+.pad{padding:20px}
+.fg{margin-bottom:18px}
+.lbl{display:block;font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px}
+.inp{width:100%;padding:14px 16px;border-radius:12px;border:2px solid var(--border);font-size:16px;color:var(--text);background:var(--card);outline:none;transition:border-color .2s;font-family:inherit}
+.inp:focus{border-color:var(--brand)}
+.inp::placeholder{color:#94a3b8}
+.err{color:var(--red);font-size:13px;margin-top:6px;display:none}
+.err.on{display:block}
+/* ── SIGNUP ── */
+#ss .hero{background:linear-gradient(160deg,#1e1b4b 0%,#4c1d95 100%);padding:52px 24px 28px;text-align:center;color:#fff}
+#ss .hero h1{font-size:24px;font-weight:800;letter-spacing:-.5px}
+#ss .hero p{font-size:14px;color:rgba(255,255,255,.55);margin-top:6px}
+.cur-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px}
+.cur-chip{padding:12px 6px;border-radius:12px;border:2px solid var(--border);background:var(--card);cursor:pointer;text-align:center;transition:all .15s;user-select:none}
+.cur-chip:active{transform:scale(.95)}
+.cur-chip .cf{font-size:22px;display:block;margin-bottom:3px}
+.cur-chip .cc{font-size:12px;font-weight:700;color:var(--muted);display:block}
+.cur-chip.sel{border-color:var(--brand);background:#ede9fe}
+.cur-chip.sel .cc{color:var(--brand)}
+/* ── HOME ── */
+#sh{background:var(--bg)}
+.h-header{background:linear-gradient(140deg,#1e1b4b 0%,#312e81 45%,#4c1d95 100%);padding:52px 20px 76px;color:#fff;flex-shrink:0}
+.h-topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:28px}
+.h-user{display:flex;align-items:center;gap:10px}
+.h-ava{width:38px;height:38px;border-radius:12px;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:16px}
+.h-names .greeting{font-size:11px;color:rgba(255,255,255,.45);text-transform:uppercase;letter-spacing:.5px}
+.h-names .uname{font-size:15px;font-weight:700}
+.h-notif{width:38px;height:38px;background:rgba(255,255,255,.1);border-radius:12px;border:none;cursor:pointer;font-size:18px;display:flex;align-items:center;justify-content:center}
+.bal-block{text-align:center}
+.bal-lbl{font-size:12px;color:rgba(255,255,255,.4);text-transform:uppercase;letter-spacing:1.2px}
+.bal-amt{font-size:46px;font-weight:800;letter-spacing:-3px;margin:4px 0 2px;color:#fff}
+.bal-cur{font-size:16px;color:rgba(255,255,255,.5)}
+.bal-tag{font-size:12px;margin-top:10px;display:inline-block;padding:4px 14px;border-radius:20px}
+.bal-tag.empty{background:rgba(255,255,255,.08);color:rgba(255,255,255,.5)}
+.bal-tag.funded{background:rgba(16,185,129,.15);color:#86efac}
+.qa-row{background:var(--card);border-radius:24px 24px 0 0;padding:20px 10px 14px;margin-top:-40px;display:flex;justify-content:space-around;box-shadow:0 -4px 24px rgba(0,0,0,.07);position:relative;z-index:1;flex-shrink:0}
+.qa{display:flex;flex-direction:column;align-items:center;gap:7px;border:none;background:transparent;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.qa:active .qa-ic{transform:scale(.88)}
+.qa-ic{width:54px;height:54px;border-radius:18px;display:flex;align-items:center;justify-content:center;font-size:24px;transition:transform .15s}
+.qa-ic.add{background:#ede9fe}
+.qa-ic.snd{background:#dbeafe}
+.qa-ic.wd{background:#dcfce7}
+.qa-ic.more{background:#fef3c7}
+.qa-lbl{font-size:11px;font-weight:700;color:var(--muted)}
+.txn-sec{padding:14px 16px 100px}
+.sec-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.sec-title{font-size:18px;font-weight:800;letter-spacing:-.3px}
+.txn-item{display:flex;align-items:center;gap:12px;padding:13px;background:var(--card);border-radius:14px;margin-bottom:8px}
+.txn-ic{width:46px;height:46px;border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0}
+.txn-ic.dep{background:#dcfce7}.txn-ic.snd{background:#dbeafe}.txn-ic.wd{background:#fef3c7}
+.txn-info{flex:1;min-width:0}
+.txn-name{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.txn-sub{font-size:12px;color:var(--muted);margin-top:2px}
+.txn-right{text-align:right;flex-shrink:0}
+.txn-val{font-size:15px;font-weight:800;letter-spacing:-.3px}
+.txn-val.pos{color:var(--green)}.txn-val.neg{color:var(--text)}
+.txn-st{font-size:11px;color:var(--muted);margin-top:2px}
+.empty-state{text-align:center;padding:44px 24px;color:var(--muted)}
+.empty-state .em{font-size:52px;margin-bottom:12px}
+.empty-state h3{font-size:16px;font-weight:700;color:var(--text);margin-bottom:6px}
+.empty-state p{font-size:14px;line-height:1.6}
+.tabbar{height:72px;min-height:72px;background:var(--card);border-top:1px solid var(--border);display:flex;padding-bottom:env(safe-area-inset-bottom,0);flex-shrink:0}
+.tab{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;border:none;background:transparent;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.tab .ti{font-size:24px;line-height:1}
+.tab .tl{font-size:10px;font-weight:700;color:var(--muted)}
+.tab.on .tl{color:var(--brand)}
+/* ── ADD MONEY ── */
+.iban-card{background:linear-gradient(135deg,#1e1b4b 0%,#312e81 60%,#4c1d95 100%);border-radius:20px;padding:22px;color:#fff;margin-bottom:18px}
+.ic-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+.ic-badge{font-size:11px;color:rgba(255,255,255,.55);text-transform:uppercase;letter-spacing:.8px;background:rgba(255,255,255,.1);padding:4px 10px;border-radius:20px}
+.ic-lbl{font-size:11px;color:rgba(255,255,255,.4);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px}
+.ic-val{font-size:16px;font-weight:700;font-family:Menlo,monospace;letter-spacing:1.5px;word-break:break-all;line-height:1.5}
+.ic-row{margin-bottom:14px}
+.copy-row{display:flex;gap:8px;margin-top:14px}
+.copy-btn{flex:1;padding:10px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);border-radius:10px;color:#fff;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px}
+.copy-btn:active{background:rgba(255,255,255,.22)}
+.divider{display:flex;align-items:center;gap:12px;margin:18px 0;color:var(--muted);font-size:13px;font-weight:600}
+.divider::before,.divider::after{content:'';flex:1;height:1px;background:var(--border)}
+.amt-chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.amt-chip{padding:10px 18px;border-radius:11px;background:var(--card);border:2px solid var(--border);font-size:15px;font-weight:700;cursor:pointer;transition:all .15s}
+.amt-chip:active{transform:scale(.95)}
+.amt-chip.sel{border-color:var(--brand);color:var(--brand);background:#ede9fe}
+/* ── SEND ── */
+.send-step{display:none;flex-direction:column}
+.send-step.on{display:flex}
+.contact-list{display:flex;flex-direction:column;gap:8px;margin-bottom:16px}
+.contact-item{display:flex;align-items:center;gap:12px;padding:13px;background:var(--card);border-radius:14px;cursor:pointer;border:2px solid var(--border);transition:all .15s}
+.contact-item:active{background:#f8fafc}
+.contact-item.sel{border-color:var(--brand);background:#ede9fe}
+.contact-ava{width:44px;height:44px;border-radius:14px;background:#ede9fe;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0}
+.contact-info{flex:1;min-width:0}
+.contact-name{font-size:15px;font-weight:700}
+.contact-sub{font-size:12px;color:var(--muted);margin-top:2px}
+.contact-cur{font-size:12px;font-weight:700;color:var(--brand);background:#ede9fe;padding:3px 8px;border-radius:6px}
+.big-inp-block{background:var(--card);border-radius:20px;padding:28px 20px 20px;margin-bottom:14px;text-align:center}
+.big-inp-lbl{font-size:13px;color:var(--muted);font-weight:600;margin-bottom:8px}
+.big-inp{font-size:50px;font-weight:800;letter-spacing:-3px;border:none;background:transparent;color:var(--text);width:100%;text-align:center;outline:none;font-family:inherit}
+.rate-box{background:#ede9fe;border-radius:14px;padding:14px 16px;margin-bottom:14px}
+.rb-rate{font-size:16px;font-weight:800;color:var(--brand2);letter-spacing:-.3px}
+.rb-they{font-size:13px;color:var(--muted);margin-top:4px}
+.rb-free{font-size:12px;color:var(--green);font-weight:700;margin-top:4px}
+.rb-timer{font-size:12px;color:var(--amber);font-weight:700;margin-top:4px}
+.conf-card{background:var(--card);border-radius:16px;overflow:hidden;margin-bottom:14px}
+.cc-row{display:flex;justify-content:space-between;align-items:center;padding:13px 16px;border-bottom:1px solid var(--border)}
+.cc-row:last-child{border:none}
+.cc-lbl{font-size:13px;color:var(--muted)}
+.cc-val{font-size:14px;font-weight:700}
+.cc-val.big{font-size:17px;color:var(--green)}
+/* ── WITHDRAW ── */
+.dest-tabs{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;margin-bottom:18px}
+.dest-tabs::-webkit-scrollbar{display:none}
+.dtab{padding:10px 16px;border-radius:10px;border:2px solid var(--border);background:var(--card);font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;flex-shrink:0;transition:all .15s}
+.dtab.on{border-color:var(--brand);background:#ede9fe;color:var(--brand)}
+/* ── PROFILE ── */
+#sp .ph{background:linear-gradient(140deg,#1e1b4b,#4c1d95);padding:52px 20px 28px;text-align:center;color:#fff}
+.prof-ava{width:72px;height:72px;border-radius:22px;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;font-size:30px;font-weight:800;margin:0 auto 12px;border:2px solid rgba(255,255,255,.3)}
+.prof-name{font-size:22px;font-weight:800;letter-spacing:-.5px}
+.prof-email{font-size:13px;color:rgba(255,255,255,.5);margin-top:4px}
+.prof-id{font-family:Menlo,monospace;font-size:11px;color:rgba(255,255,255,.3);margin-top:4px}
+.menu-list{padding:14px}
+.mi{display:flex;align-items:center;gap:14px;padding:14px;background:var(--card);border-radius:14px;margin-bottom:8px;cursor:pointer;border:none;width:100%;text-align:left;font-family:inherit;transition:background .15s}
+.mi:active{background:#f8fafc}
+.mi-ic{font-size:22px;width:28px;text-align:center}
+.mi-body{flex:1}
+.mi-title{font-size:15px;font-weight:700}
+.mi-sub{font-size:12px;color:var(--muted);margin-top:2px}
+.mi-arr{color:var(--muted)}
+/* ── PROCESSING ── */
+.proc-ov{position:absolute;inset:0;background:rgba(8,6,18,.96);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:500;padding:32px;opacity:0;pointer-events:none;transition:opacity .3s}
+.proc-ov.on{opacity:1;pointer-events:all}
+.proc-title{color:#fff;font-size:22px;font-weight:800;text-align:center;letter-spacing:-.5px;margin-bottom:6px}
+.proc-sub{color:rgba(255,255,255,.4);font-size:14px;text-align:center;margin-bottom:32px}
+.layers{width:100%;display:flex;flex-direction:column;gap:10px}
+.lyr{display:flex;align-items:center;gap:14px;padding:13px 16px;border-radius:14px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.06);opacity:.25;transition:all .4s}
+.lyr.lit{opacity:1;background:rgba(255,255,255,.09);border-color:rgba(255,255,255,.18)}
+.lyr.done{opacity:.55}
+.lyr-ic{font-size:22px;width:26px;text-align:center;flex-shrink:0}
+.lyr-info{flex:1}
+.lyr-name{font-size:14px;font-weight:800;color:rgba(255,255,255,.9);letter-spacing:.2px}
+.lyr-detail{font-size:12px;color:rgba(255,255,255,.38);margin-top:2px}
+.lyr-spin{width:18px;height:18px;border:2px solid rgba(255,255,255,.15);border-top-color:rgba(255,255,255,.8);border-radius:50%;animation:spin .5s linear infinite;flex-shrink:0;display:none}
+.lyr.lit .lyr-spin{display:block}
+.lyr-check{color:#10b981;font-size:18px;flex-shrink:0;display:none}
+.lyr.done .lyr-check{display:block}
+.lyr.done .lyr-spin{display:none}
+.proc-eta{font-size:13px;color:rgba(255,255,255,.3);margin-top:22px;text-align:center}
+@keyframes spin{to{transform:rotate(360deg)}}
+/* ── SUCCESS ── */
+.ok-ov{position:absolute;inset:0;background:#050e1c;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:501;padding:32px;gap:14px;opacity:0;pointer-events:none;transition:opacity .35s}
+.ok-ov.on{opacity:1;pointer-events:all}
+.ok-ring{width:88px;height:88px;background:rgba(16,185,129,.14);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:44px;border:2px solid rgba(16,185,129,.3)}
+.ok-title{color:#fff;font-size:26px;font-weight:800;text-align:center;letter-spacing:-.5px}
+.ok-amount{font-size:44px;font-weight:800;color:#10b981;letter-spacing:-2px}
+.ok-detail{color:rgba(255,255,255,.5);font-size:15px;text-align:center;line-height:1.6}
+.ok-track{font-size:11px;color:rgba(255,255,255,.2);font-family:Menlo,monospace;text-align:center}
+.ok-acts{display:flex;flex-direction:column;gap:10px;width:100%;margin-top:8px}
+/* ── TOAST ── */
+.toast{position:absolute;bottom:88px;left:50%;transform:translateX(-50%) translateY(12px);background:#1e293b;color:#fff;padding:12px 20px;border-radius:12px;font-size:14px;font-weight:600;z-index:600;opacity:0;transition:all .28s;pointer-events:none;white-space:nowrap;box-shadow:0 8px 24px rgba(0,0,0,.3)}
+.toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+.toast.err{background:#dc2626}
+.toast.ok{background:#059669}
+/* ── DEMO BANNER ── */
+.demo-banner{background:#fef3c7;color:#78350f;font-size:12px;font-weight:700;text-align:center;padding:7px;letter-spacing:.2px;display:none;flex-shrink:0}
+.demo-banner.on{display:block}
+.card{background:var(--card);border-radius:14px;padding:14px 16px;margin-bottom:12px}
+.row{display:flex;gap:10px}.row .btn{flex:1}
+.gap8{height:8px;flex-shrink:0}
+</style>
+</head>
+<body>
+<div class="phone" id="phone">
+<div class="demo-banner" id="demo-banner">⚡ DEMO MODE — no live credentials · data stored locally</div>
+
+<!-- ════ WELCOME ════ -->
+<div class="screen active" id="sw" style="flex-direction:column">
+  <div style="flex:1;background:linear-gradient(160deg,#0f0c29 0%,#302b63 50%,#24243e 100%);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px 32px;gap:28px">
+    <div class="w-logo">
+      <div class="w-logo-ic">💳</div>
+      <h1>FinCruse</h1>
+      <p>Send &amp; receive money globally.<br>Always fiat. Zero crypto friction.</p>
+    </div>
+    <div class="w-feats" style="width:100%">
+      <div class="w-feat"><span class="w-feat-i">🌍</span><span class="w-feat-t"><strong>50+ countries</strong>Real rates, no hidden fees</span></div>
+      <div class="w-feat"><span class="w-feat-i">⚡</span><span class="w-feat-t"><strong>Instant settlement</strong>M-Pesa, bank, SEPA in seconds</span></div>
+      <div class="w-feat"><span class="w-feat-i">🔒</span><span class="w-feat-t"><strong>Bank-grade security</strong>Fireblocks custody, RSA webhooks</span></div>
+      <div class="w-feat"><span class="w-feat-i">💸</span><span class="w-feat-t"><strong>No transaction fees</strong>Revenue from FX spread only</span></div>
+    </div>
+    <div class="w-actions" style="width:100%">
+      <button class="btn btn-white" onclick="goto('ss')">Create Account →</button>
+      <button class="btn btn-ghost" onclick="loginFlow()">Log In</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════ SIGN UP ════ -->
+<div class="screen" id="ss">
+  <div class="hero"><div style="height:52px"></div><h1>Create your account</h1><p>30 seconds · No KYC for demo</p></div>
+  <div class="sb pad">
+    <div class="fg">
+      <label class="lbl">Your full name</label>
+      <input class="inp" id="inp-name" type="text" placeholder="e.g. James Mwangi" autocomplete="name">
+      <div class="err" id="err-name">Please enter your name</div>
+    </div>
+    <div class="fg">
+      <label class="lbl">Email address</label>
+      <input class="inp" id="inp-email" type="email" placeholder="james@example.com" autocomplete="email">
+      <div class="err" id="err-email">Enter a valid email</div>
+    </div>
+    <div class="fg">
+      <label class="lbl">Home currency</label>
+      <div class="cur-grid" id="cur-grid">
+        <div class="cur-chip sel" data-cur="GBP" onclick="selCur(this)"><span class="cf">🇬🇧</span><span class="cc">GBP</span></div>
+        <div class="cur-chip" data-cur="USD" onclick="selCur(this)"><span class="cf">🇺🇸</span><span class="cc">USD</span></div>
+        <div class="cur-chip" data-cur="KES" onclick="selCur(this)"><span class="cf">🇰🇪</span><span class="cc">KES</span></div>
+        <div class="cur-chip" data-cur="NGN" onclick="selCur(this)"><span class="cf">🇳🇬</span><span class="cc">NGN</span></div>
+        <div class="cur-chip" data-cur="GHS" onclick="selCur(this)"><span class="cf">🇬🇭</span><span class="cc">GHS</span></div>
+        <div class="cur-chip" data-cur="EUR" onclick="selCur(this)"><span class="cf">🇪🇺</span><span class="cc">EUR</span></div>
+      </div>
+    </div>
+    <button class="btn btn-brand" id="btn-create" onclick="createAccount()">Create Account →</button>
+    <div class="gap8"></div>
+    <button class="btn btn-outline" onclick="goto('sw')">← Back</button>
+    <div style="height:32px"></div>
+  </div>
+</div>
+
+<!-- ════ HOME ════ -->
+<div class="screen" id="sh">
+  <div style="flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch">
+    <div class="h-header">
+      <div class="h-topbar">
+        <div class="h-user">
+          <div class="h-ava" id="h-ava">J</div>
+          <div class="h-names">
+            <div class="greeting">Good day</div>
+            <div class="uname" id="h-name">—</div>
+          </div>
+        </div>
+        <button class="h-notif" onclick="goto('sp')">👤</button>
+      </div>
+      <div class="bal-block">
+        <div class="bal-lbl">Total Balance</div>
+        <div class="bal-amt" id="h-bal">0.00</div>
+        <div class="bal-cur" id="h-cur">GBP</div>
+        <div class="bal-tag empty" id="h-tag">Tap + Add Money to fund account</div>
+      </div>
+    </div>
+    <div class="qa-row">
+      <button class="qa" onclick="goto('sam')"><div class="qa-ic add">➕</div><span class="qa-lbl">Add Money</span></button>
+      <button class="qa" onclick="goto('snd')"><div class="qa-ic snd">✈️</div><span class="qa-lbl">Send</span></button>
+      <button class="qa" onclick="goto('swd')"><div class="qa-ic wd">💸</div><span class="qa-lbl">Withdraw</span></button>
+      <button class="qa" onclick="showRates()"><div class="qa-ic more">📊</div><span class="qa-lbl">Rates</span></button>
+    </div>
+    <div class="txn-sec">
+      <div class="sec-hdr"><div class="sec-title">Transactions</div></div>
+      <div id="txn-list"></div>
+    </div>
+  </div>
+  <div class="tabbar">
+    <button class="tab on" onclick="goto('sh')"><span class="ti">🏠</span><span class="tl">Home</span></button>
+    <button class="tab" onclick="toast2('Virtual cards coming soon 🚀')"><span class="ti">💳</span><span class="tl">Cards</span></button>
+    <button class="tab" onclick="goto('sp')"><span class="ti">👤</span><span class="tl">Profile</span></button>
+  </div>
+</div>
+
+<!-- ════ ADD MONEY ════ -->
+<div class="screen" id="sam">
+  <div class="topbar"><button class="topbar-back" onclick="back()">←</button><h2>Add Money</h2></div>
+  <div class="sb pad">
+    <div class="iban-card">
+      <div class="ic-hdr"><div class="ic-badge">Virtual Account</div><span style="font-size:22px">🏛️</span></div>
+      <div class="ic-row"><div class="ic-lbl">IBAN</div><div class="ic-val" id="iban-val">GB29 FNCR 0001 0000 0000 00</div></div>
+      <div class="ic-row" style="margin-bottom:0"><div class="ic-lbl">BIC / SWIFT</div><div class="ic-val" id="bic-val">FNCRGB2L</div></div>
+      <div class="copy-row">
+        <button class="copy-btn" onclick="copyText('iban')">📋 Copy IBAN</button>
+        <button class="copy-btn" onclick="copyText('bic')">📋 Copy BIC</button>
+      </div>
+    </div>
+    <div class="card" style="font-size:13px;color:var(--muted);line-height:1.7">
+      📱 Send from your bank to this IBAN.<br>
+      Brainrock detects arrival → B2BinPay converts → Fireblocks secures → your balance updates.<br>
+      <strong style="color:var(--text)">Supports SEPA · Faster Payments · SWIFT · M-Pesa</strong>
+    </div>
+    <div class="divider">OR SIMULATE A DEPOSIT</div>
+    <div class="fg">
+      <label class="lbl">Select amount</label>
+      <div class="amt-chips" id="dep-chips">
+        <div class="amt-chip" data-amt="100" onclick="selAmt(this)"><span class="dep-sym">£</span>100</div>
+        <div class="amt-chip" data-amt="500" onclick="selAmt(this)"><span class="dep-sym">£</span>500</div>
+        <div class="amt-chip" data-amt="1000" onclick="selAmt(this)"><span class="dep-sym">£</span>1,000</div>
+        <div class="amt-chip" data-amt="custom" onclick="selAmt(this)">Custom</div>
+      </div>
+    </div>
+    <div class="fg" id="custom-grp" style="display:none">
+      <label class="lbl">Custom amount</label>
+      <input class="inp" id="custom-dep" type="number" placeholder="0.00" min="1" oninput="onCustomDep()">
+    </div>
+    <button class="btn btn-green" id="btn-dep" onclick="simulateDeposit()" disabled>Simulate Deposit ↓</button>
+    <div style="height:32px"></div>
+  </div>
+</div>
+
+<!-- ════ SEND ════ -->
+<div class="screen" id="snd">
+  <div class="topbar"><button class="topbar-back" onclick="sendBack()">←</button><h2 id="send-title">Send Money</h2><div style="width:36px"></div></div>
+  <div class="sb pad" id="send-body">
+
+    <!-- Step 1: Recipient -->
+    <div class="send-step on" id="send-s1">
+      <div class="fg">
+        <label class="lbl">Recipient email</label>
+        <input class="inp" id="inp-recv" type="email" placeholder="recipient@example.com" autocomplete="off" oninput="onRecvInput(this.value)">
+        <div class="err" id="err-recv">Enter a valid email</div>
+      </div>
+      <div id="user-found" style="display:none"></div>
+      <label class="lbl" style="margin-top:4px;margin-bottom:8px">Demo contacts</label>
+      <div class="contact-list">
+        <div class="contact-item" onclick="pickContact('james@demo.fincruse.com','James Mwangi','KES','🇰🇪')">
+          <div class="contact-ava">🇰🇪</div>
+          <div class="contact-info"><div class="contact-name">James Mwangi</div><div class="contact-sub">james@demo.fincruse.com · Kenya</div></div>
+          <div class="contact-cur">KES</div>
+        </div>
+        <div class="contact-item" onclick="pickContact('sarah@demo.fincruse.com','Sarah Smith','GBP','🇬🇧')">
+          <div class="contact-ava">🇬🇧</div>
+          <div class="contact-info"><div class="contact-name">Sarah Smith</div><div class="contact-sub">sarah@demo.fincruse.com · UK</div></div>
+          <div class="contact-cur">GBP</div>
+        </div>
+        <div class="contact-item" onclick="pickContact('emeka@demo.fincruse.com','Emeka Obi','NGN','🇳🇬')">
+          <div class="contact-ava">🇳🇬</div>
+          <div class="contact-info"><div class="contact-name">Emeka Obi</div><div class="contact-sub">emeka@demo.fincruse.com · Nigeria</div></div>
+          <div class="contact-cur">NGN</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 2: Amount -->
+    <div class="send-step" id="send-s2">
+      <div id="recv-chip" style="background:var(--card);border-radius:14px;padding:12px 16px;margin-bottom:14px;display:flex;align-items:center;gap:12px">
+        <div style="font-size:26px" id="recv-flag">🌍</div>
+        <div><div style="font-size:15px;font-weight:700" id="recv-name">—</div><div style="font-size:12px;color:var(--muted)" id="recv-email">—</div></div>
+      </div>
+      <div class="big-inp-block">
+        <div class="big-inp-lbl" id="send-cur-lbl">Sending GBP</div>
+        <input class="big-inp" id="inp-amt" type="number" placeholder="0" min="0.01" step="0.01" oninput="onAmtChange()">
+        <div style="font-size:13px;color:var(--muted);margin-top:10px">Balance: <strong id="send-bal">—</strong></div>
+      </div>
+      <div class="err on" id="err-amt" style="display:none;margin-bottom:12px">Enter an amount</div>
+      <div class="rate-box" id="rate-box" style="display:none">
+        <div class="rb-rate" id="rb-rate">—</div>
+        <div class="rb-they" id="rb-they">—</div>
+        <div class="rb-free">✓ No fee — margin baked into rate</div>
+        <div class="rb-timer" id="rb-timer"></div>
+      </div>
+      <button class="btn btn-brand" id="btn-review" onclick="goReview()">Review Transfer →</button>
+      <div class="gap8"></div>
+      <button class="btn btn-outline btn-sm" onclick="sendStep(1)">← Change recipient</button>
+    </div>
+
+    <!-- Step 3: Confirm -->
+    <div class="send-step" id="send-s3">
+      <div class="conf-card">
+        <div class="cc-row"><span class="cc-lbl">Sending to</span><span class="cc-val" id="conf-to">—</span></div>
+        <div class="cc-row"><span class="cc-lbl">You send</span><span class="cc-val" id="conf-from">—</span></div>
+        <div class="cc-row"><span class="cc-lbl">They receive</span><span class="cc-val big" id="conf-they">—</span></div>
+        <div class="cc-row"><span class="cc-lbl">Exchange rate</span><span class="cc-val" id="conf-rate">—</span></div>
+        <div class="cc-row"><span class="cc-lbl">Transaction fee</span><span class="cc-val" style="color:var(--green)">FREE</span></div>
+        <div class="cc-row"><span class="cc-lbl">Delivery via</span><span class="cc-val" id="conf-rail">—</span></div>
+        <div class="cc-row"><span class="cc-lbl">Settlement time</span><span class="cc-val" style="color:var(--green)">~4 seconds</span></div>
+      </div>
+      <button class="btn btn-green" onclick="executeSend()">Confirm &amp; Send ✓</button>
+      <div class="gap8"></div>
+      <button class="btn btn-outline btn-sm" onclick="sendStep(2)">← Edit amount</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════ WITHDRAW ════ -->
+<div class="screen" id="swd">
+  <div class="topbar"><button class="topbar-back" onclick="back()">←</button><h2>Withdraw</h2></div>
+  <div class="sb pad">
+    <div class="fg">
+      <label class="lbl">Withdrawal method</label>
+      <div class="dest-tabs">
+        <div class="dtab on" data-type="mpesa" onclick="selDest(this)">📱 M-Pesa</div>
+        <div class="dtab" data-type="faster_payments" onclick="selDest(this)">🏦 UK Bank</div>
+        <div class="dtab" data-type="sepa" onclick="selDest(this)">🇪🇺 SEPA</div>
+        <div class="dtab" data-type="bank_transfer" onclick="selDest(this)">🌍 Africa</div>
+      </div>
+    </div>
+    <div id="dest-fields"></div>
+    <div class="fg">
+      <label class="lbl">Amount (<span id="wd-cur">GBP</span>)</label>
+      <input class="inp" id="inp-wd-amt" type="number" placeholder="0.00" min="1">
+      <div style="font-size:12px;color:var(--muted);margin-top:6px">Available: <strong id="wd-bal">—</strong></div>
+      <div class="err" id="err-wd">Check amount and destination details</div>
+    </div>
+    <button class="btn btn-brand" onclick="executeWithdraw()">Withdraw →</button>
+    <div style="height:32px"></div>
+  </div>
+</div>
+
+<!-- ════ PROFILE ════ -->
+<div class="screen" id="sp">
+  <div class="ph">
+    <div style="height:10px"></div>
+    <div class="prof-ava" id="prof-ava">A</div>
+    <div class="prof-name" id="prof-name">—</div>
+    <div class="prof-email" id="prof-email">—</div>
+    <div class="prof-id" id="prof-id">ID: —</div>
+  </div>
+  <div class="sb">
+    <div class="menu-list">
+      <button class="mi" onclick="goto('sam')"><span class="mi-ic">➕</span><div class="mi-body"><div class="mi-title">Add Money</div><div class="mi-sub">Deposit via virtual IBAN</div></div><span class="mi-arr">›</span></button>
+      <button class="mi" onclick="goto('snd')"><span class="mi-ic">✈️</span><div class="mi-body"><div class="mi-title">Send Money</div><div class="mi-sub">Transfer to any FinCruse user</div></div><span class="mi-arr">›</span></button>
+      <button class="mi" onclick="goto('swd')"><span class="mi-ic">💸</span><div class="mi-body"><div class="mi-title">Withdraw</div><div class="mi-sub">M-Pesa, bank, SEPA</div></div><span class="mi-arr">›</span></button>
+      <button class="mi" onclick="showRates()"><span class="mi-ic">📊</span><div class="mi-body"><div class="mi-title">Exchange Rates</div><div class="mi-sub">Live FX via B2BinPay</div></div><span class="mi-arr">›</span></button>
+      <button class="mi" onclick="window.open('/monitor','_blank')"><span class="mi-ic">🔭</span><div class="mi-body"><div class="mi-title">Flow Monitor</div><div class="mi-sub">4-layer real-time visualiser</div></div><span class="mi-arr">›</span></button>
+      <button class="mi" style="color:var(--red)" onclick="logOut()"><span class="mi-ic">🚪</span><div class="mi-body"><div class="mi-title" style="color:var(--red)">Log Out</div><div class="mi-sub">Clear local session</div></div><span class="mi-arr">›</span></button>
+    </div>
+    <div style="text-align:center;padding:0 20px 100px;color:var(--muted);font-size:12px;line-height:1.8">
+      FinCruse Settlement v1.0<br>
+      <strong style="color:var(--text)">4 layers hidden from users:</strong><br>
+      Brainrock (fiat rail) → B2BinPay (LP) → Fireblocks (custody) → Ledger
+    </div>
+  </div>
+  <div class="tabbar">
+    <button class="tab" onclick="goto('sh')"><span class="ti">🏠</span><span class="tl">Home</span></button>
+    <button class="tab" onclick="toast2('Virtual cards coming soon 🚀')"><span class="ti">💳</span><span class="tl">Cards</span></button>
+    <button class="tab on"><span class="ti">👤</span><span class="tl">Profile</span></button>
+  </div>
+</div>
+
+<!-- ════ PROCESSING OVERLAY ════ -->
+<div class="proc-ov" id="proc-ov">
+  <div class="proc-title" id="proc-title">Processing</div>
+  <div class="proc-sub" id="proc-sub">Routing through 4 layers...</div>
+  <div class="layers">
+    <div class="lyr" id="lyr-br"><span class="lyr-ic">🏛️</span><div class="lyr-info"><div class="lyr-name">BRAINROCK</div><div class="lyr-detail" id="ld-br">Bank rail — fiat gateway</div></div><div class="lyr-spin"></div><div class="lyr-check">✓</div></div>
+    <div class="lyr" id="lyr-b2b"><span class="lyr-ic">💱</span><div class="lyr-info"><div class="lyr-name">B2BINPAY</div><div class="lyr-detail" id="ld-b2b">Fiat ↔ USDT conversion</div></div><div class="lyr-spin"></div><div class="lyr-check">✓</div></div>
+    <div class="lyr" id="lyr-fb"><span class="lyr-ic">🔥</span><div class="lyr-info"><div class="lyr-name">FIREBLOCKS</div><div class="lyr-detail" id="ld-fb">USDT vault · Solana</div></div><div class="lyr-spin"></div><div class="lyr-check">✓</div></div>
+    <div class="lyr" id="lyr-led"><span class="lyr-ic">📒</span><div class="lyr-info"><div class="lyr-name">LEDGER</div><div class="lyr-detail" id="ld-led">Updating your balance</div></div><div class="lyr-spin"></div><div class="lyr-check">✓</div></div>
+  </div>
+  <div class="proc-eta">No SWIFT · No correspondent banks · $0 corridor float</div>
+</div>
+
+<!-- ════ SUCCESS OVERLAY ════ -->
+<div class="ok-ov" id="ok-ov">
+  <div class="ok-ring">✅</div>
+  <div class="ok-title" id="ok-title">Done!</div>
+  <div class="ok-amount" id="ok-amount">£0.00</div>
+  <div class="ok-detail" id="ok-detail">Transaction complete</div>
+  <div class="ok-track" id="ok-track">TXN: —</div>
+  <div class="ok-acts">
+    <button class="btn btn-green" onclick="dismissOk()">Back to Home →</button>
+  </div>
+</div>
+
+<!-- ════ TOAST ════ -->
+<div class="toast" id="toast-el">Done</div>
+</div><!-- .phone -->
+
+<script>
+// ══════════════════════════════════════════
+//  CONSTANTS
+// ══════════════════════════════════════════
+const SYM={GBP:'£',USD:'$',KES:'KSh ',NGN:'₦',GHS:'GH₵',EUR:'€',ZAR:'R',UGX:'UGX ',TZS:'TZS '};
+const FLAG={GBP:'🇬🇧',USD:'🇺🇸',KES:'🇰🇪',NGN:'🇳🇬',GHS:'🇬🇭',EUR:'🇪🇺',ZAR:'🇿🇦',UGX:'🇺🇬',TZS:'🇹🇿'};
+const RAIL={KES:'M-Pesa',NGN:'Bank Transfer',GHS:'Mobile Money',USD:'ACH / Wire',GBP:'Faster Payments',EUR:'SEPA',ZAR:'EFT'};
+const LMAP={BRAINROCK:'br',B2BINPAY:'b2b',FIREBLOCKS:'fb',LEDGER:'led','QUOTE ENGINE':'led',ORCHESTRATOR:'led',COMPLETE:'led','PAYOUT RAIL':'br','PAYOUT PARTNER':'br'};
+const FX={GBP_USD:1.265,USD_KES:129.35,USD_NGN:1580,USD_GHS:15.2};
+
+// ══════════════════════════════════════════
+//  STATE
+// ══════════════════════════════════════════
+let S={user:null,demoMode:true,balances:{},txns:[],navStack:['sw']};
+
+function saveS(){localStorage.setItem('fc_app',JSON.stringify({user:S.user,demoMode:S.demoMode,balances:S.balances,txns:S.txns}));}
+function loadS(){const d=localStorage.getItem('fc_app');if(d)Object.assign(S,JSON.parse(d));}
+
+// ══════════════════════════════════════════
+//  NAV
+// ══════════════════════════════════════════
+function goto(id){
+  const cur=S.navStack[S.navStack.length-1];
+  if(cur===id){renderScreen(id);return;}
+  const curEl=document.getElementById(cur);
+  if(curEl) curEl.classList.remove('active');
+  // avoid dupes in stack; pop back to existing or push new
+  const idx=S.navStack.indexOf(id);
+  if(idx>=0) S.navStack=S.navStack.slice(0,idx+1);
+  else S.navStack.push(id);
+  const newEl=document.getElementById(id);
+  if(newEl) requestAnimationFrame(()=>newEl.classList.add('active'));
+  renderScreen(id);
+}
+function back(){
+  if(S.navStack.length<=1) return;
+  const cur=S.navStack.pop();
+  document.getElementById(cur)?.classList.remove('active');
+  const prev=S.navStack[S.navStack.length-1];
+  if(prev){document.getElementById(prev)?.classList.add('active');renderScreen(prev);}
+}
+function renderScreen(id){
+  if(id==='sh') renderHome();
+  if(id==='sam') renderAddMoney();
+  if(id==='snd') initSend();
+  if(id==='swd') initWithdraw();
+  if(id==='sp') renderProfile();
+}
+
+// ══════════════════════════════════════════
+//  UTILS
+// ══════════════════════════════════════════
+function sym(c){return SYM[c]||c+' ';}
+function fmt(n,c){return sym(c)+parseFloat(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});}
+function uid(){return 'fc_'+Math.random().toString(36).slice(2,11);}
+function reltime(ms){const s=(Date.now()-ms)/1000;if(s<60)return 'Just now';if(s<3600)return Math.floor(s/60)+'m ago';if(s<86400)return Math.floor(s/3600)+'h ago';return Math.floor(s/86400)+'d ago';}
+function initials(n){return(n||'?').split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2);}
+function toUSD(a,c){if(c==='GBP')return a*FX.GBP_USD;if(c==='KES')return a/FX.USD_KES;if(c==='NGN')return a/FX.USD_NGN;if(c==='GHS')return a/FX.USD_GHS;return a;}
+function fromUSD(u,c){if(c==='GBP')return u/FX.GBP_USD;if(c==='KES')return u*FX.USD_KES;if(c==='NGN')return u*FX.USD_NGN;if(c==='GHS')return u*FX.USD_GHS;return u;}
+function delay(ms){return new Promise(r=>setTimeout(r,ms));}
+function toast2(msg,type=''){const el=document.getElementById('toast-el');el.textContent=msg;el.className='toast on'+(type?' '+type:'');clearTimeout(el._t);el._t=setTimeout(()=>el.classList.remove('on'),2800);}
+
+async function getSteps(type,params){
+  try{const r=await fetch('/api/simulate/'+type+'?'+new URLSearchParams(params));const d=await r.json();return d.steps||[];}catch{return[];}
+}
+
+// ══════════════════════════════════════════
+//  ACCOUNT
+// ══════════════════════════════════════════
+let selCurrency='GBP';
+function selCur(el){document.querySelectorAll('.cur-chip').forEach(c=>c.classList.remove('sel'));el.classList.add('sel');selCurrency=el.dataset.cur;}
+
+function genIban(email){
+  const seed=Array.from(btoa(email).replace(/[^0-9]/g,'')).slice(0,8).join('').padEnd(8,'0');
+  return 'GB29 FNCR 0001 '+seed.slice(0,4)+' '+seed.slice(4,8)+' '+String(Math.floor(Math.random()*90+10));
+}
+
+async function createAccount(){
+  const name=document.getElementById('inp-name').value.trim();
+  const email=document.getElementById('inp-email').value.trim();
+  let ok=true;
+  if(!name){document.getElementById('err-name').classList.add('on');ok=false;}else document.getElementById('err-name').classList.remove('on');
+  if(!email||!email.includes('@')){document.getElementById('err-email').classList.add('on');ok=false;}else document.getElementById('err-email').classList.remove('on');
+  if(!ok)return;
+  const btn=document.getElementById('btn-create');
+  btn.disabled=true;btn.textContent='Creating…';
+  let user=null,demo=false;
+  try{
+    const r=await fetch('/api/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,name,currency:selCurrency})});
+    const d=await r.json();
+    if(!r.ok)throw new Error(d.error);
+    user={id:d.userId,name,email,currency:selCurrency,iban:d.depositAccount?.iban||genIban(email),bic:d.depositAccount?.bic||'FNCRGB2L'};
+  }catch{
+    demo=true;
+    user={id:uid(),name,email,currency:selCurrency,iban:genIban(email),bic:'FNCRGB2L'};
+  }
+  S.user=user;S.demoMode=demo;S.balances={[selCurrency]:0};S.txns=[];
+  saveS();
+  btn.disabled=false;btn.textContent='Create Account →';
+  if(demo) document.getElementById('demo-banner').classList.add('on');
+  goto('sh');
+  toast2('Welcome to FinCruse, '+name.split(' ')[0]+'! 🎉','ok');
+}
+
+function loginFlow(){
+  const email=prompt('Enter your FinCruse email:');
+  if(!email)return;
+  loadS();
+  if(S.user&&S.user.email.toLowerCase()===email.toLowerCase()){
+    if(S.demoMode) document.getElementById('demo-banner').classList.add('on');
+    document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+    document.getElementById('sh').classList.add('active');
+    S.navStack=['sh'];
+    renderHome();
+  }else toast2('Account not found. Please create one.','err');
+}
+
+function logOut(){
+  if(!confirm('Log out of FinCruse?'))return;
+  localStorage.removeItem('fc_app');
+  S={user:null,demoMode:true,balances:{},txns:[],navStack:['sw']};
+  document.getElementById('demo-banner').classList.remove('on');
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  document.getElementById('sw').classList.add('active');
+}
+
+// ══════════════════════════════════════════
+//  HOME
+// ══════════════════════════════════════════
+function renderHome(){
+  if(!S.user)return;
+  const u=S.user,cur=u.currency,bal=S.balances[cur]||0;
+  document.getElementById('h-ava').textContent=initials(u.name);
+  document.getElementById('h-name').textContent=u.name.split(' ')[0];
+  document.getElementById('h-bal').textContent=parseFloat(bal).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+  document.getElementById('h-cur').textContent=cur;
+  const tag=document.getElementById('h-tag');
+  if(bal>0){tag.className='bal-tag funded';tag.textContent=sym(cur)+bal.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})+' available';}
+  else{tag.className='bal-tag empty';tag.textContent='Tap + Add Money to fund account';}
+  renderTxns();
+}
+
+function renderTxns(){
+  const el=document.getElementById('txn-list');
+  const txns=[...S.txns].reverse();
+  if(!txns.length){
+    el.innerHTML='<div class="empty-state"><div class="em">📭</div><h3>No transactions yet</h3><p>Add money, send to a contact,<br>or simulate a deposit to get started.</p></div>';
+    return;
+  }
+  el.innerHTML=txns.map(t=>{
+    const plus=t.type==='deposit';
+    const ic=t.type==='deposit'?'dep':t.type==='send'?'snd':'wd';
+    const icon=t.type==='deposit'?'⬇️':t.type==='send'?'✈️':'💸';
+    return`<div class="txn-item">
+      <div class="txn-ic ${ic}">${icon}</div>
+      <div class="txn-info"><div class="txn-name">${t.desc}</div><div class="txn-sub">${reltime(t.ts)} · ${t.status}</div></div>
+      <div class="txn-right">
+        <div class="txn-val ${plus?'pos':'neg'}">${plus?'+':'-'}${fmt(t.amount,t.currency)}</div>
+        <div class="txn-st">${t.currency}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ══════════════════════════════════════════
+//  ADD MONEY
+// ══════════════════════════════════════════
+let depAmt=null;
+function renderAddMoney(){
+  if(!S.user)return;
+  const cur=S.user.currency,s=sym(cur);
+  document.getElementById('iban-val').textContent=S.user.iban;
+  document.getElementById('bic-val').textContent=S.user.bic;
+  document.querySelectorAll('.dep-sym').forEach(e=>e.textContent=s);
+  depAmt=null;
+  document.getElementById('btn-dep').disabled=true;
+  document.querySelectorAll('.amt-chip').forEach(c=>c.classList.remove('sel'));
+  document.getElementById('custom-grp').style.display='none';
+}
+function selAmt(el){
+  document.querySelectorAll('.amt-chip').forEach(c=>c.classList.remove('sel'));el.classList.add('sel');
+  if(el.dataset.amt==='custom'){document.getElementById('custom-grp').style.display='block';depAmt=null;document.getElementById('btn-dep').disabled=true;}
+  else{document.getElementById('custom-grp').style.display='none';depAmt=parseFloat(el.dataset.amt);document.getElementById('btn-dep').disabled=false;}
+}
+function onCustomDep(){
+  depAmt=parseFloat(document.getElementById('custom-dep').value)||null;
+  document.getElementById('btn-dep').disabled=!depAmt||depAmt<=0;
+}
+function copyText(which){
+  const val=which==='iban'?S.user.iban.replace(/\s/g,''):S.user.bic;
+  navigator.clipboard.writeText(val).then(()=>toast2(which.toUpperCase()+' copied!','ok')).catch(()=>toast2(val));
+}
+async function simulateDeposit(){
+  const cur=S.user.currency;
+  const amt=depAmt||parseFloat(document.getElementById('custom-dep').value)||0;
+  if(!amt||amt<=0){toast2('Enter a valid amount','err');return;}
+  const steps=await getSteps('deposit',{currency:cur,amount:amt,rail:'Bank Transfer'});
+  await runProc(steps,'Receiving deposit','Brainrock IBAN → B2BinPay → Fireblocks → Ledger');
+  S.balances[cur]=(S.balances[cur]||0)+amt;
+  S.txns.push({id:uid(),type:'deposit',amount:amt,currency:cur,desc:'Bank deposit via virtual IBAN',status:'Completed',ts:Date.now()});
+  saveS();
+  showOk('+'+fmt(amt,cur),'Added to your FinCruse balance');
+}
+
+// ══════════════════════════════════════════
+//  SEND MONEY
+// ══════════════════════════════════════════
+let SS={step:1,recipient:null,amount:0,rate:1,toAmt:0,quoteTimer:null};
+function initSend(){
+  SS={step:1,recipient:null,amount:0,rate:1,toAmt:0,quoteTimer:null};
+  sendStep(1);
+  document.getElementById('inp-recv').value='';
+  document.getElementById('inp-amt').value='';
+  document.getElementById('rate-box').style.display='none';
+  document.getElementById('user-found').style.display='none';
+}
+function sendStep(n){
+  SS.step=n;
+  document.querySelectorAll('.send-step').forEach(s=>s.classList.remove('on'));
+  document.getElementById('send-s'+n).classList.add('on');
+  document.getElementById('send-title').textContent={1:'Send Money',2:'Enter Amount',3:'Confirm Transfer'}[n];
+}
+function sendBack(){
+  if(SS.step>1) sendStep(SS.step-1);
+  else back();
+}
+function pickContact(email,name,cur,flag){
+  SS.recipient={email,name,currency:cur,flag};
+  document.getElementById('inp-recv').value=email;
+  sendStep(2);
+  document.getElementById('recv-flag').textContent=flag;
+  document.getElementById('recv-name').textContent=name;
+  document.getElementById('recv-email').textContent=email+' · '+cur;
+  const myCur=S.user.currency;
+  document.getElementById('send-cur-lbl').textContent='Sending '+myCur+(cur!==myCur?' → they receive '+cur:'');
+  document.getElementById('send-bal').textContent=fmt(S.balances[myCur]||0,myCur);
+}
+async function onRecvInput(val){
+  if(!val||val.length<5||!val.includes('@')){document.getElementById('user-found').style.display='none';return;}
+  try{
+    const r=await fetch('/api/users/lookup?email='+encodeURIComponent(val));
+    const u=await r.json();
+    if(!r.ok)return;
+    const flag=FLAG[u.currency]||'🌍';
+    document.getElementById('user-found').innerHTML=
+      `<div class="contact-item sel" style="margin-bottom:12px" onclick="pickContact('${u.email}','${u.name}','${u.currency}','${flag}')">
+        <div class="contact-ava">${flag}</div>
+        <div class="contact-info"><div class="contact-name">${u.name}</div><div class="contact-sub">${u.email}</div></div>
+        <div class="contact-cur">${u.currency}</div>
+      </div>`;
+    document.getElementById('user-found').style.display='block';
+  }catch{}
+}
+let rateTimer;
+function onAmtChange(){
+  if(!SS.recipient)return;
+  clearInterval(rateTimer);
+  const amt=parseFloat(document.getElementById('inp-amt').value)||0;
+  const from=S.user.currency,to=SS.recipient.currency;
+  if(amt<=0||from===to){document.getElementById('rate-box').style.display='none';return;}
+  const raw=fromUSD(toUSD(1,from),to);
+  const rate=parseFloat((raw*0.982).toFixed(4));
+  const toA=parseFloat((amt*rate).toFixed(2));
+  SS.rate=rate;SS.toAmt=toA;
+  document.getElementById('rate-box').style.display='block';
+  document.getElementById('rb-rate').textContent='1 '+from+' = '+rate+' '+to;
+  document.getElementById('rb-they').textContent=SS.recipient.name.split(' ')[0]+' receives '+fmt(toA,to);
+  let secs=30;
+  document.getElementById('rb-timer').textContent='Rate locked for '+secs+'s';
+  rateTimer=setInterval(()=>{secs--;document.getElementById('rb-timer').textContent='Rate locked for '+secs+'s';if(secs<=0){clearInterval(rateTimer);onAmtChange();}},1000);
+}
+function goReview(){
+  const amt=parseFloat(document.getElementById('inp-amt').value)||0;
+  const from=S.user.currency;
+  const errEl=document.getElementById('err-amt');
+  if(!amt||amt<=0){errEl.textContent='Enter an amount';errEl.style.display='block';return;}
+  const bal=S.balances[from]||0;
+  if(amt>bal){errEl.textContent='Insufficient balance ('+fmt(bal,from)+' available)';errEl.style.display='block';return;}
+  errEl.style.display='none';
+  SS.amount=amt;
+  const to=SS.recipient.currency,same=from===to;
+  const toA=same?amt:SS.toAmt;SS.toAmt=toA;
+  document.getElementById('conf-to').textContent=SS.recipient.name;
+  document.getElementById('conf-from').textContent=fmt(amt,from);
+  document.getElementById('conf-they').textContent=fmt(toA,to);
+  document.getElementById('conf-rate').textContent=same?'Same currency':'1 '+from+' = '+SS.rate+' '+to;
+  document.getElementById('conf-rail').textContent=same?'Internal ledger (instant)':RAIL[to]||'Bank transfer';
+  sendStep(3);
+}
+async function executeSend(){
+  const from=S.user.currency,to=SS.recipient.currency,same=from===to;
+  const steps=await getSteps('transfer',{from,to,amount:SS.amount});
+  S.balances[from]=(S.balances[from]||0)-SS.amount;
+  await runProc(steps,'Sending '+fmt(SS.amount,from),'To '+SS.recipient.name+' · '+SS.recipient.currency);
+  const desc=same?'Sent to '+SS.recipient.name:'Sent '+fmt(SS.amount,from)+' → '+fmt(SS.toAmt,to)+' ('+SS.recipient.name+')';
+  S.txns.push({id:uid(),type:'send',amount:SS.amount,currency:from,desc,status:'Completed',ts:Date.now()});
+  saveS();
+  const dispAmt=same?fmt(SS.amount,from):fmt(SS.toAmt,to);
+  showOk('-'+fmt(SS.amount,from),SS.recipient.name+' receives '+dispAmt);
+}
+
+// ══════════════════════════════════════════
+//  WITHDRAW
+// ══════════════════════════════════════════
+let destType='mpesa';
+function initWithdraw(){
+  if(!S.user)return;
+  const cur=S.user.currency;
+  document.getElementById('wd-cur').textContent=cur;
+  document.getElementById('wd-bal').textContent=fmt(S.balances[cur]||0,cur);
+  destType='mpesa';
+  document.querySelectorAll('.dtab').forEach(d=>d.classList.remove('on'));
+  document.querySelector('.dtab').classList.add('on');
+  document.getElementById('inp-wd-amt').value='';
+  document.getElementById('err-wd').classList.remove('on');
+  renderDestFields();
+}
+function selDest(el){document.querySelectorAll('.dtab').forEach(d=>d.classList.remove('on'));el.classList.add('on');destType=el.dataset.type;renderDestFields();}
+function renderDestFields(){
+  const m={
+    mpesa:'<div class="fg"><label class="lbl">M-Pesa number</label><input class="inp" id="wd-d1" type="tel" placeholder="+254712345678"></div>',
+    faster_payments:'<div class="fg"><label class="lbl">Sort code</label><input class="inp" id="wd-d1" type="text" placeholder="60-16-13"></div><div class="fg"><label class="lbl">Account number</label><input class="inp" id="wd-d2" type="text" placeholder="31926819"></div>',
+    sepa:'<div class="fg"><label class="lbl">IBAN</label><input class="inp" id="wd-d1" type="text" placeholder="DE89370400440532013000"></div>',
+    bank_transfer:'<div class="fg"><label class="lbl">Bank code</label><input class="inp" id="wd-d1" type="text" placeholder="KCB001"></div><div class="fg"><label class="lbl">Account number</label><input class="inp" id="wd-d2" type="text" placeholder="1234567890"></div>',
+  };
+  document.getElementById('dest-fields').innerHTML=m[destType]||m.mpesa;
+}
+async function executeWithdraw(){
+  const cur=S.user.currency;
+  const amt=parseFloat(document.getElementById('inp-wd-amt').value)||0;
+  const bal=S.balances[cur]||0;
+  const err=document.getElementById('err-wd');
+  const d1=document.getElementById('wd-d1')?.value||'';
+  if(!amt||amt<=0||amt>bal||!d1){
+    err.textContent=amt>bal?'Insufficient balance ('+fmt(bal,cur)+' available)':'Enter amount and destination';
+    err.classList.add('on');return;
+  }
+  err.classList.remove('on');
+  const railName={mpesa:'M-Pesa',faster_payments:'Faster Payments',sepa:'SEPA',bank_transfer:'Bank Transfer'}[destType];
+  const steps=await getSteps('withdraw',{currency:cur,amount:amt,rail:railName});
+  S.balances[cur]=bal-amt;
+  await runProc(steps,'Withdrawing '+fmt(amt,cur),railName+' → '+d1);
+  S.txns.push({id:uid(),type:'withdraw',amount:amt,currency:cur,desc:railName+' withdrawal to '+d1,status:'Sent',ts:Date.now()});
+  saveS();
+  showOk('-'+fmt(amt,cur),'Sent via '+railName+' to '+d1);
+}
+
+// ══════════════════════════════════════════
+//  PROCESSING ANIMATION
+// ══════════════════════════════════════════
+async function runProc(steps,title,sub){
+  document.getElementById('proc-title').textContent=title;
+  document.getElementById('proc-sub').textContent=sub;
+  document.querySelectorAll('.lyr').forEach(l=>l.classList.remove('lit','done'));
+  document.getElementById('proc-ov').classList.add('on');
+  let last=null;const done=new Set();
+  for(let i=0;i<steps.length;i++){
+    const s=steps[i],layer=LMAP[s.layer];
+    if(layer&&!done.has(layer)){
+      if(last&&last!==layer){document.getElementById('lyr-'+last)?.classList.replace('lit','done')||document.getElementById('lyr-'+last)?.classList.remove('lit');document.getElementById('lyr-'+last)?.classList.add('done');done.add(last);}
+      const el=document.getElementById('lyr-'+layer);if(el){el.classList.add('lit');el.classList.remove('done');}
+      const det=document.getElementById('ld-'+layer);if(det)det.textContent=(s.action||'').slice(0,42);
+      last=layer;
+    }
+    await delay(Math.min(s.duration||700,900));
+  }
+  if(last){document.getElementById('lyr-'+last)?.classList.remove('lit');document.getElementById('lyr-'+last)?.classList.add('done');}
+  ['br','b2b','fb','led'].forEach(l=>{if(!done.has(l)){const el=document.getElementById('lyr-'+l);el?.classList.add('done');}});
+  await delay(350);
+  document.getElementById('proc-ov').classList.remove('on');
+}
+
+// ══════════════════════════════════════════
+//  SUCCESS
+// ══════════════════════════════════════════
+function showOk(amount,detail){
+  document.getElementById('ok-amount').textContent=amount;
+  document.getElementById('ok-detail').textContent=detail;
+  document.getElementById('ok-track').textContent='REF: '+uid().toUpperCase();
+  document.getElementById('ok-ov').classList.add('on');
+}
+function dismissOk(){
+  document.getElementById('ok-ov').classList.remove('on');
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  document.getElementById('sh').classList.add('active');
+  S.navStack=['sh'];
+  renderHome();
+}
+
+// ══════════════════════════════════════════
+//  PROFILE
+// ══════════════════════════════════════════
+function renderProfile(){
+  if(!S.user)return;
+  const u=S.user;
+  document.getElementById('prof-ava').textContent=initials(u.name);
+  document.getElementById('prof-name').textContent=u.name;
+  document.getElementById('prof-email').textContent=u.email;
+  document.getElementById('prof-id').textContent='ID: '+u.id;
+}
+function showRates(){
+  toast2('GBP→KES: 159.12 · GBP→NGN: 1,988 · USD→KES: 129.35 · GBP→USD: 1.265');
+}
+
+// ══════════════════════════════════════════
+//  STARTUP
+// ══════════════════════════════════════════
+loadS();
+if(S.user){
+  if(S.demoMode) document.getElementById('demo-banner').classList.add('on');
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  document.getElementById('sh').classList.add('active');
+  S.navStack=['sh'];
+  renderHome();
+}
+</script>
+</body>
+</html>

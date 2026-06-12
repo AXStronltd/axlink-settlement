@@ -206,10 +206,11 @@ body { background: #04080f; color: #f0f4fa; font-family: 'Outfit', sans-serif; }
     </div>
     <div class="panel">
       <div class="ptitle">API CALLS</div>
-      <div class="cnts">
+      <div class="cnts" style="grid-template-columns:repeat(4,1fr)">
         <div class="cnt"><div class="cv" id="c-o" style="color:#ff6b35">0</div><div class="cl">ORCH</div></div>
         <div class="cnt"><div class="cv" id="c-b" style="color:#1e90ff">0</div><div class="cl">B2BINPAY</div></div>
         <div class="cnt"><div class="cv" id="c-f" style="color:#9945FF">0</div><div class="cl">FIREBLKS</div></div>
+        <div class="cnt"><div class="cv" id="c-br" style="color:#10b981">0</div><div class="cl">BRAINRCK</div></div>
       </div>
     </div>
     <div class="panel" style="flex:1;overflow-y:auto">
@@ -220,8 +221,9 @@ body { background: #04080f; color: #f0f4fa; font-family: 'Outfit', sans-serif; }
       <div class="ptitle" style="color:#22d3a0">JIT ADVANTAGE</div>
       <div class="jr"><span class="jk">Corridor float</span><span style="color:#22d3a0;font-family:'JetBrains Mono';font-weight:700">$0</span></div>
       <div class="jr"><span class="jk">Pre-funded</span><span style="color:#22d3a0;font-family:'JetBrains Mono';font-weight:700">None</span></div>
+      <div class="jr"><span class="jk">Bank rails</span><span style="color:#10b981;font-family:'JetBrains Mono';font-weight:700">Brainrock</span></div>
       <div class="jr"><span class="jk">Liquidity</span><span style="color:#1e90ff;font-family:'JetBrains Mono';font-weight:700">B2BinPay</span></div>
-      <div class="jr"><span class="jk">Custody rail</span><span style="color:#9945FF;font-family:'JetBrains Mono';font-weight:700">Fireblocks</span></div>
+      <div class="jr"><span class="jk">Custody</span><span style="color:#9945FF;font-family:'JetBrains Mono';font-weight:700">Fireblocks</span></div>
     </div>
   </div>
 </div>
@@ -229,43 +231,45 @@ body { background: #04080f; color: #f0f4fa; font-family: 'Outfit', sans-serif; }
 <script>
 var TAB = 'transfer';
 var RUNNING = false;
-var CO = 0, CB = 0, CF = 0;
+var CO = 0, CB = 0, CF = 0, CBR = 0;
 
-var LC = { 'PAYOUT RAIL':'#22c55e','PAYOUT PARTNER':'#f59e0b','ORCHESTRATOR':'#ff6b35','LEDGER':'#06b6d4','B2BINPAY':'#1e90ff','FIREBLOCKS':'#9945FF','NOTIFY':'#22c55e','COMPLETE':'#22d3a0','QUOTE ENGINE':'#f59e0b' };
+var LC = { 'BRAINROCK':'#10b981','PAYOUT RAIL':'#10b981','ORCHESTRATOR':'#ff6b35','LEDGER':'#06b6d4','B2BINPAY':'#1e90ff','FIREBLOCKS':'#9945FF','COMPLETE':'#22d3a0','QUOTE ENGINE':'#f59e0b' };
 
 var PIPES = {
   transfer: [
     {id:'n-sender',icon:'👤',lbl:'SENDER',sub:'Fiat'},
     {pipe:true,id:'pp1'},
-    {id:'n-orch',icon:'🏗️',lbl:'ORCHESTRATOR',sub:'FinCruse'},
+    {id:'n-orch',icon:'🏗️',lbl:'ORCH',sub:'FinCruse'},
     {pipe:true,id:'pp2'},
     {id:'n-b2b1',icon:'🏦',lbl:'B2BINPAY',sub:'On-ramp'},
     {pipe:true,id:'pp3'},
     {id:'n-fb',icon:'🔷',lbl:'FIREBLOCKS',sub:'USDT·SOL'},
     {pipe:true,id:'pp4'},
-    {id:'n-b2b2',icon:'🏦',lbl:'B2BINPAY',sub:'USD out'},
+    {id:'n-b2b2',icon:'🏦',lbl:'B2BINPAY',sub:'Off-ramp'},
     {pipe:true,id:'pp5'},
-    {id:'n-pp',icon:'📱',lbl:'PAYOUT PARTNER',sub:'M-Pesa/Bank'},
+    {id:'n-br',icon:'🏛️',lbl:'BRAINROCK',sub:'Bank Rail'},
     {pipe:true,id:'pp6'},
     {id:'n-recv',icon:'👤',lbl:'RECEIVER',sub:'Fiat'}
   ],
   deposit: [
-    {id:'n-rail',icon:'📱',lbl:'PAYOUT RAIL',sub:'M-Pesa'},
+    {id:'n-bank',icon:'🏦',lbl:'USER BANK',sub:'Barclays/M-Pesa'},
     {pipe:true,id:'pp1'},
-    {id:'n-orch',icon:'🏗️',lbl:'ORCHESTRATOR',sub:'FinCruse'},
+    {id:'n-br',icon:'🏛️',lbl:'BRAINROCK',sub:'Virtual IBAN'},
     {pipe:true,id:'pp2'},
-    {id:'n-b2b1',icon:'🏦',lbl:'B2BINPAY',sub:'On-ramp'},
+    {id:'n-orch',icon:'🏗️',lbl:'ORCH',sub:'FinCruse'},
     {pipe:true,id:'pp3'},
-    {id:'n-fb',icon:'🔷',lbl:'FIREBLOCKS',sub:'USDT·SOL'},
+    {id:'n-b2b1',icon:'🏦',lbl:'B2BINPAY',sub:'On-ramp'},
     {pipe:true,id:'pp4'},
-    {id:'n-led',icon:'📒',lbl:'LEDGER',sub:'Credit'},
+    {id:'n-fb',icon:'🔷',lbl:'FIREBLOCKS',sub:'USDT·SOL'},
     {pipe:true,id:'pp5'},
+    {id:'n-led',icon:'📒',lbl:'LEDGER',sub:'Credit'},
+    {pipe:true,id:'pp6'},
     {id:'n-user',icon:'👤',lbl:'USER',sub:'Balance +'}
   ],
   withdraw: [
     {id:'n-user',icon:'👤',lbl:'USER',sub:'Requests'},
     {pipe:true,id:'pp1'},
-    {id:'n-orch',icon:'🏗️',lbl:'ORCHESTRATOR',sub:'FinCruse'},
+    {id:'n-orch',icon:'🏗️',lbl:'ORCH',sub:'FinCruse'},
     {pipe:true,id:'pp2'},
     {id:'n-led',icon:'📒',lbl:'LEDGER',sub:'Debit'},
     {pipe:true,id:'pp3'},
@@ -273,7 +277,9 @@ var PIPES = {
     {pipe:true,id:'pp4'},
     {id:'n-b2b',icon:'🏦',lbl:'B2BINPAY',sub:'Off-ramp'},
     {pipe:true,id:'pp5'},
-    {id:'n-rail',icon:'📱',lbl:'PAYOUT RAIL',sub:'M-Pesa'}
+    {id:'n-br',icon:'🏛️',lbl:'BRAINROCK',sub:'Bank Rail'},
+    {pipe:true,id:'pp6'},
+    {id:'n-dest',icon:'📱',lbl:'BANK/MPESA',sub:'User destination'}
   ]
 };
 
@@ -314,13 +320,13 @@ function setD(r,c,a,el) { setPill('pills-deposit',el); document.getElementById('
 function setW(r,c,a,el) { setPill('pills-withdraw',el); document.getElementById('w-rail').value=r; document.getElementById('w-curr').value=c; document.getElementById('w-amount').value=a; resetFlow(); }
 
 function resetFlow() {
-  RUNNING=false; CO=0; CB=0; CF=0;
+  RUNNING=false; CO=0; CB=0; CF=0; CBR=0;
   setBtns(false,'▶ Run Flow');
-  document.getElementById('steps').innerHTML='<div class="idle"><div class="em">🏗️</div><p>Click <strong>▶ Run Flow</strong><br>to watch money move through the orchestrator</p></div>';
+  document.getElementById('steps').innerHTML='<div class="idle"><div class="em">🏗️</div><p>Click <strong>▶ Run Flow</strong><br>to watch all 4 layers move money in real time</p></div>';
   document.getElementById('done-bar').style.display='none';
   document.getElementById('tl').innerHTML='';
   setEl('lv1','—',''); setEl('lv2','—',''); document.getElementById('lv-fee').textContent='—';
-  document.getElementById('c-o').textContent='0'; document.getElementById('c-b').textContent='0'; document.getElementById('c-f').textContent='0';
+  document.getElementById('c-o').textContent='0'; document.getElementById('c-b').textContent='0'; document.getElementById('c-f').textContent='0'; document.getElementById('c-br').textContent='0';
   renderPipeline();
 }
 
@@ -404,6 +410,7 @@ function updateCounters(layer) {
   if(layer==='ORCHESTRATOR'){CO++;document.getElementById('c-o').textContent=CO;}
   if(layer==='B2BINPAY'){CB++;document.getElementById('c-b').textContent=CB;}
   if(layer==='FIREBLOCKS'){CF++;document.getElementById('c-f').textContent=CF;}
+  if(layer==='BRAINROCK'){CBR++;document.getElementById('c-br').textContent=CBR;}
 }
 
 function glowNode(id, cls) { var el=document.getElementById(id); if(el) el.className='nd-box '+cls; }
@@ -431,6 +438,7 @@ function animateNodes(step, i, total) {
     else{glowNode('n-b2b2',cls)||glowNode('n-b2b',cls);fillPipe('pp4',lc);}
   }
   else if(step.layer==='FIREBLOCKS'){glowNode('n-fb',cls);fillPipe('pp3',lc);}
+  else if(step.layer==='BRAINROCK'){glowNode('n-br',cls);if(i<half)fillPipe('pp1',lc);else fillPipe('pp5',lc);}
   else if(step.layer==='PAYOUT PARTNER'){glowNode('n-pp',cls);fillPipe('pp5',lc);}
   else if(step.layer==='LEDGER'){
     if(i<half){glowNode('n-sender',cls)||glowNode('n-user',cls);fillPipe('pp2',lc);}
@@ -446,6 +454,7 @@ function animateNodes(step, i, total) {
     if(step.layer==='B2BINPAY'&&mo.currency==='USDT'){
       if(i<half) setAmt('n-b2b1',mo.amount+' USDT'); else {setAmt('n-b2b2',mo.amount+' USDT');setAmt('n-b2b',mo.amount+' USDT');}
     }
+    if(step.layer==='BRAINROCK') setAmt('n-br',mo.amount+(mo.currency?' '+mo.currency:''));
     if(step.layer==='PAYOUT RAIL') setAmt('n-rail',mo.amount);
     if(mo.direction==='debit'&&i<=2){setAmt('n-sender',mo.amount);setAmt('n-user',mo.amount);}
     if(mo.direction==='credit'&&i>total/2){setAmt('n-recv',mo.amount);setAmt('n-user',mo.amount);}
@@ -465,7 +474,7 @@ function onDone(steps) {
   var all=document.querySelectorAll('.step'); for(var i=0;i<all.length;i++) all[i].className='step done';
   var dots=document.querySelectorAll('.td'); for(var i=0;i<dots.length;i++) dots[i].className='td d';
   var bar=document.getElementById('done-bar'); bar.style.display='block';
-  document.getElementById('done-txt').textContent=CO+' Orchestrator · '+CB+' B2BinPay · '+CF+' Fireblocks · $0 corridor float';
+  document.getElementById('done-txt').textContent=CO+' Orchestrator · '+CB+' B2BinPay · '+CF+' Fireblocks · '+CBR+' Brainrock · $0 float';
   setBtns(false,'▶ Run Again');
   RUNNING=false;
 }

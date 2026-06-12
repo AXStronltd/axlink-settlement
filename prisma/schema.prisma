@@ -14,10 +14,14 @@ model User {
   name            String
   kycStatus       String   @default("PENDING")
 
-  // Brainrock — virtual IBAN per user (fiat deposits arrive here)
+  // Brainrock — virtual IBAN per user (fiat deposits: GBP/USD/EUR/CAD/AED)
   brainrockAccountId String?         // Brainrock virtual account ID
   virtualIban        String?         // Virtual IBAN shown to user for bank transfers
   virtualIbanBic     String?         // BIC for the virtual IBAN
+
+  // Choice Bank Nigeria — virtual account per user (fiat deposits: NGN/GHS/ZAR)
+  choiceBankAccountId String?        // Choice Bank virtual account ID
+  choiceBankAccountNumber String?    // Account number shown to user for bank transfers
 
   // Fireblocks — one vault per user, USDT address per asset
   vaultId         String   @unique   // Fireblocks vault ID (e.g. "vault_james_001")

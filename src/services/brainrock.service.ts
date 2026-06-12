@@ -34,22 +34,26 @@ export type PaymentType =
   | 'faster_payments'   // UK — sort code + account number, near-instant
   | 'sepa'              // EU — IBAN + BIC, same-day
   | 'swift'             // International — IBAN + BIC + SWIFT
-  | 'mpesa'             // Kenya/Tanzania/Uganda — mobile number
-  | 'bank_transfer'     // Generic — bank code + account
-  | 'rtgs';             // High-value same-day (NGN, KES large amounts)
+  | 'ach'               // USA — routing number + account number
+  | 'eft';              // Canada — transit + institution + account
 
 export interface PaymentDestination {
   name: string;
-  type: PaymentType;
+  type?: PaymentType;
   // UK Faster Payments
   sortCode?: string;
   accountNumber?: string;
-  // SEPA / IBAN
+  // SEPA / IBAN (EU)
   iban?: string;
   bic?: string;
-  // M-Pesa / mobile money (format: +2547XXXXXXXX)
+  // USA — ACH
+  routingNumber?: string;
+  // Canada — EFT
+  transitNumber?: string;
+  institutionNumber?: string;
+  // Mobile number field kept for orchestrator compatibility — not used by Brainrock
   mobileNumber?: string;
-  // African bank transfers
+  // Bank fields kept for orchestrator compatibility — not used by Brainrock
   bankCode?: string;
   bankAccountNumber?: string;
 }
@@ -86,8 +90,8 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
 // No KYC needed here; Brainrock just assigns an IBAN mapped to FinCruse's master account.
 export async function createVirtualAccount(params: {
   userId: string;
-  currency: string;   // ISO: GBP, EUR, USD, KES, NGN …
-  country: string;    // ISO: GB, KE, NG, US …
+  currency: string;   // ISO: GBP, EUR, USD, CAD
+  country: string;    // ISO: GB, US, CA, DE, FR …
 }): Promise<VirtualAccount> {
   const res = await apiFetch<{ data: VirtualAccount }>('/virtual-accounts', {
     method: 'POST',
@@ -169,18 +173,19 @@ export function verifyWebhookSignature(rawBody: string, signatureHeader: string)
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-// Infer payment type from currency and what destination fields are provided
+// Infer Brainrock payment type — EU/UK/USA/Canada only
 export function resolvePaymentType(
   currency: string,
   destination: Partial<PaymentDestination>,
 ): PaymentType {
-  if (destination.mobileNumber) {
-    const mobileMoneyCorridors = ['KES', 'TZS', 'UGX', 'GHS', 'NGN', 'ZMW', 'RWF'];
-    if (mobileMoneyCorridors.includes(currency.toUpperCase())) return 'mpesa';
-  }
-  if (destination.iban) {
-    return currency.toUpperCase() === 'GBP' ? 'faster_payments' : 'sepa';
-  }
+  const ccy = currency.toUpperCase();
   if (destination.sortCode && destination.accountNumber) return 'faster_payments';
-  return 'bank_transfer';
+  if (destination.iban) return ccy === 'GBP' ? 'faster_payments' : 'sepa';
+  if (destination.routingNumber) return 'ach';
+  if (destination.transitNumber)  return 'eft';
+  if (ccy === 'GBP')  return 'faster_payments';
+  if (ccy === 'EUR')  return 'sepa';
+  if (ccy === 'USD')  return 'ach';
+  if (ccy === 'CAD')  return 'eft';
+  return 'swift';
 }

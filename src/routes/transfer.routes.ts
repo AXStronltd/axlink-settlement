@@ -64,6 +64,23 @@ router.post('/users', async (req: Request, res: Response) => {
   });
 });
 
+// GET /api/users/lookup?email= — find user by email for P2P send flow
+router.get('/users/lookup', async (req: Request, res: Response) => {
+  const email = String(req.query['email'] ?? '').trim().toLowerCase();
+  if (!email) { res.status(400).json({ error: 'email is required' }); return; }
+  const user = await prisma.user.findFirst({
+    where: { email: { equals: email, mode: 'insensitive' } },
+    include: { accounts: { select: { currency: true } } },
+  });
+  if (!user) { res.status(404).json({ error: 'User not found on FinCruse' }); return; }
+  res.json({
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    currency: (user.accounts as { currency: string }[])[0]?.currency ?? 'USD',
+  });
+});
+
 // GET /api/users/:id — get user + balances
 router.get('/users/:id', async (req: Request, res: Response) => {
   const user = await getUser(String(req.params['id']));
@@ -72,6 +89,9 @@ router.get('/users/:id', async (req: Request, res: Response) => {
     email: user.email,
     name: user.name,
     kycStatus: user.kycStatus,
+    vaultId: user.vaultId ?? null,
+    virtualIban: user.virtualIban ?? null,
+    virtualIbanBic: user.virtualIbanBic ?? null,
     accounts: user.accounts.map((a: { currency: string; balance: { toString: () => string }; balanceUsd: { toString: () => string } }) => ({
       currency: a.currency,
       balance: Number(a.balance),

@@ -1,62 +1,57 @@
-import { getRates } from './b2binpay.service';
+// AxLink FX Engine — AXSTRON-managed conversion layer.
+//
+// USD is the internal value unit. All cross-currency conversions route through USD.
+// AxLink owns the rate table and spread logic — no external LP computes rates for us.
+//
+// B2BinPay is a USD LIQUIDITY PARTNER only: when we process a cross-currency
+// settlement we ask B2BinPay to provide USD equivalent — they do not compute rates.
+//
+// Local rails (Daraja, Choice Bank, Brainrock, etc.) handle fiat collection and
+// disbursement at the edges — they are not FX providers.
+//
+// In sandbox: rates from AXLINK_SANDBOX_RATES (mid-market approx June 2025).
+// In production: replace liveRates() with a real-time feed (OpenExchangeRates, ECB, etc.)
 
-// USD is the base — USDT is 1:1 with USD always
-const USD_PAIRS = ['USD', 'USDT'];
+// ── AxLink rate table: units of currency per 1 USD (mid-market) ───────────────
 
-interface RateEntry {
-  rate: number;
-  expiresAt: number;
+const AXLINK_SANDBOX_RATES: Record<string, number> = {
+  KES:   129.00,   // 1 USD = 129 KES
+  UGX:  3745.00,   // 1 USD = 3,745 UGX
+  NGN:  1587.00,   // 1 USD = 1,587 NGN
+  GHS:    16.10,   // 1 USD = 16.1 GHS
+  ZAR:    18.50,   // 1 USD = 18.5 ZAR
+  TZS:  2680.00,   // 1 USD = 2,680 TZS
+  GBP:     0.787,  // 1 USD = 0.787 GBP
+  EUR:     0.926,  // 1 USD = 0.926 EUR
+  CAD:     1.370,  // 1 USD = 1.37 CAD
+  USD:     1.000,
+  USDT:    1.000,  // USD = USDT 1:1 always
+};
+
+function usdUnitsFor(currency: string): number {
+  const rate = AXLINK_SANDBOX_RATES[currency];
+  if (!rate) throw new Error(`AxLink FX: unsupported currency ${currency}`);
+  return rate;
 }
 
-const rateCache = new Map<string, RateEntry>();
-const CACHE_TTL_MS = 30_000; // 30 seconds (B2BinPay caches server-side too)
-
-function cacheKey(from: string, to: string) {
-  return `${from}:${to}`;
+function normalise(c: string): string {
+  return c.toUpperCase()
+    .replace('USDT_SOL', 'USDT')
+    .replace('USDT_TRX', 'USDT')
+    .replace('USDT_ERC20', 'USDT');
 }
 
-// Returns how many units of `to` you get per 1 unit of `from`
+// ── Core rate function ────────────────────────────────────────────────────────
+// Returns how many units of `to` you get per 1 unit of `from`.
+// Cross-rate via USD: from → USD → to
+// 1 fromN = (1 / usdUnits(fromN)) USD = (usdUnits(toN) / usdUnits(fromN)) toN
+
 export async function getRate(from: string, to: string): Promise<number> {
   const fromN = normalise(from);
-  const toN = normalise(to);
-
+  const toN   = normalise(to);
   if (fromN === toN) return 1;
-
-  // USD ↔ USDT always 1:1
-  if (USD_PAIRS.includes(fromN) && USD_PAIRS.includes(toN)) return 1;
-
-  const key = cacheKey(fromN, toN);
-  const cached = rateCache.get(key);
-  if (cached && Date.now() < cached.expiresAt) return cached.rate;
-
-  // Fetch from B2BinPay — they quote as left/right
-  // e.g. left=GBP right=USDT → bid/ask are GBP per USDT
-  const left = fromN === 'USDT' || fromN === 'USD' ? toN : fromN;
-  const res = await getRates([left]) as {
-    data?: { attributes?: { left: string; right: string; bid: string; ask: string } }[]
-  };
-
-  const items = res.data ?? [];
-  let rate = 1;
-
-  for (const item of items) {
-    const a = item.attributes;
-    if (!a) continue;
-    const mid = (parseFloat(a.bid) + parseFloat(a.ask)) / 2;
-
-    // B2BinPay returns: left=GBP, right=USDT, bid/ask = price of 1 GBP in USDT
-    const k1 = cacheKey(a.left, a.right);
-    const k2 = cacheKey(a.right, a.left);
-    const exp = Date.now() + CACHE_TTL_MS;
-
-    rateCache.set(k1, { rate: mid, expiresAt: exp });
-    rateCache.set(k2, { rate: 1 / mid, expiresAt: exp });
-
-    if (k1 === key || (a.left === fromN && a.right === toN)) rate = mid;
-    if (k2 === key || (a.right === fromN && a.left === toN)) rate = 1 / mid;
-  }
-
-  return rate;
+  if ((fromN === 'USD' || fromN === 'USDT') && (toN === 'USD' || toN === 'USDT')) return 1;
+  return usdUnitsFor(toN) / usdUnitsFor(fromN);
 }
 
 // Convert amount from one currency to another
@@ -65,25 +60,66 @@ export async function convert(amount: number, from: string, to: string): Promise
   return parseFloat((amount * rate).toFixed(8));
 }
 
-// Convert any currency to USD base
+// Convert any amount to USD (AxLink internal value unit)
 export async function toUSD(amount: number, currency: string): Promise<number> {
-  return convert(amount, currency, 'USD');
+  const fromN = normalise(currency);
+  if (fromN === 'USD' || fromN === 'USDT') return amount;
+  return parseFloat((amount / usdUnitsFor(fromN)).toFixed(8));
 }
 
-// Convert USD base to local currency
+// Convert USD to a local currency
 export async function fromUSD(usdAmount: number, currency: string): Promise<number> {
-  return convert(usdAmount, 'USD', currency);
+  const toN = normalise(currency);
+  if (toN === 'USD' || toN === 'USDT') return usdAmount;
+  return parseFloat((usdAmount * usdUnitsFor(toN)).toFixed(8));
 }
 
-// USD = USDT 1:1 always
+// USD = USDT 1:1 (Fireblocks USDT vault — AxLink internal transport)
 export function usdToUsdt(usdAmount: number): number {
   return usdAmount;
 }
 
-function normalise(c: string): string {
-  return c.toUpperCase().replace('USDT_SOL', 'USDT').replace('USDT_TRX', 'USDT').replace('USDT_ERC20', 'USDT');
-}
-
-// Supported fiat currencies
+// Supported fiat corridors
 export const SUPPORTED_CURRENCIES = ['KES', 'NGN', 'GHS', 'ZAR', 'UGX', 'TZS', 'GBP', 'EUR', 'USD'] as const;
 export type SupportedCurrency = typeof SUPPORTED_CURRENCIES[number];
+
+// ── AxLink Internal LP ────────────────────────────────────────────────────────
+// The built-in fallback LP — always responds to any pair in the rate table.
+// Other LPs (B2BinPay, future) can outbid this rate.
+// Ensures the RFQ system always has at least one respondent.
+
+import type { ILiquidityProvider, LPRate, LPQuote } from './lp.interface';
+
+const AXLINK_ALL_CURRENCIES = new Set(Object.keys(AXLINK_SANDBOX_RATES));
+
+export const axlinkInternalLP: ILiquidityProvider = {
+  id:   'axlink',
+  name: 'AxLink Internal',
+
+  supportsRate(from: string, to: string): boolean {
+    return AXLINK_ALL_CURRENCIES.has(from.toUpperCase()) && AXLINK_ALL_CURRENCIES.has(to.toUpperCase());
+  },
+
+  async getRate(from: string, to: string): Promise<LPRate> {
+    const mid    = await getRate(from, to);
+    const spread = mid * 0.002;
+    const now    = Date.now();
+    return { bid: mid - spread, ask: mid + spread, mid, spread: spread * 2, spreadPct: (spread * 2) / mid, fetchedAt: now, source: 'axlink' };
+  },
+
+  async requestQuote(from: string, to: string, fromAmount: number): Promise<LPQuote> {
+    const mid    = await getRate(from, to);
+    const spread = mid * 0.004; // 0.4% axlink internal spread (external LPs often beat this)
+    const rate   = mid - spread;
+    return {
+      id:         `axlink_q_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      from:       from.toUpperCase(),
+      to:         to.toUpperCase(),
+      fromAmount,
+      toAmount:   parseFloat((fromAmount * rate).toFixed(8)),
+      rate,
+      validUntil: Date.now() + 30_000,
+      source:     'axlink',
+    };
+  },
+};

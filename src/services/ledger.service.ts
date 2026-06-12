@@ -2,8 +2,22 @@ import { PrismaClient, Prisma } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { toUSD } from './fx.service';
 
-const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL ?? '' });
-const prisma = new PrismaClient({ adapter } as ConstructorParameters<typeof PrismaClient>[0]);
+// PrismaPg adapter requires a standard postgres:// URL, not prisma+postgres://.
+// Lazy init so env vars are loaded (dotenv runs in index.ts before first request).
+let _prisma: PrismaClient | null = null;
+function getPrisma(): PrismaClient {
+  if (!_prisma) {
+    const pgUrl = process.env.DIRECT_DATABASE_URL ?? process.env.DATABASE_URL ?? '';
+    const adapter = new PrismaPg({ connectionString: pgUrl });
+    _prisma = new PrismaClient({ adapter } as ConstructorParameters<typeof PrismaClient>[0]);
+  }
+  return _prisma;
+}
+const prisma = new Proxy({} as PrismaClient, {
+  get(_target, prop) {
+    return (getPrisma() as unknown as Record<string | symbol, unknown>)[prop];
+  },
+});
 
 // ── User & account management ─────────────────────────────────────────────────
 

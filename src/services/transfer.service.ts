@@ -10,10 +10,11 @@ const USDT_ASSET = process.env.FIREBLOCKS_USDT_ASSET ?? 'USDT_SOL';
 const B2B_WALLET_ID = process.env.B2BINPAY_WALLET_ID ?? '';
 
 // ── Decision logic ────────────────────────────────────────────────────────────
+// same_currency : pure AxLink ledger debit/credit — no FX, no external rails
+// cross_currency: AxLink FX engine — USD internal value, B2BinPay + Fireblocks
 
-function flowType(fromCurr: string, toCurr: string): '0_b2b' | '2_b2b' {
-  const norm = (c: string) => c.toUpperCase();
-  return norm(fromCurr) === norm(toCurr) ? '0_b2b' : '2_b2b';
+function flowType(fromCurr: string, toCurr: string): 'same_currency' | 'cross_currency' {
+  return fromCurr.toUpperCase() === toCurr.toUpperCase() ? 'same_currency' : 'cross_currency';
 }
 
 // ── Main transfer orchestrator ────────────────────────────────────────────────
@@ -39,101 +40,106 @@ export async function executeTransfer(params: {
   // 2. Balance check
   await checkSufficientBalance(senderId, fromCurrency, amount);
 
-  // 3. Resolve amounts — use locked quote if provided, otherwise fetch live rate
-  let quote: Quote;
-  if (quoteId) {
-    // JIT path: consume the pre-locked quote (throws if expired or already used)
-    quote = consumeQuote(quoteId);
-    if (quote.fromCurrency !== fromCurrency.toUpperCase() ||
-        quote.toCurrency !== toCurrency.toUpperCase()) {
-      throw new Error('Quote currency mismatch — create a new quote for this pair');
-    }
-    if (Math.abs(quote.fromAmount - amount) > 0.0001) {
-      throw new Error('Quote amount mismatch — create a new quote for this amount');
-    }
-  } else {
-    // Non-JIT fallback: create a spot quote on the fly
-    quote = await createQuote({ fromCurrency, toCurrency, fromAmount: amount });
-  }
-
-  const { toAmount, usdAmount, usdtAmount, rate: fxRate } = quote;
   const flow = flowType(fromCurrency, toCurrency);
+
+  // 3. Resolve amounts
+  //    same_currency: no FX needed — recipient gets exactly what sender sends
+  //    cross_currency: quote locks the rate (JIT or spot)
+  let toAmount: number;
+  let usdAmount: number;
+  let usdtAmount: number;
+  let fxRate: number | null = null;
+
+  if (flow === 'same_currency') {
+    toAmount   = amount;
+    usdAmount  = await toUSD(amount, fromCurrency);
+    usdtAmount = usdToUsdt(usdAmount);
+    // fxRate stays null — no conversion applied
+  } else {
+    let quote: Quote;
+    if (quoteId) {
+      quote = consumeQuote(quoteId);
+      if (quote.fromCurrency !== fromCurrency.toUpperCase() ||
+          quote.toCurrency   !== toCurrency.toUpperCase()) {
+        throw new Error('Quote currency mismatch — create a new quote for this pair');
+      }
+      if (Math.abs(quote.fromAmount - amount) > 0.0001) {
+        throw new Error('Quote amount mismatch — create a new quote for this amount');
+      }
+    } else {
+      quote = await createQuote({ fromCurrency, toCurrency, fromAmount: amount });
+    }
+    toAmount   = quote.toAmount;
+    usdAmount  = quote.usdAmount;
+    usdtAmount = quote.usdtAmount;
+    fxRate     = quote.rate;
+  }
 
   // 4. Create transfer record
   const transfer = await prisma.transfer.create({
     data: {
-      trackingId,
-      senderId,
-      receiverId,
-      fromCurrency,
-      toCurrency,
-      fromAmount: amount,
-      toAmount,
-      usdAmount,
-      usdtAmount,
-      fxRate,
-      note,
-      status: 'PROCESSING',
+      trackingId, senderId, receiverId,
+      fromCurrency, toCurrency,
+      fromAmount: amount, toAmount, usdAmount, usdtAmount,
+      fxRate: fxRate ?? undefined,
+      note, status: 'PROCESSING',
     },
   });
 
-  await audit('Transfer', transfer.id, 'CREATED', { flow, usdAmount, usdtAmount });
+  await audit('Transfer', transfer.id, 'CREATED', { flow, usdAmount });
 
   try {
-    // 5. Atomic ledger debit
-    await prisma.$transaction(async (tx: Parameters<typeof debit>[0]) => {
-      await debit(tx, senderId, fromCurrency, amount);
-    });
-
-    let onrampId: string | undefined;
-    let offrampId: string | undefined;
-    let fbTxId: string | undefined;
-
-    if (flow === '0_b2b') {
-      // ── SAME CURRENCY: 0 B2BinPay, 1 Fireblocks ──────────────────────────
-      // USD = USDT 1:1 — just move vaults
-      const fbTx = await fbTransfer({
-        assetId: USDT_ASSET,
-        amount: usdtAmount.toString(),
-        sourceVaultId: sender.vaultId,
-        destVaultId: receiver.vaultId,
-        note: note ?? `FinCruse transfer ${trackingId}`,
-        externalTxId: trackingId,
+    if (flow === 'same_currency') {
+      // ── SAME CURRENCY ─────────────────────────────────────────────────────
+      // Pure AxLink ledger operation — no AxLink FX engine, no external rails.
+      // Debit and credit happen atomically in one transaction.
+      await prisma.$transaction(async (tx: Parameters<typeof debit>[0]) => {
+        await debit(tx, senderId, fromCurrency, amount);
+        await credit(tx, receiverId, toCurrency, toAmount);
       });
-      fbTxId = fbTx?.id as string | undefined;
 
     } else {
-      // ── CROSS-CURRENCY: 2 B2BinPay + 1 Fireblocks ────────────────────────
+      // ── CROSS-CURRENCY ────────────────────────────────────────────────────
+      // AxLink FX engine: KES → USD (internal) → UGX
+      // External rails handle fiat in/out at the edges.
 
-      // Step A: B2BinPay on-ramp — create deposit for fromCurrency amount
+      // Debit sender
+      await prisma.$transaction(async (tx: Parameters<typeof debit>[0]) => {
+        await debit(tx, senderId, fromCurrency, amount);
+      });
+
+      let onrampId: string | undefined;
+      let offrampId: string | undefined;
+      let fbTxId: string | undefined;
+
+      // Step A: B2BinPay on-ramp
       const deposit = await createDeposit({
         walletId: B2B_WALLET_ID,
         trackingId: `onramp_${trackingId}`,
         callbackUrl: CALLBACK_URL,
-        label: `FinCruse onramp ${trackingId}`,
+        label: `AxLink onramp ${trackingId}`,
         confirmationsNeeded: 1,
       });
       onrampId = deposit.id;
 
-      // Step B: Fireblocks vault-to-vault (USDT)
+      // Step B: Internal value bridge (USD unit via Fireblocks)
       const fbTx = await fbTransfer({
         assetId: USDT_ASSET,
         amount: usdtAmount.toString(),
         sourceVaultId: sender.vaultId,
         destVaultId: receiver.vaultId,
-        note: `FinCruse cross-border ${trackingId}`,
+        note: `AxLink cross-border ${trackingId}`,
         externalTxId: trackingId,
       });
       fbTxId = fbTx?.id as string | undefined;
 
-      // Step C: B2BinPay off-ramp — payout in toCurrency
+      // Step C: B2BinPay off-ramp
       const estimate = await calculatePayoutFee({
         walletId: B2B_WALLET_ID,
         address: receiver.vaultId,
         amount: toAmount.toString(),
         currencyId: toCurrency,
       });
-
       const payout = await createPayout({
         walletId: B2B_WALLET_ID,
         currencyId: toCurrency,
@@ -143,30 +149,31 @@ export async function executeTransfer(params: {
         trackingId: `offramp_${trackingId}`,
         callbackUrl: CALLBACK_URL,
         idempotencyKey: randomUUID(),
-        label: `FinCruse offramp ${trackingId}`,
+        label: `AxLink offramp ${trackingId}`,
       });
       offrampId = payout.id;
+
+      // Credit receiver
+      await prisma.$transaction(async (tx: Parameters<typeof debit>[0]) => {
+        await credit(tx, receiverId, toCurrency, toAmount);
+      });
+
+      await prisma.transfer.update({
+        where: { id: transfer.id },
+        data: { onrampId, offrampId, fbTxId },
+      });
     }
 
-    // 6. Atomic ledger credit
-    await prisma.$transaction(async (tx: Parameters<typeof debit>[0]) => {
-      await credit(tx, receiverId, toCurrency, toAmount);
-    });
-
-    // 7. Mark completed
     const completed = await prisma.transfer.update({
       where: { id: transfer.id },
-      data: { status: 'COMPLETED', onrampId, offrampId, fbTxId },
+      data: { status: 'COMPLETED' },
     });
 
     await audit('Transfer', transfer.id, 'STATUS_CHANGED', { status: 'COMPLETED' });
     return completed;
 
   } catch (err) {
-    await prisma.transfer.update({
-      where: { id: transfer.id },
-      data: { status: 'FAILED' },
-    });
+    await prisma.transfer.update({ where: { id: transfer.id }, data: { status: 'FAILED' } });
     await audit('Transfer', transfer.id, 'ERROR', { error: String(err) });
     throw err;
   }

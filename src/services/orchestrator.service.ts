@@ -23,11 +23,67 @@
 
 import { randomUUID } from 'crypto';
 import { prisma, debit, credit, checkSufficientBalance, getUser, audit } from './ledger.service';
-import { toUSD, usdToUsdt, fromUSD } from './fx.service';
+import { toUSD, usdToUsdt } from './fx.service';
 import { createDeposit, createPayout, calculatePayoutFee } from './b2binpay.service';
 import { createTransfer as fbTransfer } from './fireblocks.service';
 import { sendPayment, resolvePaymentType, type PaymentDestination } from './brainrock.service';
+import { sendTransfer as choiceBankTransfer, isChoiceBankCurrency, type ChoiceBankDestination } from './choicebank.service';
+import { sendB2C, isDarajaCurrency, normalizeMsisdn } from './daraja.service';
 import { consumeQuote, createQuote } from './quote.service';
+
+// ── Corridor routing ──────────────────────────────────────────────────────────
+// TZS/UGX     → Daraja (M-Pesa B2C)
+// NGN/GHS/ZAR/KES → Choice Bank (bank transfer — includes Kenya)
+// GBP/USD/EUR/CAD → Brainrock (Faster Payments / SEPA / ACH — EU, UK, USA, Canada)
+
+async function deliverFiat(params: {
+  destination: PaymentDestination;
+  amount: number;
+  currency: string;
+  reference: string;
+  description: string;
+}): Promise<{ provider: string; paymentId: string }> {
+  const { destination, amount, currency, reference, description } = params;
+
+  if (isDarajaCurrency(currency)) {
+    // M-Pesa B2C — requires a mobile number
+    const phone = destination.mobileNumber;
+    if (!phone) throw new Error(`M-Pesa payout requires mobileNumber for ${currency}`);
+    const result = await sendB2C({
+      amount,
+      phoneNumber: normalizeMsisdn(phone),
+      reference,
+      occasion: description,
+    });
+    return { provider: 'daraja', paymentId: result.ConversationID };
+  }
+
+  if (isChoiceBankCurrency(currency)) {
+    // Choice Bank Nigeria — requires bank account details
+    const cbDest: ChoiceBankDestination = {
+      accountNumber: destination.bankAccountNumber ?? destination.accountNumber ?? '',
+      bankCode:      destination.bankCode ?? '',
+      accountName:   destination.name,
+      currency:      currency as import('./choicebank.service').ChoiceBankCurrency,
+    };
+    if (!cbDest.accountNumber || !cbDest.bankCode) {
+      throw new Error(`Choice Bank payout requires accountNumber + bankCode for ${currency}`);
+    }
+    const result = await choiceBankTransfer({ destination: cbDest, amount, reference, narration: description });
+    return { provider: 'choicebank', paymentId: result.id };
+  }
+
+  // Brainrock — GBP, USD, EUR, CAD, AED
+  const result = await sendPayment({
+    fromAccountId: BRAINROCK_TREASURY,
+    destination: { ...destination, type: destination.type ?? resolvePaymentType(currency, destination) },
+    amount,
+    currency,
+    reference,
+    description,
+  });
+  return { provider: 'brainrock', paymentId: result.id };
+}
 
 const USDT_ASSET = process.env.FIREBLOCKS_USDT_ASSET ?? 'USDT_SOL';
 const B2B_WALLET_ID = process.env.B2BINPAY_WALLET_ID ?? '';
@@ -225,9 +281,11 @@ export async function handleWithdrawalRequest(params: {
 
     await audit('Withdrawal', withdrawal.id, 'B2BINPAY_OFFRAMP_CREATED', { offrampId: b2bPayout.id });
 
-    // ── D: Brainrock — fiat from FinCruse treasury → user's bank/M-Pesa ──
-    const brainrockPayment = await sendPayment({
-      fromAccountId: BRAINROCK_TREASURY,
+    // ── D: Route fiat delivery by currency corridor ──────────────────────
+    // KES/TZS/UGX → Daraja M-Pesa B2C
+    // NGN/GHS/ZAR  → Choice Bank Nigeria bank transfer
+    // GBP/USD/EUR/CAD/AED → Brainrock Faster Payments / SEPA / ACH
+    const payout = await deliverFiat({
       destination: { ...destination, name: recipientName },
       amount,
       currency,
@@ -235,23 +293,30 @@ export async function handleWithdrawalRequest(params: {
       description: `FinCruse withdrawal ${trackingId}`,
     });
 
-    await audit('Withdrawal', withdrawal.id, 'BRAINROCK_PAYOUT_SENT', {
-      brainrockPaymentId: brainrockPayment.id,
-      destination: destination.type,
+    await audit('Withdrawal', withdrawal.id, 'PAYOUT_SENT', {
+      provider:   payout.provider,
+      paymentId:  payout.paymentId,
+      destination: destination.type ?? currency,
     });
 
-    // Confirmation comes via Brainrock webhook (payment.sent / payment.failed)
+    // Confirmation arrives via provider webhook:
+    //   Daraja  → POST /webhooks/daraja/b2c/result
+    //   Choice Bank → POST /webhooks/choicebank
+    //   Brainrock   → POST /webhooks/brainrock
     const done = await prisma.withdrawal.update({
       where: { id: withdrawal.id },
       data: {
         status: 'PENDING_PAYOUT',
         fbTxId: fbTx?.id as string | undefined,
         offrampId: b2bPayout.id,
-        brainrockPaymentId: brainrockPayment.id,
+        brainrockPaymentId: payout.paymentId,
       },
     });
 
-    await audit('Withdrawal', withdrawal.id, 'PENDING_PAYOUT', { brainrockPaymentId: brainrockPayment.id });
+    await audit('Withdrawal', withdrawal.id, 'PENDING_PAYOUT', {
+      provider:  payout.provider,
+      paymentId: payout.paymentId,
+    });
     return done;
 
   } catch (err) {
@@ -362,20 +427,14 @@ export async function handleP2PTransfer(params: {
       });
       offrampId = pay.id;
 
-      // Brainrock: deliver local fiat to receiver's bank/M-Pesa (if destination provided)
-      // If no destination, credit receiver's FinCruse ledger (they can withdraw later)
+      // Route fiat delivery to receiver via correct corridor (if destination provided).
+      // If no destination, receiver stays on FinCruse ledger and can withdraw later.
       if (receiverDestination) {
-        const dest = {
-          ...receiverDestination,
-          name: receiver.name,
-          type: receiverDestination.type ?? resolvePaymentType(toCurrency, receiverDestination),
-        };
-        await sendPayment({
-          fromAccountId: BRAINROCK_TREASURY,
-          destination: dest,
-          amount: toAmount,
-          currency: toCurrency,
-          reference: `p2p_${trackingId}`,
+        await deliverFiat({
+          destination: { ...receiverDestination, name: receiver.name },
+          amount:      toAmount,
+          currency:    toCurrency,
+          reference:   `p2p_${trackingId}`,
           description: `FinCruse transfer from ${sender.name}`,
         });
       }

@@ -1,28 +1,28 @@
 import { randomUUID } from 'crypto';
-import { getRates } from './b2binpay.service';
 import { toUSD, usdToUsdt } from './fx.service';
+import { broadcastRFQ, getRegisteredLPs } from './lp-registry.service';
+import type { LPQuote } from './lp.interface';
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
-const QUOTE_TTL_MS   = 30_000;
-const RATE_CACHE_MS  = 10_000;
+const QUOTE_TTL_MS  = 30_000;
+const RATE_CACHE_MS = 10_000;
 
 // ── FinCruse Revenue Model ────────────────────────────────────────────────────
 //
-// FinCruse does NOT charge a per-transaction fee to users.
-// Revenue = FX spread markup baked into the rate shown to users.
+// Revenue = FX spread markup baked into the rate — no visible fee to users.
 //
 // Flow:
-//   1. B2BinPay gives FinCruse the institutional mid-market rate (very tight spread)
+//   1. LP Registry returns the best institutional mid-market rate
 //   2. FinCruse adds a small spread markup → this is the rate the user sees
-//   3. User sees a clean rate with NO fee line — like a traditional bank
-//   4. B2BinPay charges FinCruse per transaction at institutional grade
-//   5. FinCruse profit = spread revenue - B2BinPay institutional fee
+//   3. No fee line — rate already includes our margin (like a bank)
+//   4. LP charges FinCruse at institutional grade per transaction
+//   5. FinCruse profit = spread revenue − LP per-tx cost − Solana gas
 
-// FinCruse markup on top of B2BinPay institutional rate (corridor-specific)
+// Corridor-specific spread markups (revenue per corridor)
 const SPREAD_MARKUP: Record<string, number> = {
-  'USD:KES': 0.018,   // 1.8% spread on USD→KES corridor
-  'USD:NGN': 0.022,   // 2.2% — higher risk corridor
+  'USD:KES': 0.018,   // 1.8%
+  'USD:NGN': 0.022,   // 2.2% — higher-risk corridor
   'USD:GHS': 0.020,
   'USD:UGX': 0.020,
   'USD:TZS': 0.020,
@@ -39,15 +39,15 @@ const SPREAD_MARKUP: Record<string, number> = {
   'USD:USD': 0.005,
 };
 
-// B2BinPay institutional cost per transaction
-const B2B_INSTITUTIONAL_PCT = 0.003;   // ~0.3% institutional spread from B2BinPay
-const SOLANA_GAS_USD        = 0.00025; // Solana transaction gas
+// Estimated LP per-tx cost (applies to whichever LP is selected by the registry)
+const LP_INSTITUTIONAL_PCT = 0.003;   // ~0.3%
+const SOLANA_GAS_USD        = 0.00025;
 
 function getSpreadMarkup(from: string, to: string): number {
   return SPREAD_MARKUP[`${from}:${to}`] ?? 0.018;
 }
 
-function getTraditionalComparison(from: string, to: string): { provider: string; totalCost: string; swiftCost: string } {
+function getTraditionalComparison(from: string, to: string) {
   const map: Record<string, { provider: string; totalCost: string; swiftCost: string }> = {
     'USD:KES': { provider: 'Western Union', totalCost: '3–5% + $5 fixed fee',      swiftCost: '$25–40' },
     'USD:NGN': { provider: 'Remitly',       totalCost: '3.5% + correspondent fee', swiftCost: '$15–30' },
@@ -68,21 +68,23 @@ export interface Quote {
   toCurrency: string;
   fromAmount: number;
   toAmount: number;
-  rate: number;              // locked rate shown to user
-  midRate: number;           // raw B2BinPay mid-market rate
-  platformFee: number;       // fee in fromCurrency
-  feePct: number;            // corridor fee %
+  rate: number;              // locked customer rate (LP rate minus AxLink spread)
+  midRate: number;           // LP winning rate (before AxLink spread)
+  lpSource: string;          // winning LP id
+  lpQuoteId: string;         // LP's own quote reference (for audit)
+  platformFee: number;       // always 0 — fee is in the spread
+  feePct: number;
   usdAmount: number;
-  usdtAmount: number;
+  usdtAmount: number;        // USD = USDT 1:1 (Fireblocks vault — AxLink internal transport)
   expiresAt: number;
   expiresInSeconds: number;
   status: QuoteStatus;
   createdAt: number;
   margin: {
-    revenueUsd: number;       // what FinCruse earns (USD)
-    costUsd: number;          // B2BinPay spread + Solana gas
-    profitUsd: number;        // revenue - cost
-    swiftSaved: number;       // SWIFT fee we didn't pay
+    revenueUsd: number;
+    costUsd: number;
+    profitUsd: number;
+    swiftSaved: number;
     traditionalProvider: string;
     traditionalFee: string;
   };
@@ -92,7 +94,7 @@ export interface Quote {
 
 const quotes = new Map<string, Quote>();
 
-// Clean up expired quotes every 60s
+// Remove quotes >60s past expiry — prevents unbounded growth
 setInterval(() => {
   const now = Date.now();
   for (const [id, q] of quotes) {
@@ -100,47 +102,44 @@ setInterval(() => {
   }
 }, 60_000);
 
-// ── Rate cache (avoid hammering B2BinPay on every quote) ─────────────────────
+// ── Rate cache — short-lived to avoid hammering the LP on rapid quote requests ─
 
-interface RateCacheEntry { mid: number; fetchedAt: number }
-const rateCache = new Map<string, RateCacheEntry>();
+interface CacheEntry { mid: number; fetchedAt: number; source: string }
+const rateCache = new Map<string, CacheEntry>();
 
-async function fetchMidRate(from: string, to: string): Promise<number> {
+// RFQ cache — avoid hammering LPs on rapid quote requests
+// Cache stores the winning LP quote for short dedup window
+interface RFQCacheEntry { lpQuote: LPQuote; fetchedAt: number; source: string }
+const rfqCache = new Map<string, RFQCacheEntry>();
+
+async function fetchBestQuote(
+  from: string,
+  to: string,
+  fromAmount: number,
+): Promise<{ lpQuote: LPQuote; source: string }> {
   const fromN = from.toUpperCase();
-  const toN = to.toUpperCase();
-
-  if (fromN === toN) return 1;
-  if ((fromN === 'USD' || fromN === 'USDT') && (toN === 'USD' || toN === 'USDT')) return 1;
-
-  const key = `${fromN}:${toN}`;
-  const cached = rateCache.get(key);
-  if (cached && Date.now() - cached.fetchedAt < RATE_CACHE_MS) return cached.mid;
-
-  // B2BinPay quotes left currency in right currency terms
-  // e.g. left=GBP → rate is "how much USDT per 1 GBP"
-  const left = (fromN === 'USD' || fromN === 'USDT') ? toN : fromN;
-  const res = await getRates([left]) as {
-    data?: { attributes?: { left: string; right: string; bid: string; ask: string } }[]
-  };
-
-  let mid = 1;
-  for (const item of res.data ?? []) {
-    const a = item.attributes;
-    if (!a) continue;
-    const m = (parseFloat(a.bid) + parseFloat(a.ask)) / 2;
-    const k1 = `${a.left.toUpperCase()}:${a.right.toUpperCase()}`;
-    const k2 = `${a.right.toUpperCase()}:${a.left.toUpperCase()}`;
-    const now = Date.now();
-    rateCache.set(k1, { mid: m, fetchedAt: now });
-    rateCache.set(k2, { mid: 1 / m, fetchedAt: now });
-    if (k1 === key) mid = m;
-    if (k2 === key) mid = 1 / m;
+  const toN   = to.toUpperCase();
+  if (fromN === toN) {
+    const stub: LPQuote = { id: 'same', from: fromN, to: toN, fromAmount, toAmount: fromAmount, rate: 1, validUntil: Date.now() + 30_000, source: 'identity' };
+    return { lpQuote: stub, source: 'identity' };
   }
 
-  return mid;
+  const key    = `${fromN}:${toN}:${Math.round(fromAmount)}`;
+  const cached = rfqCache.get(key);
+  if (cached && Date.now() - cached.fetchedAt < RATE_CACHE_MS) {
+    return { lpQuote: cached.lpQuote, source: cached.source };
+  }
+
+  // JIT RFQ — broadcast to all registered LPs, take winner
+  const { quote, winner } = await broadcastRFQ(fromN, toN, fromAmount);
+  const entry: RFQCacheEntry = { lpQuote: quote, fetchedAt: Date.now(), source: winner.id };
+  rfqCache.set(key, entry);
+  return { lpQuote: quote, source: winner.id };
 }
 
 // ── Core: create a JIT quote ──────────────────────────────────────────────────
+// Rate is locked for QUOTE_TTL_MS (30s). consumeQuote() marks it single-use.
+// Zero pre-funded corridor: the locked rate is used atomically at execution time.
 
 export async function createQuote(params: {
   fromCurrency: string;
@@ -148,67 +147,56 @@ export async function createQuote(params: {
   fromAmount: number;
 }): Promise<Quote> {
   const { fromCurrency, toCurrency, fromAmount } = params;
-
   if (fromAmount <= 0) throw new Error('fromAmount must be greater than 0');
 
   const fromN = fromCurrency.toUpperCase();
   const toN   = toCurrency.toUpperCase();
 
-  // 1. Get B2BinPay institutional mid-market rate
-  const institutionalRate = await fetchMidRate(fromN, toN);
+  // 1. JIT RFQ — broadcast to all registered LPs, take winning quote
+  const { lpQuote, source: lpSource } = await fetchBestQuote(fromN, toN, fromAmount);
 
-  // 2. FinCruse spread markup — built into the rate, NO visible fee to user
-  const spreadPct   = getSpreadMarkup(fromN, toN);
-  const traditional = getTraditionalComparison(fromN, toN);
+  // 2. AxLink spread — baked on top of LP's winning rate (LP covers their cost internally)
+  const spreadPct    = getSpreadMarkup(fromN, toN);
+  const traditional  = getTraditionalComparison(fromN, toN);
+  const institutionalRate = lpQuote.rate;
+  const customerRate      = institutionalRate * (1 - spreadPct);
 
-  // 3. Customer rate = institutional rate × (1 - spread)
-  //    User sends full amount — no deduction — they just get a slightly off-market rate
-  const customerRate = institutionalRate * (1 - spreadPct);
+  // 3. Receiver amount at customer rate (LP delivers toAmount, AxLink applies spread)
+  const toAmount = parseFloat((fromAmount * customerRate).toFixed(8));
 
-  // 4. What receiver gets at customer rate (no fee deducted from sender amount)
-  const feeAmount      = 0;         // NO explicit fee charged
-  const amountAfterFee = fromAmount; // full amount converted
-
-  // 5. Receiver gets full amount at customer rate (no fee deducted)
-  const toAmount   = parseFloat((fromAmount * customerRate).toFixed(8));
-  const lockedRate = customerRate;
-
-  // 6. What receiver WOULD get at institutional rate (difference = FinCruse revenue)
-  const toAmountAtMid = parseFloat((fromAmount * institutionalRate).toFixed(8));
-
-  // 7. USD base + USDT for Fireblocks
+  // 4. USD + USDT equivalents for Fireblocks vault transport
   const usdAmount  = await toUSD(fromAmount, fromN);
   const usdtAmount = usdToUsdt(usdAmount);
 
-  // 8. Margin: FinCruse earns the spread difference, pays B2BinPay per-tx fee
-  const spreadRevenue = parseFloat((toAmountAtMid - toAmount).toFixed(4)); // in toCurrency
-  const spreadRevenueUsd = parseFloat((usdAmount * spreadPct).toFixed(4)); // in USD
-  const b2bCost    = parseFloat((usdAmount * B2B_INSTITUTIONAL_PCT + SOLANA_GAS_USD).toFixed(4));
-  const profitUsd  = parseFloat((spreadRevenueUsd - b2bCost).toFixed(4));
-  const swiftSaved = 25;
+  // 5. Margin calculation
+  const spreadRevenueUsd = parseFloat((usdAmount * spreadPct).toFixed(4));
+  const costUsd          = parseFloat((usdAmount * LP_INSTITUTIONAL_PCT + SOLANA_GAS_USD).toFixed(4));
+  const profitUsd        = parseFloat((spreadRevenueUsd - costUsd).toFixed(4));
 
-  const now = Date.now();
+  const now   = Date.now();
   const quote: Quote = {
-    id: randomUUID(),
-    fromCurrency: fromN,
-    toCurrency: toN,
+    id:              randomUUID(),
+    fromCurrency:    fromN,
+    toCurrency:      toN,
     fromAmount,
     toAmount,
-    rate: lockedRate,
-    midRate: institutionalRate,
-    platformFee: 0,           // NO fee charged to user
-    feePct: 0,
+    rate:            customerRate,
+    midRate:         institutionalRate,
+    lpSource,
+    lpQuoteId:       lpQuote.id,
+    platformFee:     0,
+    feePct:          0,
     usdAmount,
     usdtAmount,
-    expiresAt: now + QUOTE_TTL_MS,
+    expiresAt:       now + QUOTE_TTL_MS,
     expiresInSeconds: QUOTE_TTL_MS / 1000,
-    status: 'ACTIVE',
-    createdAt: now,
+    status:          'ACTIVE',
+    createdAt:       now,
     margin: {
       revenueUsd:          spreadRevenueUsd,
-      costUsd:             b2bCost,
+      costUsd,
       profitUsd,
-      swiftSaved,
+      swiftSaved:          25,
       traditionalProvider: traditional.provider,
       traditionalFee:      traditional.totalCost,
     },
@@ -230,56 +218,58 @@ export function getQuote(quoteId: string): Quote {
     quotes.set(quoteId, quote);
   }
 
-  return {
-    ...quote,
-    expiresInSeconds: Math.max(0, Math.floor((quote.expiresAt - now) / 1000)),
-  };
+  return { ...quote, expiresInSeconds: Math.max(0, Math.floor((quote.expiresAt - now) / 1000)) };
 }
 
-// ── Validate + lock quote for execution (atomic single-use) ───────────────────
+// ── Consume quote — atomic single-use gate (prevents double-spend) ────────────
 
 export function consumeQuote(quoteId: string): Quote {
   const quote = getQuote(quoteId);
 
   if (quote.status === 'EXPIRED') {
-    throw new Error(`Quote ${quoteId} has expired. Request a new quote.`);
+    throw new Error(`Quote ${quoteId} has expired — request a new quote.`);
   }
   if (quote.status === 'EXECUTED') {
-    throw new Error(`Quote ${quoteId} has already been used.`);
+    throw new Error(`Quote ${quoteId} already used.`);
   }
 
-  // Mark as executed immediately — prevents double-spend
   quote.status = 'EXECUTED';
   quotes.set(quoteId, quote);
-
   return quote;
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ── Response formatter ────────────────────────────────────────────────────────
 
 export function formatQuoteResponse(q: Quote) {
   const now = Date.now();
   return {
-    quoteId:     q.id,
-    status:      q.status,
-    from:        { currency: q.fromCurrency, amount: q.fromAmount },
-    to:          { currency: q.toCurrency,   amount: q.toAmount },
-    rate:        q.rate,
-    fee:         'No fee — rate includes our margin',   // transparent to user
-    revenueModel: {
-      type:                'FX spread — built into the rate',
-      institutionalRate:   q.midRate,   // what B2BinPay gives FinCruse
-      customerRate:        q.rate,       // what user sees
-      b2bInstitutionalFee: 'Per transaction at institutional grade (B2BinPay)',
-      fincruseRevenue:     `$${q.margin.revenueUsd} USD (spread)`,
-      b2bCost:             `$${q.margin.costUsd} USD (B2BinPay per-tx fee)`,
-      profitPerTx:         `$${q.margin.profitUsd} USD`,
-      swiftNotPaid:        `$${q.margin.swiftSaved} (not used)`,
-      solanGas:            `$${SOLANA_GAS_USD}`,
-      vsTraditional:       `${q.margin.traditionalProvider}: ${q.margin.traditionalFee} — we skip SWIFT entirely`,
+    quoteId:  q.id,
+    status:   q.status,
+    from:     { currency: q.fromCurrency, amount: q.fromAmount },
+    to:       { currency: q.toCurrency,   amount: q.toAmount },
+    rate:     q.rate,
+    fee:      'No fee — margin is in the exchange rate',
+    rfq: {
+      winningLP:       q.lpSource,
+      lpQuoteRef:      q.lpQuoteId,
+      lpRate:          q.midRate,
+      axlinkSpread:    `${(getSpreadMarkup(q.fromCurrency, q.toCurrency) * 100).toFixed(1)}%`,
+      customerRate:    q.rate,
+      registeredLPs:   getRegisteredLPs().map(l => l.name),
     },
-    expiresIn:   Math.max(0, Math.floor((q.expiresAt - now) / 1000)),
-    expiresAt:   new Date(q.expiresAt).toISOString(),
-    jit:         true,
+    revenueModel: {
+      type:             'FX spread (built into rate)',
+      fincruseRevenue:  `$${q.margin.revenueUsd} USD`,
+      lpCost:           `$${q.margin.costUsd} USD`,
+      profitPerTx:      `$${q.margin.profitUsd} USD`,
+      swiftNotPaid:     `$${q.margin.swiftSaved} (not used)`,
+      fireblocksGas:    `$${SOLANA_GAS_USD} (Solana/USDT)`,
+      vsTraditional:    `${q.margin.traditionalProvider}: ${q.margin.traditionalFee} — no SWIFT`,
+    },
+    expiresIn:    Math.max(0, Math.floor((q.expiresAt - now) / 1000)),
+    expiresAt:    new Date(q.expiresAt).toISOString(),
+    jit:          true,
+    zeroPrefund:  true,
+    settlement:   'USDT (Fireblocks / Solana) — AxLink internal',
   };
 }
