@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import Dashboard from './components/Dashboard'
 import Users from './components/Users'
-import Accounts from './components/Wallet'
+import Accounts from './components/Accounts'
 import Transfers from './components/Transfers'
 import Deposits from './components/Deposits'
 import Withdrawals from './components/Withdrawals'

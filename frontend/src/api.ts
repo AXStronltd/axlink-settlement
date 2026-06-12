@@ -14,9 +14,6 @@ async function req<T>(path: string, options?: RequestInit): Promise<T> {
 export type Health = { status: string; service: string; timestamp: string; sandbox: boolean; callbackBase: string }
 export const getHealth = () => req<Health>('/health')
 
-// ── Rates ─────────────────────────────────────────────────────────────────────
-export const getRates = (symbols: string) => req<unknown>(`/rates?symbols=${symbols}`)
-
 // ── Users ─────────────────────────────────────────────────────────────────────
 export type Account = { currency: string; balance: number; balanceUsd: number }
 export type User = {
@@ -87,6 +84,3 @@ export const simulateDeposit = (currency: string, amount: number, rail: string) 
 export const simulateWithdraw = (currency: string, amount: number, rail: string) =>
   req<{ steps: SimStep[] }>(`/simulate/withdraw?currency=${currency}&amount=${amount}&rail=${rail}`)
 
-// ── Demo ──────────────────────────────────────────────────────────────────────
-export const getDemoSteps = (from: string, to: string, amount: number, sender: string, receiver: string) =>
-  req<{ summary: Record<string, unknown>; steps: unknown[] }>(`/demo/steps?from=${from}&to=${to}&amount=${amount}&sender=${encodeURIComponent(sender)}&receiver=${encodeURIComponent(receiver)}`)
