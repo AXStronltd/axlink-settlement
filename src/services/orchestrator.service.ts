@@ -30,6 +30,15 @@ import { sendPayment, resolvePaymentType, type PaymentDestination } from './brai
 import { sendTransfer as choiceBankTransfer, isChoiceBankCurrency, type ChoiceBankDestination } from './choicebank.service';
 import { sendB2C, isDarajaCurrency, normalizeMsisdn } from './daraja.service';
 import { consumeQuote, createQuote } from './quote.service';
+import { requestValidation, type PaymentType } from './kafka.service';
+
+// Validate via event bus before any ledger write. Throws if rejected.
+async function validateOrReject(type: PaymentType, payload: Parameters<typeof requestValidation>[0]['payload']): Promise<void> {
+  const result = await requestValidation({ type, payload });
+  if (!result.approved) {
+    throw Object.assign(new Error(result.reason ?? 'Payment rejected by validator'), { code: 'PAYMENT_REJECTED', statusCode: 422 });
+  }
+}
 
 // ── Corridor routing ──────────────────────────────────────────────────────────
 // TZS/UGX     → Daraja (M-Pesa B2C)
@@ -104,6 +113,10 @@ export async function handleFiatArrived(event: {
   railReference: string;  // M-Pesa transaction ID, bank ref, etc.
 }) {
   const { userId, currency, amount, rail, railReference } = event;
+
+  // ── Kafka validation gate — must pass before any DB write ────────────────
+  await validateOrReject('DEPOSIT', { userId, currency, amount, rail });
+
   const trackingId = `dep_${randomUUID()}`;
 
   const user = await getUser(userId);
@@ -213,6 +226,10 @@ export async function handleWithdrawalRequest(params: {
   recipientName: string;
 }) {
   const { userId, currency, amount, destination, recipientName } = params;
+
+  // ── Kafka validation gate — must pass before any DB write ────────────────
+  await validateOrReject('WITHDRAWAL', { userId, currency, amount, destination: destination as unknown as Record<string, unknown> });
+
   const trackingId = `wdr_${randomUUID()}`;
 
   const user = await getUser(userId);
@@ -342,6 +359,10 @@ export async function handleP2PTransfer(params: {
   receiverDestination?: PaymentDestination; // for cross-border: where receiver gets fiat
 }) {
   const { senderId, receiverId, fromCurrency, toCurrency, amount, quoteId, note, receiverDestination } = params;
+
+  // ── Kafka validation gate — must pass before any DB write ────────────────
+  await validateOrReject('P2P_TRANSFER', { senderId, receiverId, fromCurrency, toCurrency, amount });
+
   const trackingId = `p2p_${randomUUID()}`;
   const sameCurrency = fromCurrency.toUpperCase() === toCurrency.toUpperCase();
 

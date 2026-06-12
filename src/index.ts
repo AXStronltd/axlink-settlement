@@ -14,6 +14,11 @@ dotenv.config();
 // Register liquidity providers — must run after dotenv so credentials are loaded
 import('./services/lp-bootstrap');
 
+// Start Kafka validation consumer — gates every payment before ledger write
+import('./services/payment-validator.service').then(m => m.startPaymentValidator()).catch(err =>
+  console.error('[startup] Payment validator failed to start:', err)
+);
+
 // Fail fast on missing required env vars
 const REQUIRED_ENV = ['DATABASE_URL', 'API_BASE_URL'];
 const missing = REQUIRED_ENV.filter(k => !process.env[k]);
@@ -85,6 +90,13 @@ app.use('/api/webhooks', choicebankRoutes);
 // Global error handler
 app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
   const msg = err instanceof Error ? err.message : String(err);
+
+  // Payment validation rejections return 422, not 500
+  if (err && typeof err === 'object' && (err as Record<string, unknown>).code === 'PAYMENT_REJECTED') {
+    res.status(422).json({ error: msg, code: 'PAYMENT_REJECTED' });
+    return;
+  }
+
   if (err && typeof err === 'object' && 'errors' in err) {
     const agg = err as { errors: unknown[] };
     agg.errors.forEach((e, i) => console.error(`  [${i}]`, e instanceof Error ? e.message : String(e)));
