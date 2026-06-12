@@ -171,6 +171,90 @@ export function verifyWebhookSignature(rawBody: string, signatureHeader: string)
   }
 }
 
+// ── Card Issuance ─────────────────────────────────────────────────────────────
+// Brainrock (or any card provider) issues a virtual or physical debit card
+// linked to FinCruse's program. Authorization webhooks come back to AxLink.
+
+export interface CardDetails {
+  id:       string;    // store as Card.providerCardId
+  last4:    string;
+  brand:    'visa' | 'mastercard';
+  cardType: 'virtual' | 'physical';
+  currency: string;
+  status:   'ACTIVE' | 'FROZEN' | 'CANCELLED';
+}
+
+function isBrainrockConfigured(): boolean {
+  const key = process.env.BRAINROCK_API_KEY ?? '';
+  return !!(key && !key.startsWith('your_') && !key.startsWith('YOUR_'));
+}
+
+function sandboxCard(userId: string, currency: string, cardType: 'virtual' | 'physical'): CardDetails {
+  return {
+    id:       `card_sbx_${userId.slice(-8)}_${Date.now()}`,
+    last4:    String(1000 + Math.floor(Math.random() * 9000)).slice(0, 4),
+    brand:    'visa',
+    cardType,
+    currency,
+    status:   'ACTIVE',
+  };
+}
+
+export async function issueCard(params: {
+  userId: string;
+  currency: string;
+  cardType?: 'virtual' | 'physical';
+  cardholderName: string;
+}): Promise<CardDetails> {
+  const cardType = params.cardType ?? 'virtual';
+
+  if (!isBrainrockConfigured()) {
+    console.warn('[Brainrock] Not configured — returning sandbox stub card');
+    return sandboxCard(params.userId, params.currency, cardType);
+  }
+
+  const res = await apiFetch<{ data: CardDetails }>('/cards', {
+    method: 'POST',
+    body: JSON.stringify({
+      reference:       params.userId,
+      currency:        params.currency,
+      card_type:       cardType,
+      cardholder_name: params.cardholderName,
+      program_id:      process.env.BRAINROCK_CARD_PROGRAM_ID ?? '',
+    }),
+  });
+  return res.data;
+}
+
+export async function getCard(cardId: string): Promise<CardDetails> {
+  if (!isBrainrockConfigured()) return { id: cardId, last4: '0000', brand: 'visa', cardType: 'virtual', currency: 'USD', status: 'ACTIVE' };
+  const res = await apiFetch<{ data: CardDetails }>(`/cards/${cardId}`);
+  return res.data;
+}
+
+export async function freezeCard(cardId: string): Promise<CardDetails> {
+  if (!isBrainrockConfigured()) return { id: cardId, last4: '0000', brand: 'visa', cardType: 'virtual', currency: 'USD', status: 'FROZEN' };
+  const res = await apiFetch<{ data: CardDetails }>(`/cards/${cardId}/freeze`, { method: 'POST' });
+  return res.data;
+}
+
+export async function unfreezeCard(cardId: string): Promise<CardDetails> {
+  if (!isBrainrockConfigured()) return { id: cardId, last4: '0000', brand: 'visa', cardType: 'virtual', currency: 'USD', status: 'ACTIVE' };
+  const res = await apiFetch<{ data: CardDetails }>(`/cards/${cardId}/unfreeze`, { method: 'POST' });
+  return res.data;
+}
+
+// Respond to a Brainrock authorization request — must be called within 100ms
+// Returns the decision payload Brainrock expects back on its auth callback endpoint
+export function buildAuthDecision(approved: boolean, authorizationId: string, reason?: string) {
+  return {
+    authorization_id: authorizationId,
+    decision:         approved ? 'approved' : 'declined',
+    decline_reason:   reason ?? null,
+    timestamp:        new Date().toISOString(),
+  };
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 // Infer Brainrock payment type — EU/UK/USA/Canada only

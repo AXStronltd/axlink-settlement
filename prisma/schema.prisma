@@ -33,12 +33,13 @@ model User {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  accounts         Account[]
-  sentTransfers    Transfer[]   @relation("sender")
-  receivedTransfers Transfer[]  @relation("receiver")
-  withdrawals      Withdrawal[]
-  bankDeposits     BankDeposit[]
-  cryptoBuys       CryptoBuy[]
+  accounts          Account[]
+  sentTransfers     Transfer[]          @relation("sender")
+  receivedTransfers Transfer[]          @relation("receiver")
+  withdrawals       Withdrawal[]
+  bankDeposits      BankDeposit[]
+  cryptoBuys        CryptoBuy[]
+  cards             Card[]
 }
 
 // One account per currency per user (KES, GBP, USD, NGN, etc.)
@@ -162,6 +163,47 @@ model ExchangeRate {
   expiresAt DateTime
 
   @@unique([fromCurr, toCurr])
+}
+
+// ── Cards ─────────────────────────────────────────────────────────────────────
+// Issued by Brainrock (or any card provider). One card per user initially.
+// Debit on authorization, credit on reversal — no separate hold mechanism.
+
+model Card {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id])
+  providerCardId  String   @unique   // Brainrock / issuer card ID
+  last4           String             // last 4 digits shown in app
+  brand           String             // "visa" | "mastercard"
+  cardType        String   @default("virtual")  // "virtual" | "physical"
+  currency        String             // primary spending currency (debit currency)
+  status          String   @default("ACTIVE")   // ACTIVE | FROZEN | CANCELLED
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  authorizations  CardAuthorization[]
+}
+
+// Each Visa/MC authorization attempt — tracks status through the lifecycle
+model CardAuthorization {
+  id               String   @id @default(cuid())
+  cardId           String
+  card             Card     @relation(fields: [cardId], references: [id])
+  userId           String
+  providerAuthId   String   @unique   // issuer's authorization ID
+  amount           Decimal  @db.Decimal(20, 8)  // amount in spendCurrency
+  spendCurrency    String              // currency at point of sale
+  debitAmount      Decimal  @db.Decimal(20, 8)  // amount debited from user account (in debitCurrency)
+  debitCurrency    String              // user's account currency (may differ from spendCurrency)
+  fxRate           Decimal? @db.Decimal(20, 8)  // rate used if cross-currency spend
+  merchantName     String?
+  merchantCategory String?
+  status           String   @default("PENDING")
+  // PENDING | APPROVED | DECLINED | SETTLED | REVERSED
+  declineReason    String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 }
 
 // ── Settlement audit log ──────────────────────────────────────────────────────

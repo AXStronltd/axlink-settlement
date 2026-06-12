@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { executeTransfer, executeWithdrawal, executeBankDeposit, executeCryptoBuy } from '../services/transfer.service';
 import { prisma, getUser, createUser, getBalance } from '../services/ledger.service';
 import { createVaultAccount } from '../services/fireblocks.service';
-import { createVirtualAccount } from '../services/brainrock.service';
+import { createVirtualAccount, issueCard } from '../services/brainrock.service';
 import { SUPPORTED_CURRENCIES } from '../services/fx.service';
 
 const CURRENCY_COUNTRY: Record<string, string> = {
@@ -107,6 +107,69 @@ router.get('/users/:id/balance/:currency', async (req: Request, res: Response) =
     String(req.params['currency']).toUpperCase(),
   );
   res.json({ balance, currency: String(req.params['currency']).toUpperCase() });
+});
+
+// POST /api/users/:id/card — issue a debit card via Brainrock (or configured card provider)
+router.post('/users/:id/card', async (req: Request, res: Response) => {
+  const userId = String(req.params['id']);
+  const { cardType = 'virtual' } = req.body as { cardType?: 'virtual' | 'physical' };
+
+  const user = await getUser(userId);
+  if (user.kycStatus !== 'APPROVED') {
+    res.status(403).json({ error: 'KYC must be approved before issuing a card' });
+    return;
+  }
+
+  const existing = await prisma.card.findFirst({ where: { userId, status: { in: ['ACTIVE', 'FROZEN'] } } });
+  if (existing) {
+    res.status(409).json({ error: 'User already has an active card', cardId: existing.id, last4: existing.last4 });
+    return;
+  }
+
+  // Primary account currency drives the card debit currency
+  const primaryAccount = user.accounts[0];
+  if (!primaryAccount) {
+    res.status(400).json({ error: 'User has no account — create an account first' });
+    return;
+  }
+
+  const providerCard = await issueCard({
+    userId,
+    currency:       primaryAccount.currency,
+    cardType,
+    cardholderName: user.name,
+  });
+
+  const card = await prisma.card.create({
+    data: {
+      userId,
+      providerCardId: providerCard.id,
+      last4:          providerCard.last4,
+      brand:          providerCard.brand,
+      cardType:       providerCard.cardType,
+      currency:       providerCard.currency,
+      status:         'ACTIVE',
+    },
+  });
+
+  console.log(`[Card] Issued ${card.brand} *${card.last4} (${card.cardType}) to ${user.name} — spending currency: ${card.currency}`);
+
+  res.status(201).json({
+    cardId:   card.id,
+    last4:    card.last4,
+    brand:    card.brand,
+    cardType: card.cardType,
+    currency: card.currency,
+    status:   card.status,
+    message:  `${card.brand.charAt(0).toUpperCase() + card.brand.slice(1)} debit card issued. Spend anywhere ${card.brand === 'visa' ? 'Visa' : 'Mastercard'} is accepted.`,
+  });
+});
+
+// GET /api/users/:id/cards — list cards for a user
+router.get('/users/:id/cards', async (req: Request, res: Response) => {
+  const userId = String(req.params['id']);
+  const cards  = await prisma.card.findMany({ where: { userId }, orderBy: { createdAt: 'desc' } });
+  res.json({ cards });
 });
 
 // ── Transfers (user → user) ───────────────────────────────────────────────────
