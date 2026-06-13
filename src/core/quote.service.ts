@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto';
 import { toUSD, usdToUsdt } from './fx.service';
 import { broadcastRFQ, getRegisteredLPs } from './lp-registry.service';
+import { classifyRoute, getSpread, checkRateFloor, describeRoute } from './smart-router.service';
 import type { LPQuote } from './lp.interface';
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -10,42 +11,16 @@ const RATE_CACHE_MS = 10_000;
 
 // ── FinCruse Revenue Model ────────────────────────────────────────────────────
 //
-// Revenue = FX spread markup baked into the rate — no visible fee to users.
+// Spread is determined by the Smart Router based on route type:
+//   IDENTITY / STABLE → 0%      (same currency or USD↔USDT — no tax on 1:1 moves)
+//   MAJOR            → 0.5–0.8% (GBP/USD, EUR/USD — tight, deep-market pairs)
+//   CORRIDOR         → 1.5–2.2% (GBP/KES, USD/NGN — EM cross-border, thinner LP)
 //
-// Flow:
-//   1. LP Registry returns the best institutional mid-market rate
-//   2. FinCruse adds a small spread markup → this is the rate the user sees
-//   3. No fee line — rate already includes our margin (like a bank)
-//   4. LP charges FinCruse at institutional grade per transaction
-//   5. FinCruse profit = spread revenue − LP per-tx cost − Solana gas
-
-// Corridor-specific spread markups (revenue per corridor)
-const SPREAD_MARKUP: Record<string, number> = {
-  'USD:KES': 0.018,   // 1.8%
-  'USD:NGN': 0.022,   // 2.2% — higher-risk corridor
-  'USD:GHS': 0.020,
-  'USD:UGX': 0.020,
-  'USD:TZS': 0.020,
-  'USD:ZAR': 0.015,
-  'GBP:KES': 0.018,
-  'GBP:NGN': 0.022,
-  'GBP:GHS': 0.020,
-  'EUR:KES': 0.018,
-  'EUR:NGN': 0.022,
-  'GBP:USD': 0.008,   // major pair — tighter spread
-  'USD:GBP': 0.008,
-  'USD:EUR': 0.008,
-  'EUR:USD': 0.008,
-  'USD:USD': 0.005,
-};
+// Rate floor protection ensures LP mis-quotes never silently hurt the user.
 
 // Estimated LP per-tx cost (applies to whichever LP is selected by the registry)
 const LP_INSTITUTIONAL_PCT = 0.003;   // ~0.3%
 const SOLANA_GAS_USD        = 0.00025;
-
-function getSpreadMarkup(from: string, to: string): number {
-  return SPREAD_MARKUP[`${from}:${to}`] ?? 0.018;
-}
 
 function getTraditionalComparison(from: string, to: string) {
   const map: Record<string, { provider: string; totalCost: string; swiftCost: string }> = {
@@ -152,26 +127,73 @@ export async function createQuote(params: {
   const fromN = fromCurrency.toUpperCase();
   const toN   = toCurrency.toUpperCase();
 
+  // ── Smart Router: classify route before touching LPs ─────────────────────
+  const routeType = classifyRoute(fromN, toN);
+  console.log(`[SmartRouter] ${describeRoute(fromN, toN)}`);
+
+  // IDENTITY + STABLE → 1:1, no LP, no spread, no FX loss
+  if (routeType === 'IDENTITY' || routeType === 'STABLE') {
+    const usdAmount  = await toUSD(fromAmount, fromN);
+    const usdtAmount = usdToUsdt(usdAmount);
+    const now = Date.now();
+    const q: Quote = {
+      id: randomUUID(), fromCurrency: fromN, toCurrency: toN,
+      fromAmount, toAmount: fromAmount,
+      rate: 1, midRate: 1,
+      lpSource: routeType.toLowerCase(), lpQuoteId: `${routeType.toLowerCase()}_bypass`,
+      platformFee: 0, feePct: 0,
+      usdAmount, usdtAmount,
+      expiresAt: now + QUOTE_TTL_MS, expiresInSeconds: QUOTE_TTL_MS / 1000,
+      status: 'ACTIVE', createdAt: now,
+      margin: { revenueUsd: 0, costUsd: 0, profitUsd: 0, swiftSaved: 0, traditionalProvider: 'N/A', traditionalFee: '0%' },
+    };
+    quotes.set(q.id, q);
+    return q;
+  }
+
+  // MAJOR / CORRIDOR → JIT RFQ + Smart Router spread + rate floor guard
+
   // 1. JIT RFQ — broadcast to all registered LPs, take winning quote
   const { lpQuote, source: lpSource } = await fetchBestQuote(fromN, toN, fromAmount);
 
-  // 2. AxLink spread — baked on top of LP's winning rate (LP covers their cost internally)
-  const spreadPct    = getSpreadMarkup(fromN, toN);
-  const traditional  = getTraditionalComparison(fromN, toN);
+  // 2. Smart Router spread — corridor-aware, not a flat default
+  const spreadPct         = getSpread(fromN, toN);
+  const traditional       = getTraditionalComparison(fromN, toN);
   const institutionalRate = lpQuote.rate;
-  const customerRate      = institutionalRate * (1 - spreadPct);
 
-  // 3. Receiver amount at customer rate (LP delivers toAmount, AxLink applies spread)
+  // 3. Rate floor protection — reject if LP is quoting a bad rate
+  const floorCheck = checkRateFloor(institutionalRate, institutionalRate, fromN, toN);
+  if (!floorCheck.passed) {
+    throw Object.assign(
+      new Error(
+        `[SmartRouter] Rate protection triggered for ${fromN}→${toN}: ` +
+        `customer rate ${floorCheck.customerRate.toFixed(6)} is below floor ${floorCheck.floorRate.toFixed(6)} ` +
+        `(${(floorCheck.lossFromMid * 100).toFixed(2)}% loss from mid-market). ` +
+        `LP may be in a liquidity crunch. Trade blocked.`,
+      ),
+      { code: 'RATE_PROTECTION_TRIGGERED', statusCode: 422 },
+    );
+  }
+
+  const customerRate = institutionalRate * (1 - spreadPct);
+
+  // 4. Receiver amount at customer rate
   const toAmount = parseFloat((fromAmount * customerRate).toFixed(8));
 
-  // 4. USD + USDT equivalents for Fireblocks vault transport
+  // 5. USD + USDT equivalents for Fireblocks vault transport
   const usdAmount  = await toUSD(fromAmount, fromN);
   const usdtAmount = usdToUsdt(usdAmount);
 
-  // 5. Margin calculation
+  // 6. Margin calculation
   const spreadRevenueUsd = parseFloat((usdAmount * spreadPct).toFixed(4));
   const costUsd          = parseFloat((usdAmount * LP_INSTITUTIONAL_PCT + SOLANA_GAS_USD).toFixed(4));
   const profitUsd        = parseFloat((spreadRevenueUsd - costUsd).toFixed(4));
+
+  console.log(
+    `[SmartRouter] ${fromN}→${toN} ${routeType} ` +
+    `lpRate=${institutionalRate.toFixed(6)} spread=${(spreadPct * 100).toFixed(2)}% ` +
+    `customerRate=${customerRate.toFixed(6)} profitUsd=$${profitUsd}`,
+  );
 
   const now   = Date.now();
   const quote: Quote = {
@@ -253,7 +275,8 @@ export function formatQuoteResponse(q: Quote) {
       winningLP:       q.lpSource,
       lpQuoteRef:      q.lpQuoteId,
       lpRate:          q.midRate,
-      axlinkSpread:    `${(getSpreadMarkup(q.fromCurrency, q.toCurrency) * 100).toFixed(1)}%`,
+      axlinkSpread:    `${(getSpread(q.fromCurrency, q.toCurrency) * 100).toFixed(2)}%`,
+      routeType:       classifyRoute(q.fromCurrency, q.toCurrency),
       customerRate:    q.rate,
       registeredLPs:   getRegisteredLPs().map(l => l.name),
     },

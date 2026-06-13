@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
-import { verifyWebhookSignature, TRANSFER_STATUS } from '../services/b2binpay.service';
-import { verifyFireblocksWebhook, TX_STATUS } from '../services/fireblocks.service';
-import { prisma, credit } from '../services/ledger.service';
+import { verifyWebhookSignature, TRANSFER_STATUS } from '../providers/live/b2binpay';
+import { verifyFireblocksWebhook, TX_STATUS } from '../providers/live/fireblocks';
+import { prisma, credit } from '../core/ledger.service';
 
 const router = Router();
 
@@ -90,11 +90,14 @@ router.post(['/fireblocks', '/fireboks'], async (req: Request, res: Response) =>
     // Find the user by their vault ID
     const user = await prisma.user.findUnique({ where: { vaultId: destVaultId } });
     if (user) {
-      // Find matching deposit record
-      const deposit = await prisma.bankDeposit.findFirst({
-        where: { userId: user.id, status: 'PENDING_FIREBLOCKS' },
-        orderBy: { createdAt: 'desc' },
-      });
+      // Match deposit by trackingId (from externalTxId) when available — avoids
+      // ambiguity when multiple deposits are PENDING_FIREBLOCKS simultaneously.
+      const deposit = externalTxId.startsWith('dep_')
+        ? await prisma.bankDeposit.findUnique({ where: { trackingId: externalTxId } })
+        : await prisma.bankDeposit.findFirst({
+            where: { userId: user.id, status: 'PENDING_FIREBLOCKS' },
+            orderBy: { createdAt: 'desc' },
+          });
 
       if (deposit) {
         // ✅ USDT confirmed in Fireblocks vault — credit the user's fiat ledger

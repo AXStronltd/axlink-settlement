@@ -1,9 +1,9 @@
 import { Router, Request, Response } from 'express';
-import { executeTransfer, executeWithdrawal, executeBankDeposit, executeCryptoBuy } from '../services/transfer.service';
-import { prisma, getUser, createUser, getBalance } from '../services/ledger.service';
-import { createVaultAccount } from '../services/fireblocks.service';
-import { createVirtualAccount, issueCard } from '../services/brainrock.service';
-import { SUPPORTED_CURRENCIES } from '../services/fx.service';
+import { executeTransfer, executeWithdrawal, executeBankDeposit, executeCryptoBuy } from '../core/transfer.service';
+import { prisma, getUser, createUser, getBalance } from '../core/ledger.service';
+import { createVaultAccount } from '../providers/live/fireblocks';
+import { createVirtualAccount, issueCard } from '../providers/live/brainrock';
+import { SUPPORTED_CURRENCIES } from '../core/fx.service';
 
 const CURRENCY_COUNTRY: Record<string, string> = {
   GBP: 'GB', EUR: 'DE', USD: 'US', KES: 'KE',

@@ -1,8 +1,8 @@
 import { randomUUID } from 'crypto';
 import { prisma, debit, credit, checkSufficientBalance, getUser, audit } from './ledger.service';
 import { toUSD, fromUSD, usdToUsdt } from './fx.service';
-import { createDeposit, createPayout, calculatePayoutFee } from './b2binpay.service';
-import { createTransfer as fbTransfer } from './fireblocks.service';
+import { createDeposit, createPayout, calculatePayoutFee } from '../providers/live/b2binpay';
+import { createTransfer as fbTransfer } from '../providers/live/fireblocks';
 import { consumeQuote, createQuote, type Quote } from './quote.service';
 
 const CALLBACK_URL = `${process.env.API_BASE_URL}/webhooks/b2binpay`;

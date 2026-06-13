@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
-import { parseB2CCallback, parseSTKCallback, type B2CCallback, type STKCallbackResult } from '../services/daraja.service';
-import { prisma, credit } from '../services/ledger.service';
-import { handleFiatArrived } from '../services/orchestrator.service';
+import { parseB2CCallback, parseSTKCallback, type B2CCallback, type STKCallbackResult } from '../providers/live/daraja';
+import { prisma, credit } from '../core/ledger.service';
+import { handleFiatArrived } from '../core/orchestrator.service';
 
 // ── Daraja Webhook Handlers ───────────────────────────────────────────────────
 // Safaricom fires these callbacks on B2C (payout) and STK Push (deposit) events.

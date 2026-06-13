@@ -4,8 +4,8 @@ import {
   handleWithdrawalRequest,
   handleP2PTransfer,
   handlePayoutRailConfirmed,
-} from '../services/orchestrator.service';
-import type { PaymentDestination } from '../services/brainrock.service';
+} from '../core/orchestrator.service';
+import type { PaymentDestination } from '../providers/live/brainrock';
 
 const router = Router();
 

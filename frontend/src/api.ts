@@ -69,6 +69,43 @@ export const triggerDeposit = (body: {
   userId: string; currency: string; amount: number; rail: string; railReference: string
 }) => req<DepositRes>('/orchestrator/payout-rail/fiat-arrived', { method: 'POST', body: JSON.stringify(body) })
 
+// ── Add Funds (user-initiated: Apple Pay / Google Pay / Open Banking) ─────────
+export type DepositMethod = 'apple_pay' | 'google_pay' | 'open_banking' | 'bank_transfer'
+
+export type InitiateDepositRes = {
+  depositId:     string
+  trackingId:    string
+  method:        DepositMethod
+  currency:      string
+  amount:        number
+  usdEquivalent: number
+  status:        string
+  checkoutUrl:   string
+  clientToken?:  string
+  sessionId:     string
+  expiresAt:     string
+  segregatedAccount: { note: string; provider: string }
+}
+
+export type DepositStatusRes = {
+  id: string; trackingId: string; currency: string; amount: number; usdAmount: number
+  method: string | null; status: string; statusLabel: string; flow: string
+  sessionId: string | null; onrampId: string | null; fbTxId: string | null
+  createdAt: string; updatedAt: string
+}
+
+export const getDepositMethods = (currency: string) =>
+  req<{ currency: string; methods: DepositMethod[]; available: boolean }>(`/deposits/methods?currency=${currency}`)
+
+export const initiateDeposit = (body: { userId: string; currency: string; amount: number; method: DepositMethod }) =>
+  req<InitiateDepositRes>('/deposits/initiate', { method: 'POST', body: JSON.stringify(body) })
+
+export const getDepositStatus = (depositId: string, userId: string) =>
+  req<DepositStatusRes>(`/deposits/${depositId}?userId=${userId}`)
+
+export const listDeposits = (userId: string) =>
+  req<{ deposits: DepositStatusRes[]; total: number }>(`/deposits?userId=${userId}`)
+
 // ── Simulate ──────────────────────────────────────────────────────────────────
 export interface SimStep {
   step: number; total: number; layer: string; action: string; detail: string; duration: number

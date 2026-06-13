@@ -1,8 +1,8 @@
 import { Router, Request, Response } from 'express';
-import { verifyWebhookSignature, buildAuthDecision } from '../services/brainrock.service';
-import { prisma, credit, debit, getBalance } from '../services/ledger.service';
-import { handleFiatArrived } from '../services/orchestrator.service';
-import { getRate } from '../services/fx.service';
+import { verifyWebhookSignature, buildAuthDecision } from '../providers/live/brainrock';
+import { prisma, credit, debit, getBalance } from '../core/ledger.service';
+import { handleFiatArrived } from '../core/orchestrator.service';
+import { getRate } from '../core/fx.service';
 
 const router = Router();
 
@@ -37,23 +37,59 @@ router.post('/brainrock', async (req: Request, res: Response) => {
   const { type, data } = event;
   console.log(`[Brainrock] event=${type} accountId=${data.accountId ?? '-'} paymentId=${data.paymentId ?? '-'} amount=${data.amount ?? '-'} ${data.currency ?? ''}`);
 
-  // ── Inbound: fiat arrived in user's virtual IBAN ──────────────────────────
-  if (type === 'payment.received' && data.accountId && data.amount && data.currency) {
-    const user = await prisma.user.findFirst({ where: { brainrockAccountId: data.accountId } });
+  // ── Inbound: fiat arrived — two paths ────────────────────────────────────
+  //
+  //  Path A (user-initiated Add Funds):
+  //    data.reference = trackingId (dep_xxx) set when we created the session
+  //    → look up BankDeposit by sessionId / reference → get userId from there
+  //
+  //  Path B (push: user sent money to their virtual IBAN manually):
+  //    data.accountId = Brainrock virtual account ID mapped to a user
+  //    → look up user by brainrockAccountId
+  //
+  if (type === 'payment.received' && data.amount && data.currency) {
+    let userId: string | null = null;
+    let existingDepositId: string | undefined;
+    let railReference = data.paymentId ?? data.reference ?? 'brainrock_unknown';
 
-    if (!user) {
-      console.warn(`[Brainrock] No user for accountId=${data.accountId} — possible manual transfer, investigate`);
+    // Path A — session-initiated deposit (Add Funds flow)
+    if (data.reference) {
+      const pending = await prisma.bankDeposit.findFirst({
+        where: {
+          OR: [
+            { sessionId: data.reference },
+            { trackingId: data.reference },
+          ],
+          status: 'AWAITING_PAYMENT',
+        },
+      });
+      if (pending) {
+        userId = pending.userId;
+        existingDepositId = pending.id;
+        console.log(`[Brainrock] Session deposit matched: trackingId=${pending.trackingId} userId=${userId}`);
+      }
+    }
+
+    // Path B — virtual IBAN push (existing flow)
+    if (!userId && data.accountId) {
+      const user = await prisma.user.findFirst({ where: { brainrockAccountId: data.accountId } });
+      if (user) userId = user.id;
+    }
+
+    if (!userId) {
+      console.warn(`[Brainrock] payment.received — no matching user for reference=${data.reference ?? '-'} accountId=${data.accountId ?? '-'}`);
       res.status(200).json({ received: true });
       return;
     }
 
     // Full deposit: B2BinPay on-ramp → USDT → Fireblocks → ledger credit
     await handleFiatArrived({
-      userId: user.id,
+      userId,
       currency: data.currency,
-      amount: data.amount,
-      rail: 'brainrock',
-      railReference: data.paymentId ?? data.reference ?? 'brainrock_unknown',
+      amount:   data.amount,
+      rail:     'brainrock',
+      railReference,
+      existingDepositId,
     });
   }
 

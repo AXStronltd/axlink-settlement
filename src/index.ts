@@ -8,14 +8,20 @@ import webhookRoutes     from './routes/webhook.routes';
 import brainrockRoutes   from './routes/brainrock.routes';
 import darajaRoutes      from './routes/daraja.routes';
 import choicebankRoutes  from './routes/choicebank.routes';
+import networkRoutes     from './routes/network.routes';
+import treasuryRoutes   from './routes/treasury.routes';
+import depositRoutes    from './routes/deposit.routes';
 
 dotenv.config();
 
-// Register liquidity providers — must run after dotenv so credentials are loaded
-import('./services/lp-bootstrap');
+// Register liquidity providers (B2BinPay, Brainrock FX, AxLink internal)
+import('./bootstrap/lp.bootstrap');
+
+// Register BaaS fiat delivery providers (Daraja, ChoiceBank, Brainrock rails, Thunes…)
+import('./bootstrap/baas.bootstrap');
 
 // Start Kafka validation consumer — gates every payment before ledger write
-import('./services/payment-validator.service').then(m => m.startPaymentValidator()).catch(err =>
+import('./core/payment-validator.service').then(m => m.startPaymentValidator()).catch(err =>
   console.error('[startup] Payment validator failed to start:', err)
 );
 
@@ -76,11 +82,20 @@ app.get(['/', '/api'], (_req, res) => {
   });
 });
 
+// User-initiated Add Funds — must be before /api (transferRoutes also has /deposits/*)
+app.use('/api/deposits', depositRoutes);
+
 // Core API
 app.use('/api', transferRoutes);
 app.use('/api/quote', quoteRoutes);
 app.use('/api/simulate', simulateRoutes);
 app.use('/api/orchestrator', orchestratorRoutes);
+
+// AxLink Bank Network API (bearer-auth for institutional members)
+app.use('/api/network', networkRoutes);
+
+// Internal treasury ops (OPS_API_KEY — never expose to banks or users)
+app.use('/api/ops', treasuryRoutes);
 
 // Webhooks — inbound callbacks from rails and custody
 app.use('/api/webhooks', webhookRoutes);
@@ -96,6 +111,26 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
   if (err && typeof err === 'object' && (err as Record<string, unknown>).code === 'PAYMENT_REJECTED') {
     res.status(422).json({ error: msg, code: 'PAYMENT_REJECTED' });
     return;
+  }
+
+  // Smart router rate protection returns 422 with clear reason
+  if (err && typeof err === 'object' && (err as Record<string, unknown>).code === 'RATE_PROTECTION_TRIGGERED') {
+    res.status(422).json({ error: msg, code: 'RATE_PROTECTION_TRIGGERED' });
+    return;
+  }
+
+  // Bank network structured errors — use their own statusCode
+  const BANK_ERR_CODES = new Set([
+    'DAILY_LIMIT_EXCEEDED', 'CORRIDOR_LIMIT_EXCEEDED', 'UNKNOWN_RECEIVER_BANK',
+    'RECEIVER_BANK_SUSPENDED', 'SELF_TRANSFER', 'DUPLICATE_REFERENCE',
+  ]);
+  if (err && typeof err === 'object') {
+    const e = err as Record<string, unknown>;
+    if (typeof e.code === 'string' && BANK_ERR_CODES.has(e.code)) {
+      const status = typeof e.statusCode === 'number' ? e.statusCode : 422;
+      res.status(status).json({ error: msg, code: e.code });
+      return;
+    }
   }
 
   if (err && typeof err === 'object' && 'errors' in err) {

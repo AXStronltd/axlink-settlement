@@ -1,34 +1,48 @@
 /**
- * FinCruse Orchestrator
+ * FinCruse Orchestrator — AxLink Settlement Engine
+ *
+ * ══════════════════════════════════════════════════════════════════════
+ *  INVARIANT: ALL USDT/SOLANA ACTIVITY IS INTERNAL TO AXLINK.
+ *  External rails (Daraja, ChoiceBank, Brainrock, any bank) see ONLY
+ *  fiat instructions. They never receive a crypto address, a USDT
+ *  amount, or any reference to Solana. The conversion is AxLink's work.
+ * ══════════════════════════════════════════════════════════════════════
  *
  * Each user account is permanently paired:
- *   user.b2bWalletId  = their B2BinPay wallet (receives fiat on-ramp)
- *   user.vaultId      = their Fireblocks vault (holds USDT)
+ *   user.b2bWalletId  = their B2BinPay wallet (AxLink internal onramp tool)
+ *   user.vaultId      = their Fireblocks vault (holds USDT — user never sees this)
  *   user.usdtAddress  = their Fireblocks USDT_SOL deposit address
  *
- * Deposit flow (FIAT IN):
- *   Payout rail → FinCruse webhook
- *   → B2BinPay: convert fiat → USDT, send DIRECTLY to user.usdtAddress (Fireblocks)
- *   → Fireblocks receives USDT → webhook to FinCruse
- *   → FinCruse credits user ledger
- *   NO treasury vault hop. B2BinPay → Fireblocks user vault in one shot.
+ * DEPOSIT flow (FIAT IN → user sees local currency credited):
+ *   Local rail delivers fiat to AxLink's corridor account
+ *   → AxLink internally: B2BinPay converts fiat → USDT → Fireblocks user vault
+ *   → Fireblocks webhook confirms receipt → FinCruse credits user ledger in fiat
+ *   External rail sees: "user paid KES 1000 to AxLink till" (pure fiat)
  *
- * Withdrawal flow (FIAT OUT):
- *   FinCruse debit ledger → Fireblocks send USDT → B2BinPay off-ramp → Payout rail
+ * WITHDRAWAL flow (ZERO PRE-FUNDED — JIT liquidity):
+ *   Debit user ledger
+ *   → Fireblocks: user vault → AxLink treasury vault (USDT collected internally)
+ *   → BaaS registry: JIT USDT→fiat conversion via B2BinPay + corridor delivery
+ *     Two-phase: B2BinPay converts USDT→fiat → Daraja/ChoiceBank/Brainrock delivers
+ *     Atomic (Thunes): conversion + delivery in one call
+ *   External rail sees: "send 1000 KES to +254..." — no USDT, no pre-funding
+ *   User can pick ANY method: mobile money, bank transfer, card — registry routes
  *
- * P2P Transfer:
- *   Ledger debit → [B2BinPay on-ramp if cross-currency] → Fireblocks vault-to-vault
- *   → [B2BinPay off-ramp if cross-currency] → Ledger credit
+ * P2P TRANSFER (user → user, same or cross currency):
+ *   Debit sender ledger
+ *   → Fireblocks: sender vault → receiver vault (USDT moves inside AxLink, invisible to users)
+ *   → Credit receiver ledger in their local currency
+ *   → (optional) If external delivery: deliverFiat() pays recipient via local rail
+ *   External rail sees: pure fiat instruction only
  */
 
 import { randomUUID } from 'crypto';
 import { prisma, debit, credit, checkSufficientBalance, getUser, audit } from './ledger.service';
 import { toUSD, usdToUsdt } from './fx.service';
-import { createDeposit, createPayout, calculatePayoutFee } from './b2binpay.service';
-import { createTransfer as fbTransfer } from './fireblocks.service';
-import { sendPayment, resolvePaymentType, type PaymentDestination } from './brainrock.service';
-import { sendTransfer as choiceBankTransfer, isChoiceBankCurrency, type ChoiceBankDestination } from './choicebank.service';
-import { sendB2C, isDarajaCurrency, normalizeMsisdn } from './daraja.service';
+import { createDeposit, createPayout } from '../providers/live/b2binpay';
+import { createTransfer as fbTransfer } from '../providers/live/fireblocks';
+import { type PaymentDestination } from './baas.interface';
+import { deliverFiat } from './baas-registry.service';
 import { consumeQuote, createQuote } from './quote.service';
 import { requestValidation, type PaymentType } from './kafka.service';
 
@@ -40,65 +54,10 @@ async function validateOrReject(type: PaymentType, payload: Parameters<typeof re
   }
 }
 
-// ── Corridor routing ──────────────────────────────────────────────────────────
-// TZS/UGX     → Daraja (M-Pesa B2C)
-// NGN/GHS/ZAR/KES → Choice Bank (bank transfer — includes Kenya)
-// GBP/USD/EUR/CAD → Brainrock (Faster Payments / SEPA / ACH — EU, UK, USA, Canada)
-
-async function deliverFiat(params: {
-  destination: PaymentDestination;
-  amount: number;
-  currency: string;
-  reference: string;
-  description: string;
-}): Promise<{ provider: string; paymentId: string }> {
-  const { destination, amount, currency, reference, description } = params;
-
-  if (isDarajaCurrency(currency)) {
-    // M-Pesa B2C — requires a mobile number
-    const phone = destination.mobileNumber;
-    if (!phone) throw new Error(`M-Pesa payout requires mobileNumber for ${currency}`);
-    const result = await sendB2C({
-      amount,
-      phoneNumber: normalizeMsisdn(phone),
-      reference,
-      occasion: description,
-    });
-    return { provider: 'daraja', paymentId: result.ConversationID };
-  }
-
-  if (isChoiceBankCurrency(currency)) {
-    // Choice Bank Nigeria — requires bank account details
-    const cbDest: ChoiceBankDestination = {
-      accountNumber: destination.bankAccountNumber ?? destination.accountNumber ?? '',
-      bankCode:      destination.bankCode ?? '',
-      accountName:   destination.name,
-      currency:      currency as import('./choicebank.service').ChoiceBankCurrency,
-    };
-    if (!cbDest.accountNumber || !cbDest.bankCode) {
-      throw new Error(`Choice Bank payout requires accountNumber + bankCode for ${currency}`);
-    }
-    const result = await choiceBankTransfer({ destination: cbDest, amount, reference, narration: description });
-    return { provider: 'choicebank', paymentId: result.id };
-  }
-
-  // Brainrock — GBP, USD, EUR, CAD, AED
-  const result = await sendPayment({
-    fromAccountId: BRAINROCK_TREASURY,
-    destination: { ...destination, type: destination.type ?? resolvePaymentType(currency, destination) },
-    amount,
-    currency,
-    reference,
-    description,
-  });
-  return { provider: 'brainrock', paymentId: result.id };
-}
-
-const USDT_ASSET = process.env.FIREBLOCKS_USDT_ASSET ?? 'USDT_SOL';
-const B2B_WALLET_ID = process.env.B2BINPAY_WALLET_ID ?? '';
+const USDT_ASSET    = process.env.FIREBLOCKS_USDT_ASSET  ?? 'USDT_SOL';
+const B2B_WALLET_ID = process.env.B2BINPAY_WALLET_ID     ?? '';
 const TREASURY_VAULT = process.env.FIREBLOCKS_TREASURY_VAULT ?? '';
-const BRAINROCK_TREASURY = process.env.BRAINROCK_TREASURY_ACCOUNT_ID ?? '';
-const CALLBACK = `${process.env.API_BASE_URL}/webhooks/b2binpay`;
+const CALLBACK      = `${process.env.API_BASE_URL}/webhooks/b2binpay`;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // STEP 1 of every deposit: Payout rail tells us fiat arrived
@@ -111,32 +70,35 @@ export async function handleFiatArrived(event: {
   amount: number;         // fiat amount received
   rail: string;           // "mpesa" | "rtgs" | "bank_transfer" | "sepa"
   railReference: string;  // M-Pesa transaction ID, bank ref, etc.
+  existingDepositId?: string; // set when called from user-initiated Add Funds flow
 }) {
-  const { userId, currency, amount, rail, railReference } = event;
+  const { userId, currency, amount, rail, railReference, existingDepositId } = event;
 
   // ── Kafka validation gate — must pass before any DB write ────────────────
   await validateOrReject('DEPOSIT', { userId, currency, amount, rail });
-
-  const trackingId = `dep_${randomUUID()}`;
 
   const user = await getUser(userId);
   const usdAmount = await toUSD(amount, currency);
   const usdtAmount = usdToUsdt(usdAmount);
 
-  // Record the deposit
-  const deposit = await prisma.bankDeposit.create({
-    data: {
-      trackingId,
-      userId,
-      currency,
-      amount,
-      usdAmount,
-      usdtAmount,
-      bankName: rail,
-      reference: railReference,
-      status: 'PROCESSING',
-    },
-  });
+  let deposit: Awaited<ReturnType<typeof prisma.bankDeposit.create>>;
+
+  if (existingDepositId) {
+    // Update the record created by initiateDeposit — keep its trackingId / sessionId
+    deposit = await prisma.bankDeposit.update({
+      where: { id: existingDepositId },
+      data: { usdAmount, usdtAmount, bankName: rail, reference: railReference, status: 'PROCESSING' },
+    });
+  } else {
+    // Push-style deposit (M-Pesa webhook, bank push) — create a fresh record
+    const trackingId = `dep_${randomUUID()}`;
+    deposit = await prisma.bankDeposit.create({
+      data: {
+        trackingId, userId, currency, amount, usdAmount, usdtAmount,
+        bankName: rail, reference: railReference, status: 'PROCESSING',
+      },
+    });
+  }
 
   // User's Fireblocks USDT deposit address — B2BinPay sends directly here
   // Each user vault has its own on-chain address. No treasury hop needed.
@@ -157,7 +119,7 @@ export async function handleFiatArrived(event: {
     // B2BinPay → Fireblocks in ONE call. No treasury vault in between.
     const b2bDeposit = await createDeposit({
       walletId: user.b2bWalletId ?? B2B_WALLET_ID, // user's own B2BinPay wallet
-      trackingId: `b2b_${trackingId}`,
+      trackingId: `b2b_${deposit.trackingId}`,
       callbackUrl: `${CALLBACK}?depositId=${deposit.id}&userId=${userId}`,
       label: `FinCruse ${currency} deposit via ${rail} → vault ${user.vaultId}`,
     });
@@ -181,7 +143,7 @@ export async function handleFiatArrived(event: {
       address: userUsdtAddress,              // ← user's Fireblocks vault address
       amount: usdtAmount.toString(),
       feeAmount: '0',                        // Solana is near-gasless
-      trackingId: `b2b_payout_${trackingId}`,
+      trackingId: `b2b_payout_${deposit.trackingId}`,
       callbackUrl: `${CALLBACK}?depositId=${deposit.id}&userId=${userId}&step=fireblocks_credit`,
       idempotencyKey: randomUUID(),
       label: `B2BinPay → Fireblocks vault_${user.vaultId}`,
@@ -238,8 +200,6 @@ export async function handleWithdrawalRequest(params: {
   const usdAmount = await toUSD(amount, currency);
   const usdtAmount = usdToUsdt(usdAmount);
 
-  destination.type = destination.type ?? resolvePaymentType(currency, destination);
-
   const withdrawal = await prisma.withdrawal.create({
     data: {
       trackingId,
@@ -264,7 +224,8 @@ export async function handleWithdrawalRequest(params: {
 
     await audit('Withdrawal', withdrawal.id, 'LEDGER_DEBITED', { amount, currency });
 
-    // ── B: Fireblocks — user vault → FinCruse treasury vault (USDT) ──
+    // ── B: Fireblocks — user vault → AxLink treasury vault (USDT collected internally) ──
+    // The USDT never leaves AxLink. The payout partner in step C never sees crypto.
     const fbTx = await fbTransfer({
       assetId: USDT_ASSET,
       amount: usdtAmount.toString(),
@@ -274,58 +235,37 @@ export async function handleWithdrawalRequest(params: {
       externalTxId: trackingId,
     });
 
-    await audit('Withdrawal', withdrawal.id, 'FIREBLOCKS_DEBITED', { fbTxId: fbTx?.id });
-
-    // ── C: B2BinPay off-ramp — USDT → fiat (credits FinCruse B2BinPay balance) ──
-    const estimate = await calculatePayoutFee({
-      walletId: B2B_WALLET_ID,
-      address: destination.mobileNumber ?? destination.iban ?? destination.accountNumber ?? '',
-      amount: amount.toString(),
-      currencyId: currency,
+    await audit('Withdrawal', withdrawal.id, 'FIREBLOCKS_DEBITED', {
+      fbTxId: fbTx?.id,
+      note: 'USDT collected into AxLink treasury — payout will be from corridor fiat float',
     });
 
-    const b2bPayout = await createPayout({
-      walletId: B2B_WALLET_ID,
-      currencyId: currency,
-      address: BRAINROCK_TREASURY,
-      amount: amount.toString(),
-      feeAmount: estimate.fee.medium,
-      trackingId: `b2b_wdr_${trackingId}`,
-      callbackUrl: CALLBACK,
-      idempotencyKey: randomUUID(),
-      label: `FinCruse withdrawal ${trackingId} → Brainrock treasury`,
-    });
-
-    await audit('Withdrawal', withdrawal.id, 'B2BINPAY_OFFRAMP_CREATED', { offrampId: b2bPayout.id });
-
-    // ── D: Route fiat delivery by currency corridor ──────────────────────
-    // KES/TZS/UGX → Daraja M-Pesa B2C
-    // NGN/GHS/ZAR  → Choice Bank Nigeria bank transfer
-    // GBP/USD/EUR/CAD/AED → Brainrock Faster Payments / SEPA / ACH
+    // ── C: JIT fiat delivery — BaaS registry converts USDT + delivers fiat ─
+    // Registry selects best provider for this currency + destination method.
+    // Two-phase providers: B2BinPay converts USDT → fiat JIT, then delivers.
+    // Atomic providers (Thunes): conversion + delivery in one call.
+    // Payout partner sees ONLY: "send X KES/NGN/GBP to [destination]" — no USDT.
     const payout = await deliverFiat({
       destination: { ...destination, name: recipientName },
       amount,
+      usdtAmount,
       currency,
-      reference: trackingId,
+      reference:   trackingId,
       description: `FinCruse withdrawal ${trackingId}`,
     });
 
     await audit('Withdrawal', withdrawal.id, 'PAYOUT_SENT', {
-      provider:   payout.provider,
-      paymentId:  payout.paymentId,
+      provider:    payout.provider,
+      paymentId:   payout.paymentId,
       destination: destination.type ?? currency,
+      note:        'Fiat only — USDT is internal, not visible to payout partner',
     });
 
-    // Confirmation arrives via provider webhook:
-    //   Daraja  → POST /webhooks/daraja/b2c/result
-    //   Choice Bank → POST /webhooks/choicebank
-    //   Brainrock   → POST /webhooks/brainrock
     const done = await prisma.withdrawal.update({
       where: { id: withdrawal.id },
       data: {
         status: 'PENDING_PAYOUT',
         fbTxId: fbTx?.id as string | undefined,
-        offrampId: b2bPayout.id,
         brainrockPaymentId: payout.paymentId,
       },
     });
@@ -392,12 +332,25 @@ export async function handleP2PTransfer(params: {
       await debit(tx, senderId, fromCurrency, amount);
     });
 
-    let onrampId: string | undefined;
-    let offrampId: string | undefined;
     let fbTxId: string | undefined;
 
-    if (sameCurrency) {
-      // ── SAME CURRENCY: sender vault → receiver vault (0 B2BinPay) ────
+    // ── Fireblocks vault-to-vault (USDT moves entirely inside AxLink) ─────
+    // Same-currency: sender → receiver directly.
+    // Cross-currency: sender → receiver; the FX is already priced in the quote.
+    // AxLink Fireblocks LP won the RFQ: treasury → receiver vault.
+    // In ALL cases the USDT transport is invisible — neither sender nor receiver
+    // sees crypto. External payout partners (step below) see fiat only.
+    if (quote.lpSource === 'axlink-fireblocks' && !sameCurrency) {
+      const fbTx = await fbTransfer({
+        assetId: USDT_ASSET,
+        amount: usdtAmount.toString(),
+        sourceVaultId: TREASURY_VAULT,
+        destVaultId: receiver.vaultId,
+        note: `AxLink internal settlement ${trackingId}`,
+        externalTxId: trackingId,
+      });
+      fbTxId = fbTx?.id as string | undefined;
+    } else {
       const fbTx = await fbTransfer({
         assetId: USDT_ASSET,
         amount: usdtAmount.toString(),
@@ -407,80 +360,39 @@ export async function handleP2PTransfer(params: {
         externalTxId: trackingId,
       });
       fbTxId = fbTx?.id as string | undefined;
-
-    } else if (quote.lpSource === 'axlink-fireblocks') {
-      // ── AXLINK FIREBLOCKS LP WON: direct treasury → receiver vault ───
-      // No B2BinPay. AxLink's own USDT reserves settle this transfer.
-      // This path activates when external LPs are down or AxLink wins the rate race.
-      const fbTx = await fbTransfer({
-        assetId: USDT_ASSET,
-        amount: usdtAmount.toString(),
-        sourceVaultId: TREASURY_VAULT,
-        destVaultId: receiver.vaultId,
-        note: `AxLink Fireblocks internal settlement ${trackingId}`,
-        externalTxId: trackingId,
-      });
-      fbTxId = fbTx?.id as string | undefined;
-
-    } else {
-      // ── CROSS-CURRENCY: B2BinPay on-ramp + Fireblocks + B2BinPay off-ramp ──
-      // B2BinPay (or AxLink internal) won the RFQ — use standard fiat exchange flow.
-      const dep = await createDeposit({
-        walletId: B2B_WALLET_ID,
-        trackingId: `onramp_${trackingId}`,
-        callbackUrl: CALLBACK,
-        label: `FinCruse P2P onramp ${trackingId}`,
-      });
-      onrampId = dep.id;
-
-      const fbTx = await fbTransfer({
-        assetId: USDT_ASSET,
-        amount: usdtAmount.toString(),
-        sourceVaultId: sender.vaultId,
-        destVaultId: receiver.vaultId,
-        externalTxId: trackingId,
-      });
-      fbTxId = fbTx?.id as string | undefined;
-
-      const est = await calculatePayoutFee({
-        walletId: B2B_WALLET_ID,
-        address: BRAINROCK_TREASURY,
-        amount: toAmount.toString(),
-        currencyId: toCurrency,
-      });
-      const pay = await createPayout({
-        walletId: B2B_WALLET_ID,
-        currencyId: toCurrency,
-        address: BRAINROCK_TREASURY,
-        amount: toAmount.toString(),
-        feeAmount: est.fee.medium,
-        trackingId: `offramp_${trackingId}`,
-        callbackUrl: CALLBACK,
-        idempotencyKey: randomUUID(),
-      });
-      offrampId = pay.id;
-
-      // Route fiat delivery to receiver via correct corridor (if destination provided).
-      // If no destination, receiver stays on FinCruse ledger and can withdraw later.
-      if (receiverDestination) {
-        await deliverFiat({
-          destination: { ...receiverDestination, name: receiver.name },
-          amount:      toAmount,
-          currency:    toCurrency,
-          reference:   `p2p_${trackingId}`,
-          description: `FinCruse transfer from ${sender.name}`,
-        });
-      }
     }
 
-    // ── Step B: Credit receiver ledger ────────────────────────────────
+    await audit('Transfer', transfer.id, 'FIREBLOCKS_SETTLED', {
+      fbTxId,
+      note: 'USDT moved inside AxLink — invisible to users and external partners',
+    });
+
+    // ── Step B: Credit receiver ledger (in their local currency) ────────
     await prisma.$transaction(async (tx: Parameters<typeof credit>[0]) => {
       await credit(tx, receiverId, toCurrency, toAmount);
     });
 
+    // ── Step C (optional): JIT external fiat delivery ────────────────────
+    // If receiver wants fiat pushed immediately, registry handles JIT
+    // USDT→fiat conversion + delivery. Zero pre-funding required.
+    if (receiverDestination) {
+      const payout = await deliverFiat({
+        destination: { ...receiverDestination, name: receiver.name },
+        amount:      toAmount,
+        usdtAmount,
+        currency:    toCurrency,
+        reference:   `p2p_${trackingId}`,
+        description: `FinCruse transfer from ${sender.name}`,
+      });
+      await audit('Transfer', transfer.id, 'EXTERNAL_PAYOUT_SENT', {
+        provider: payout.provider, paymentId: payout.paymentId,
+        note: 'Fiat delivery only — payout partner never sees USDT',
+      });
+    }
+
     const done = await prisma.transfer.update({
       where: { id: transfer.id },
-      data: { status: 'COMPLETED', onrampId, offrampId, fbTxId },
+      data: { status: 'COMPLETED', fbTxId },
     });
 
     await audit('Transfer', transfer.id, 'COMPLETED', { toAmount, toCurrency });

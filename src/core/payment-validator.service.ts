@@ -25,6 +25,10 @@ const SUPPORTED_CURRENCIES = new Set([
 
 const SUPPORTED_RAILS = new Set([
   'mpesa', 'bank_transfer', 'rtgs', 'sepa', 'faster_payments', 'ach', 'swift',
+  'brainrock',    // Brainrock virtual IBAN inbound (GBP/EUR/USD/CAD)
+  'choicebank',   // Choice Bank inbound (NGN/GHS/ZAR/UGX/TZS)
+  'daraja_stk',   // Daraja STK Push inbound (KES)
+  'daraja',       // Daraja generic
 ]);
 
 // Per-currency transfer limits (min / max in the local currency unit)

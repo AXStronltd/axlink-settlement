@@ -13,9 +13,9 @@
  *   lpSource = 'axlink'            → AxLink rate table; B2BinPay does the exchange
  */
 
-import type { ILiquidityProvider, LPRate, LPQuote } from './lp.interface';
-import { getRate, toUSD } from './fx.service';
-import { getVaultAssetBalance } from './fireblocks.service';
+import type { ILiquidityProvider, LPRate, LPQuote } from '../../core/lp.interface';
+import { getRate, toUSD } from '../../core/fx.service';
+import { getVaultAssetBalance } from './fireblocks';
 import { randomUUID } from 'crypto';
 
 const TREASURY_VAULT = process.env.FIREBLOCKS_TREASURY_VAULT ?? '';

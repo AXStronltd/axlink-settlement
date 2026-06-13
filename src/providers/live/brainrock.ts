@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import type { PaymentDestination } from '../../core/baas.interface';
 
 // ── Brainrock BaaS — Fiat banking layer ──────────────────────────────────────
 // Provides per-user virtual IBANs and outbound fiat payments.
@@ -37,26 +38,8 @@ export type PaymentType =
   | 'ach'               // USA — routing number + account number
   | 'eft';              // Canada — transit + institution + account
 
-export interface PaymentDestination {
-  name: string;
-  type?: PaymentType;
-  // UK Faster Payments
-  sortCode?: string;
-  accountNumber?: string;
-  // SEPA / IBAN (EU)
-  iban?: string;
-  bic?: string;
-  // USA — ACH
-  routingNumber?: string;
-  // Canada — EFT
-  transitNumber?: string;
-  institutionNumber?: string;
-  // Mobile number field kept for orchestrator compatibility — not used by Brainrock
-  mobileNumber?: string;
-  // Bank fields kept for orchestrator compatibility — not used by Brainrock
-  bankCode?: string;
-  bankAccountNumber?: string;
-}
+// Re-exported for backwards compatibility — canonical definition is in baas.interface.ts
+export type { PaymentDestination } from '../../core/baas.interface';
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
@@ -272,4 +255,81 @@ export function resolvePaymentType(
   if (ccy === 'USD')  return 'ach';
   if (ccy === 'CAD')  return 'eft';
   return 'swift';
+}
+
+// ── Payment Sessions (Add Funds: Apple Pay / Google Pay / Open Banking) ───────
+
+export type DepositMethod = 'apple_pay' | 'google_pay' | 'open_banking' | 'bank_transfer';
+
+export interface PaymentSession {
+  sessionId:    string;   // Brainrock session ID — stored on BankDeposit.sessionId
+  checkoutUrl:  string;   // Redirect URL (Open Banking) or JS SDK token URL
+  clientToken?: string;   // Apple Pay / Google Pay SDK token (web SDK flow)
+  method:       DepositMethod;
+  currency:     string;
+  amount:       number;
+  expiresAt:    string;   // ISO timestamp — session valid for 15 min
+}
+
+interface BrainrockSessionResponse {
+  id:            string;
+  checkout_url:  string;
+  client_token?: string;
+  expires_at:    string;
+}
+
+// Creates a Brainrock-hosted payment session.
+// User pays via Apple Pay sheet / Google Pay sheet / Open Banking redirect.
+// Fiat lands in FinCruse's Brainrock segregated account.
+// Brainrock fires payment.received webhook → handleFiatArrived → B2BinPay → USDT → vault.
+export async function createPaymentSession(params: {
+  userId:       string;
+  currency:     string;       // GBP, EUR, USD, CAD, AED
+  amount:       number;
+  method:       DepositMethod;
+  trackingId:   string;       // AxLink deposit tracking ID — echoed back in webhook
+  redirectUrl?: string;       // where to send user after Open Banking auth
+}): Promise<PaymentSession> {
+  const { userId, currency, amount, method, trackingId, redirectUrl } = params;
+
+  // Sandbox mode — return a realistic fake session when credentials aren't configured.
+  // The ops panel can then fire the webhook manually to complete the flow.
+  if (!isBrainrockConfigured()) {
+    const sandboxSessionId = `sess_sandbox_${trackingId.slice(4, 20)}`;
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+    const baseUrl = process.env.API_BASE_URL ?? 'http://localhost:4000/api';
+    return {
+      sessionId:   sandboxSessionId,
+      checkoutUrl: `${baseUrl}/sandbox/open-banking?session=${sandboxSessionId}&amount=${amount}&currency=${currency}&ref=${trackingId}`,
+      clientToken: method !== 'open_banking' ? `tok_sandbox_${sandboxSessionId}` : undefined,
+      method,
+      currency:    currency.toUpperCase(),
+      amount,
+      expiresAt,
+    };
+  }
+
+  const session = await apiFetch<BrainrockSessionResponse>('/payment-sessions', {
+    method: 'POST',
+    body: JSON.stringify({
+      amount,
+      currency:       currency.toUpperCase(),
+      payment_method: method,
+      reference:      trackingId,
+      customer_id:    userId,
+      redirect_url:   redirectUrl ?? `${process.env.APP_URL ?? 'https://app.fincruise.com'}/deposit/confirm`,
+      webhook_url:    `${process.env.API_BASE_URL}/webhooks/brainrock`,
+      metadata: { tracking_id: trackingId, source: 'fincruise_add_funds' },
+    }),
+  });
+
+  return {
+    sessionId:   session.id,
+    checkoutUrl: session.checkout_url,
+    clientToken: session.client_token,
+    method,
+    currency:    currency.toUpperCase(),
+    amount,
+    expiresAt:   session.expires_at,
+  };
 }

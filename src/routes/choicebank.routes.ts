@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
-import { verifyWebhookSignature } from '../services/choicebank.service';
-import { prisma, credit } from '../services/ledger.service';
-import { handleFiatArrived } from '../services/orchestrator.service';
+import { verifyWebhookSignature } from '../providers/live/choicebank';
+import { prisma, credit } from '../core/ledger.service';
+import { handleFiatArrived } from '../core/orchestrator.service';
 
 // ── Choice Bank Nigeria Webhook Handlers ──────────────────────────────────────
 // Choice Bank fires these events on inbound and outbound transfer updates.

@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import type { ILiquidityProvider, LPRate, LPQuote } from './lp.interface';
+import type { ILiquidityProvider, LPRate, LPQuote } from '../../core/lp.interface';
 
 const BASE_URL = process.env.B2BINPAY_SANDBOX === 'true'
   ? 'https://v3.api-sandbox.b2binpay.com'

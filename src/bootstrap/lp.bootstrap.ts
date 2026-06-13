@@ -10,10 +10,10 @@
 //   2. B2BinPay         — fiat liquidity, major + African corridor rates
 //   Future: Kraken, Binance, Coinbase Prime, any institutional LP
 
-import { registerLP } from './lp-registry.service';
-import { axlinkInternalLP } from './fx.service';
-import { b2binpayLP } from './b2binpay.service';
-import { axlinkFireblocksLP } from './axlink-fireblocks-lp.service';
+import { registerLP } from '../core/lp-registry.service';
+import { axlinkInternalLP } from '../core/fx.service';
+import { b2binpayLP } from '../providers/live/b2binpay';
+import { axlinkFireblocksLP } from '../providers/live/fireblocks.lp';
 
 registerLP(axlinkFireblocksLP); // AxLink's own USDT vault — bids when it has capacity; direct settlement when it wins
 registerLP(b2binpayLP);         // external fiat LP — competes on corridor rates

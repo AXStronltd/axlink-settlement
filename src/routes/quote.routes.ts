@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
-import { createQuote, getQuote, formatQuoteResponse } from '../services/quote.service';
-import { SUPPORTED_CURRENCIES } from '../services/fx.service';
+import { createQuote, getQuote, formatQuoteResponse } from '../core/quote.service';
+import { SUPPORTED_CURRENCIES } from '../core/fx.service';
 
 const router = Router();
 

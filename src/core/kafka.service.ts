@@ -148,12 +148,31 @@ export async function getEventBus(): Promise<EventBus> {
 }
 
 // ── Request/reply helper (correlation ID pattern) ─────────────────────────────
-// Publishes a validation request and waits for the result (timeout: 8 s).
+// One global subscriber on VALIDATION_RESULT; resolvers tracked by correlationId.
+// Avoids adding a new listener on every payment (memory leak prevention).
+
+const _pendingValidations = new Map<string, (result: ValidationResultEvent) => void>();
+let _resultSubscribed = false;
+
+async function ensureResultSubscribed(): Promise<void> {
+  if (_resultSubscribed) return;
+  _resultSubscribed = true;
+  const bus = await getEventBus();
+  await bus.subscribe(TOPICS.VALIDATION_RESULT, async (raw) => {
+    const result = raw as ValidationResultEvent;
+    const resolver = _pendingValidations.get(result.correlationId);
+    if (resolver) {
+      _pendingValidations.delete(result.correlationId);
+      resolver(result);
+    }
+  });
+}
 
 export async function requestValidation(
   event: Omit<ValidationRequestedEvent, 'correlationId' | 'timestamp'>,
   timeoutMs = 8_000,
 ): Promise<ValidationResultEvent> {
+  await ensureResultSubscribed();
   const bus = await getEventBus();
   const correlationId = randomUUID();
 
@@ -165,18 +184,19 @@ export async function requestValidation(
 
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
+      _pendingValidations.delete(correlationId);
       reject(new Error(`[EventBus] Validation timed out after ${timeoutMs}ms (correlationId: ${correlationId})`));
     }, timeoutMs);
 
-    // Subscribe to result topic, filter by correlationId
-    bus.subscribe(TOPICS.VALIDATION_RESULT, async (raw) => {
-      const result = raw as ValidationResultEvent;
-      if (result.correlationId !== correlationId) return;
+    _pendingValidations.set(correlationId, (result) => {
       clearTimeout(timer);
       resolve(result);
-    }).catch(reject);
+    });
 
-    // Publish the request
-    bus.publish(TOPICS.VALIDATION_REQUESTED, request).catch(reject);
+    bus.publish(TOPICS.VALIDATION_REQUESTED, request).catch((err) => {
+      _pendingValidations.delete(correlationId);
+      clearTimeout(timer);
+      reject(err);
+    });
   });
 }

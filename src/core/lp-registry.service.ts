@@ -77,14 +77,16 @@ export async function broadcastRFQ(
     throw new Error(`No LP registered that supports ${fromN}:${toN} — ensure lp-bootstrap.ts runs at startup`);
   }
 
-  const deadline = Date.now() + RFQ_TIMEOUT_MS;
   const t0 = Date.now();
 
-  // Race all LPs — collect results within timeout
+  // Race each LP individually against the timeout — slow LPs are dropped, fast LPs win
   const settled = await Promise.allSettled(
     candidates.map(async lp => {
       const lpT0 = Date.now();
-      const quote = await lp.requestQuote(fromN, toN, fromAmount);
+      const timeoutP = new Promise<never>((_, rej) =>
+        setTimeout(() => rej(new Error(`LP ${lp.id} timed out after ${RFQ_TIMEOUT_MS}ms`)), RFQ_TIMEOUT_MS),
+      );
+      const quote = await Promise.race([lp.requestQuote(fromN, toN, fromAmount), timeoutP]);
       return { lp, quote, latencyMs: Date.now() - lpT0 };
     }),
   );
@@ -92,7 +94,7 @@ export async function broadcastRFQ(
   const elapsed = Date.now() - t0;
   const successful = settled
     .filter((r): r is PromiseFulfilledResult<{ lp: ILiquidityProvider; quote: LPQuote; latencyMs: number }> =>
-      r.status === 'fulfilled' && Date.now() < deadline,
+      r.status === 'fulfilled',
     )
     .map(r => r.value);
 
