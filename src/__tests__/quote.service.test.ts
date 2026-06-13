@@ -17,7 +17,7 @@ const mockRFQResult = {
   allResponses: [{ lp: 'b2binpay', toAmount: 16380, latencyMs: 45 }],
 };
 
-vi.mock('../services/lp-registry.service', () => ({
+vi.mock('../core/lp-registry.service', () => ({
   broadcastRFQ: vi.fn(async () => mockRFQResult),
   getRegisteredLPs: vi.fn(() => [{ id: 'b2binpay', name: 'B2BinPay' }]),
 }));

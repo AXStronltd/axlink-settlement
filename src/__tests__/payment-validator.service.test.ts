@@ -7,7 +7,7 @@ const mockPrisma = vi.hoisted(() => ({
   account: { findUnique: vi.fn() },
 }));
 
-vi.mock('../services/ledger.service', () => ({
+vi.mock('../core/ledger.service', () => ({
   prisma: mockPrisma,
 }));
 
