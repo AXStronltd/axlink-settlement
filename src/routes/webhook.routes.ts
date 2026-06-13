@@ -7,7 +7,7 @@ const router = Router();
 
 // B2BinPay POSTs to /webhooks/b2binpay on every transfer status change.
 // Raw body buffering is set up in index.ts so we can verify the HMAC signature.
-router.post('/b2binpay', (req: Request, res: Response) => {
+router.post('/b2binpay', async (req: Request, res: Response) => {
   const signature = (req.headers['x-callback-signature'] as string | undefined) ?? '';
   const rawBody = (req as Request & { rawBody?: string }).rawBody ?? '';
 
@@ -33,15 +33,51 @@ router.post('/b2binpay', (req: Request, res: Response) => {
     };
   };
 
-  const attrs = payload.data?.attributes;
-  const transferId = payload.data?.id;
-  const statusCode = attrs?.status ?? 0;
+  const attrs       = payload.data?.attributes;
+  const transferId  = payload.data?.id;
+  const statusCode  = attrs?.status ?? 0;
   const statusLabel = TRANSFER_STATUS[statusCode] ?? 'unknown';
+  const trackingId  = attrs?.tracking_id ?? '';
 
-  console.log(`[B2BinPay webhook] transfer=${transferId} status=${statusCode}(${statusLabel}) txid=${attrs?.txid ?? '-'} amount=${attrs?.amount ?? '-'} tracking=${attrs?.tracking_id ?? '-'}`);
+  console.log(`[B2BinPay] transfer=${transferId} status=${statusCode}(${statusLabel}) txid=${attrs?.txid ?? '-'} amount=${attrs?.amount ?? '-'} tracking=${trackingId || '-'}`);
 
-  // TODO: persist to DB, emit event, notify user via WS/push
-  // Example: await db.settlement.upsert({ where: { transferId }, data: { statusCode, txid } })
+  // Mirror B2BinPay USDT transfer status onto our deposit/withdrawal record.
+  // Final credit/debit is gated on the Fireblocks confirmation webhook — this
+  // just keeps the intermediate status observable for ops and auditing.
+  if (trackingId) {
+    if (trackingId.startsWith('dep_')) {
+      const deposit = await prisma.bankDeposit.findUnique({ where: { trackingId } });
+      if (deposit && deposit.status === 'PROCESSING') {
+        if (statusLabel === 'failed' || statusLabel === 'cancelled') {
+          await prisma.bankDeposit.update({
+            where: { id: deposit.id },
+            data:  { status: 'FAILED', onrampId: transferId },
+          });
+          console.log(`[B2BinPay] Deposit ${trackingId} marked FAILED — B2BinPay status: ${statusLabel}`);
+        } else if (statusLabel === 'pending' || statusLabel === 'processing') {
+          await prisma.bankDeposit.update({
+            where: { id: deposit.id },
+            data:  { onrampId: transferId },
+          });
+        }
+      }
+    } else if (trackingId.startsWith('out_')) {
+      const withdrawal = await prisma.withdrawal.findUnique({ where: { trackingId } });
+      if (withdrawal && withdrawal.status === 'PENDING_B2BINPAY') {
+        if (statusLabel === 'failed' || statusLabel === 'cancelled') {
+          // B2BinPay failed to convert USDT → fiat — reverse the ledger debit
+          await prisma.$transaction(async (tx) => {
+            await credit(tx as Parameters<typeof credit>[0], withdrawal.userId, withdrawal.currency, Number(withdrawal.amount));
+          });
+          await prisma.withdrawal.update({
+            where: { id: withdrawal.id },
+            data:  { status: 'REVERSED' },
+          });
+          console.log(`[B2BinPay] Withdrawal ${trackingId} reversed — B2BinPay status: ${statusLabel}`);
+        }
+      }
+    }
+  }
 
   res.status(200).json({ received: true });
 });
