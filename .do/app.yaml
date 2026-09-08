@@ -1,0 +1,205 @@
+# DigitalOcean App Platform specification.
+#
+# Apply with:
+#   doctl apps create   --spec .do/app.yaml        # first time
+#   doctl apps update <APP_ID> --spec .do/app.yaml # subsequent
+#
+# ── What matters here ──────────────────────────────────────────────────────────
+#
+# 1. `jobs.kind: PRE_DEPLOY` runs migrations BEFORE the new code serves traffic.
+#    Migrating from inside the app's start command means the first request can
+#    hit a schema that has not migrated yet, and means N instances race the
+#    same migration. A pre-deploy job runs exactly once and blocks the rollout
+#    if it fails.
+#
+# 2. `prisma migrate deploy` requires `prisma/migrations/` to exist. It does
+#    not yet — see scripts/create-baseline-migration.sh and docs/DEPLOY.md.
+#    Until that baseline is committed, this job is a no-op that will happily
+#    deploy a schema-less database, so do that step first.
+#
+# 3. Secrets are `type: SECRET` and set through the DO control panel or
+#    `doctl apps update --spec` with values injected from your secret store.
+#    Nothing sensitive is committed here.
+
+name: fincruse-settlement
+region: fra
+
+# ── Managed Postgres ──────────────────────────────────────────────────────────
+databases:
+  - name: settlement-db
+    engine: PG
+    version: "16"
+    production: true
+    cluster_name: fincruse-settlement-db
+
+# ── Pre-deploy migrations ─────────────────────────────────────────────────────
+jobs:
+  - name: migrate
+    kind: PRE_DEPLOY
+    github:
+      repo: AXStronltd/Fincruse-settlement
+      branch: main
+      deploy_on_push: false
+    dockerfile_path: Dockerfile
+    instance_size_slug: apps-s-1vcpu-0.5gb
+    instance_count: 1
+    run_command: npx prisma migrate deploy
+    envs:
+      - key: DATABASE_URL
+        scope: RUN_TIME
+        value: ${settlement-db.DATABASE_URL}
+      # Prisma's engine downloads are blocked on some networks; the engines are
+      # already in the image from the build stage, so nothing should be fetched
+      # at run time. This makes a failed fetch loud rather than silent.
+      - key: PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING
+        scope: RUN_TIME
+        value: "1"
+
+# ── API ───────────────────────────────────────────────────────────────────────
+services:
+  - name: api
+    github:
+      repo: AXStronltd/Fincruse-settlement
+      branch: main
+      deploy_on_push: true
+    dockerfile_path: Dockerfile
+    http_port: 4000
+    instance_size_slug: apps-s-1vcpu-1gb
+    # Two instances for availability. Both run the settlement resume worker;
+    # that is safe because every leg is idempotent on its externalKey, so a
+    # duplicate attempt is recognised by the partner rather than paying twice.
+    # See resume.worker.ts for when to add SKIP LOCKED instead.
+    instance_count: 2
+
+    health_check:
+      http_path: /api/health
+      initial_delay_seconds: 20
+      period_seconds: 15
+      timeout_seconds: 5
+      success_threshold: 1
+      failure_threshold: 3
+
+    routes:
+      - path: /api
+
+    alerts:
+      - rule: DEPLOYMENT_FAILED
+      - rule: DOMAIN_FAILED
+      - rule: CPU_UTILIZATION
+        operator: GREATER_THAN
+        value: 80
+        window: TEN_MINUTES
+
+    envs:
+      # ── Core ────────────────────────────────────────────────────────────────
+      - key: NODE_ENV
+        scope: RUN_TIME
+        value: production
+      - key: DATABASE_URL
+        scope: RUN_TIME
+        value: ${settlement-db.DATABASE_URL}
+      - key: API_BASE_URL
+        scope: RUN_TIME
+        value: ${APP_URL}/api
+
+      # ── Settlement engine ───────────────────────────────────────────────────
+      - key: SETTLEMENT_WORKER_ENABLED
+        scope: RUN_TIME
+        value: "true"
+      - key: SETTLEMENT_WORKER_INTERVAL_MS
+        scope: RUN_TIME
+        value: "15000"
+      - key: OUTBOX_WORKER_ENABLED
+        scope: RUN_TIME
+        value: "true"
+
+      # ── Solana ──────────────────────────────────────────────────────────────
+      # A dedicated RPC endpoint, NOT api.mainnet-beta.solana.com. The public
+      # endpoint is rate-limited and will start refusing settlement
+      # verification under any real load — at which point transfers cannot be
+      # proven final and the engine correctly refuses to complete them.
+      - key: SOLANA_RPC_URL
+        scope: RUN_TIME
+        type: SECRET
+      - key: SOLANA_RPC_TIMEOUT_MS
+        scope: RUN_TIME
+        value: "10000"
+
+      # ── Custody ─────────────────────────────────────────────────────────────
+      - key: FIREBLOCKS_API_KEY
+        scope: RUN_TIME
+        type: SECRET
+      # The RSA key is a file, not a string. App Platform has no file mounts,
+      # so it is passed base64-encoded and written to disk at boot by
+      # scripts/write-fireblocks-key.sh, which the start command calls.
+      - key: FIREBLOCKS_SECRET_KEY_B64
+        scope: RUN_TIME
+        type: SECRET
+      - key: FIREBLOCKS_SECRET_KEY_PATH
+        scope: RUN_TIME
+        value: /app/secrets/fireblocks_secret.key
+      - key: FIREBLOCKS_TREASURY_VAULT
+        scope: RUN_TIME
+        type: SECRET
+      - key: FIREBLOCKS_USDT_ASSET
+        scope: RUN_TIME
+        value: USDT_SOL
+      - key: FIREBLOCKS_SANDBOX
+        scope: RUN_TIME
+        value: "false"
+      - key: FIREBLOCKS_WEBHOOK_PUBLIC_KEY
+        scope: RUN_TIME
+        type: SECRET
+
+      # ── Converter ───────────────────────────────────────────────────────────
+      - key: B2BINPAY_CLIENT_ID
+        scope: RUN_TIME
+        type: SECRET
+      - key: B2BINPAY_CLIENT_SECRET
+        scope: RUN_TIME
+        type: SECRET
+      - key: B2BINPAY_CALLBACK_SECRET
+        scope: RUN_TIME
+        type: SECRET
+      - key: B2BINPAY_WALLET_ID
+        scope: RUN_TIME
+        type: SECRET
+      - key: B2BINPAY_SANDBOX
+        scope: RUN_TIME
+        value: "false"
+
+      # ── Payout partner (USD v1) ─────────────────────────────────────────────
+      - key: BRAINROCK_API_KEY
+        scope: RUN_TIME
+        type: SECRET
+      - key: BRAINROCK_WEBHOOK_SECRET
+        scope: RUN_TIME
+        type: SECRET
+      - key: BRAINROCK_TREASURY_ACCOUNT_ID
+        scope: RUN_TIME
+        type: SECRET
+      - key: BRAINROCK_SANDBOX
+        scope: RUN_TIME
+        value: "false"
+
+      # ── Ops ─────────────────────────────────────────────────────────────────
+      - key: OPS_API_KEY
+        scope: RUN_TIME
+        type: SECRET
+      - key: RECON_ONCHAIN_ADDRESSES
+        scope: RUN_TIME
+        type: SECRET
+
+# ── Frontend ──────────────────────────────────────────────────────────────────
+static_sites:
+  - name: web
+    github:
+      repo: AXStronltd/Fincruse-settlement
+      branch: main
+      deploy_on_push: true
+    source_dir: frontend
+    build_command: npm ci && npm run build
+    output_dir: dist
+    routes:
+      - path: /
+    catchall_document: index.html

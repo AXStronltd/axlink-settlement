@@ -1,4 +1,4 @@
-import type { IBaaSProvider, PaymentDestination, BaaSQuote, BaaSPayoutParams, BaaSPayoutResult } from '../../core/baas.interface';
+import type { IBaaSProvider, PaymentDestination, BaaSQuote, BaaSPayoutParams, BaaSPayoutResult, PayoutMethod } from '../../core/baas.interface';
 import { sendTransfer, type ChoiceBankCurrency, type ChoiceBankDestination } from './choicebank';
 
 // Choice Bank handles bank transfers across Sub-Saharan Africa + CNY.
@@ -16,6 +16,17 @@ export class ChoiceBankBaaSProvider implements IBaaSProvider {
   readonly name = 'Choice Bank (Africa + CNY)';
   readonly supportedCurrencies = CURRENCIES;
   readonly atomicJit = false;
+
+  // Bank, not a VASP — funded in USD, applies its own FX, delivers local
+  // currency into a bank account.
+  readonly capability = {
+    settlementCurrencies: ['USD'],
+    payoutCurrencies:     CURRENCIES,
+    methods:              ['bank_transfer'] as PayoutMethod[],
+    partnerAppliesFx:     true,
+    cryptoLicensed:       false,
+    prefundedFloat:       false,
+  };
 
   canHandle(currency: string, destination: PaymentDestination): boolean {
     if (!CURRENCIES.includes(currency.toUpperCase())) return false;

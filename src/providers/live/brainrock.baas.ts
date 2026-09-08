@@ -1,4 +1,4 @@
-import type { IBaaSProvider, PaymentDestination, BaaSQuote, BaaSPayoutParams, BaaSPayoutResult } from '../../core/baas.interface';
+import type { IBaaSProvider, PaymentDestination, BaaSQuote, BaaSPayoutParams, BaaSPayoutResult, PayoutMethod } from '../../core/baas.interface';
 import { sendPayment, resolvePaymentType } from './brainrock';
 
 // Brainrock handles fiat bank transfers for developed-market currencies.
@@ -18,6 +18,18 @@ export class BrainrockBaaSProvider implements IBaaSProvider {
   readonly name = 'Brainrock (EU / UK / USA / Canada)';
   readonly supportedCurrencies = CURRENCIES;
   readonly atomicJit = false;
+
+  // Developed-market rails. USD/EUR/GBP are funded directly in the payout
+  // currency (DIRECT_FIAT — no FX at the partner, the rate is ours and known);
+  // everything else bridges through one of those three.
+  readonly capability = {
+    settlementCurrencies: ['USD', 'EUR', 'GBP'],
+    payoutCurrencies:     CURRENCIES,
+    methods:              ['bank_transfer'] as PayoutMethod[],
+    partnerAppliesFx:     false,
+    cryptoLicensed:       false,
+    prefundedFloat:       false,
+  };
 
   canHandle(currency: string, destination: PaymentDestination): boolean {
     if (!CURRENCIES.includes(currency.toUpperCase())) return false;

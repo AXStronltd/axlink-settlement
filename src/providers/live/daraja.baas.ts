@@ -1,4 +1,4 @@
-import type { IBaaSProvider, PaymentDestination, BaaSQuote, BaaSPayoutParams, BaaSPayoutResult } from '../../core/baas.interface';
+import type { IBaaSProvider, PaymentDestination, BaaSQuote, BaaSPayoutParams, BaaSPayoutResult, PayoutMethod } from '../../core/baas.interface';
 import { sendB2C, normalizeMsisdn } from './daraja';
 
 // Daraja handles M-Pesa mobile money for KES (Kenya), TZS (Tanzania), UGX (Uganda).
@@ -16,6 +16,22 @@ export class DarajaBaaSProvider implements IBaaSProvider {
   readonly name = 'Daraja M-Pesa (Safaricom)';
   readonly supportedCurrencies = CURRENCIES;
   readonly atomicJit = false;  // B2BinPay funds AxLink Daraja account first, then B2C sends
+
+  // Safaricom is an MNO with a mobile-money licence, not a VASP: it cannot
+  // receive crypto. Funded in USD, it applies its own FX and delivers local
+  // currency — the shape `atomicJit` could not express, which is why KES was
+  // unreachable before.
+  readonly capability = {
+    settlementCurrencies: ['USD'],
+    payoutCurrencies:     CURRENCIES,
+    methods:              ['mobile_money'] as PayoutMethod[],
+    countries:            ['KE', 'TZ', 'UG'],
+    partnerAppliesFx:     true,
+    cryptoLicensed:       false,
+    // Set true once a float is funded and monitored — that is what makes the
+    // recipient's experience real-time. Costs working capital per corridor.
+    prefundedFloat:       false,
+  };
 
   canHandle(currency: string, destination: PaymentDestination): boolean {
     if (!CURRENCIES.includes(currency.toUpperCase())) return false;

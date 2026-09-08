@@ -276,6 +276,7 @@ model InterbankTransfer {
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
+  @@unique([senderBankId, bankReferenceId])
   @@index([senderBankId, createdAt])
   @@index([status])
 }
@@ -289,4 +290,401 @@ model AuditLog {
   event      String   // CREATED | STATUS_CHANGED | ERROR
   data       Json
   createdAt  DateTime @default(now())
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  SETTLEMENT ENGINE
+//
+//  Everything below is append-only accounting and settlement machinery. The
+//  pre-existing models (User, Account, Transfer, Withdrawal, …) are unchanged
+//  in shape: `Account.balance` remains the fast read path, but it is now a
+//  *projection* of the journal rather than the source of truth. Both are
+//  written in the same database transaction, and `reconciliation.service.ts`
+//  proves they agree.
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ── Chart of accounts ─────────────────────────────────────────────────────────
+//
+// Every movement of value has two sides. Before this existed, a withdrawal
+// debited a user and the money simply vanished from the books — fees, FX spread,
+// partner float and on-chain custody had no accounts to land in, so they were
+// only ever visible as the arithmetic difference between what was debited and
+// what was delivered. That is why no trial balance was possible.
+
+model LedgerAccount {
+  id        String   @id @default(cuid())
+
+  /// Stable, human-readable identifier. Conventions:
+  ///   USER:<userId>:<CCY>        customer liability (we owe the customer)
+  ///   BANK:<bankId>:<CCY>        member bank liability on the AxLink network
+  ///   TREASURY:<CCY>             our own funds, incl. TREASURY:USDT
+  ///   CUSTODY:<vaultId>:<ASSET>  asset held in a Fireblocks vault
+  ///   ONCHAIN:<mint>             asset provably on Solana
+  ///   FLOAT:<providerId>:<CCY>   funds sitting at a payout partner
+  ///   FEE_INCOME:<CCY>           our revenue
+  ///   FX_PNL:<CCY>               realised FX gain/loss
+  ///   SUSPENSE:<CCY>             known-unknown — must be zero at close of day
+  code      String   @unique
+
+  /// ASSET | LIABILITY | EQUITY | INCOME | EXPENSE
+  /// Normal balance is DEBIT for ASSET/EXPENSE, CREDIT for the rest.
+  type      String
+
+  /// ISO 4217 code, or an asset symbol for crypto accounts (USDT, USDC, SOL).
+  currency  String
+
+  /// Set for USER:* and BANK:* accounts so per-party statements are a single query.
+  userId    String?
+  bankId    String?
+
+  /// SUSPENSE and FX_PNL accounts are expected to be non-zero intraday but are
+  /// asserted to be flat at end of day. Marked so reconciliation knows.
+  transient Boolean  @default(false)
+
+  createdAt DateTime @default(now())
+
+  lines     JournalLine[]
+
+  @@index([type, currency])
+  @@index([userId])
+  @@index([bankId])
+}
+
+// ── Journal ───────────────────────────────────────────────────────────────────
+//
+// Append-only. Nothing here is ever updated or deleted; a mistake is corrected
+// by posting a reversing entry that references the original.
+
+model JournalEntry {
+  id           String   @id @default(cuid())
+
+  /// Business event that caused the posting: DEPOSIT | WITHDRAWAL | P2P_TRANSFER
+  /// | INTERBANK | FEE | FX | SETTLEMENT | REVERSAL | ADJUSTMENT | RECONCILIATION
+  eventType    String
+
+  /// The domain record this posting belongs to (Transfer.id, Withdrawal.id, …).
+  entityType   String
+  entityId     String
+
+  /// Free-text, shown on statements.
+  narrative    String
+
+  /// Set on a reversing entry; points at the entry being reversed.
+  reversesId   String?
+  reverses     JournalEntry?  @relation("reversal", fields: [reversesId], references: [id])
+  reversedBy   JournalEntry[] @relation("reversal")
+
+  /// Idempotency: a second attempt to post the same logical event is rejected
+  /// by this constraint rather than silently double-booking.
+  postingKey   String   @unique
+
+  postedAt     DateTime @default(now())
+  postedBy     String   @default("system")
+
+  lines        JournalLine[]
+
+  @@index([entityType, entityId])
+  @@index([eventType, postedAt])
+  @@index([postedAt])
+}
+
+model JournalLine {
+  id         String        @id @default(cuid())
+
+  entryId    String
+  entry      JournalEntry  @relation(fields: [entryId], references: [id], onDelete: Cascade)
+
+  accountId  String
+  account    LedgerAccount @relation(fields: [accountId], references: [id])
+
+  /// Signed, in `currency`. Positive = debit, negative = credit.
+  /// Every entry's lines sum to exactly zero per currency — asserted before write.
+  amount     Decimal       @db.Decimal(28, 10)
+  currency   String
+
+  /// Value of this line in USD at posting time, for cross-currency trial balance.
+  usdAmount  Decimal       @db.Decimal(28, 10)
+
+  memo       String?
+
+  @@index([accountId])
+  @@index([entryId])
+}
+
+// ── Idempotency ───────────────────────────────────────────────────────────────
+//
+// A retried HTTP request must not pay twice. The unique key is enforced by the
+// database, not by a read-then-write check, because two concurrent requests
+// both pass a read-then-write check.
+
+model IdempotencyKey {
+  id           String   @id @default(cuid())
+
+  /// Caller-supplied key, namespaced by scope so a bank's reference cannot
+  /// collide with a user's.
+  scope        String   // "withdrawal" | "p2p" | "interbank" | "deposit"
+  key          String
+
+  /// SHA-256 of the canonicalised request body. A replay with the same key but
+  /// a different body is a client bug and is rejected loudly (409), not served
+  /// the cached response.
+  requestHash  String
+
+  /// IN_FLIGHT | COMPLETED | FAILED
+  status       String   @default("IN_FLIGHT")
+
+  /// Response replayed to a duplicate request once COMPLETED.
+  responseBody Json?
+  entityType   String?
+  entityId     String?
+
+  /// Set when status = FAILED, so a retry after a genuine failure is allowed.
+  failureCode  String?
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  expiresAt    DateTime
+
+  @@unique([scope, key])
+  @@index([expiresAt])
+}
+
+// ── Settlement legs ───────────────────────────────────────────────────────────
+//
+// A settlement is a sequence of legs, each of which either happened or did not.
+// Persisting them is what makes a crash between "ledger debited" and "partner
+// paid" recoverable: the resume worker reads legs stuck in a non-terminal
+// status and drives them forward.
+
+model SettlementLeg {
+  id            String   @id @default(cuid())
+
+  /// Owning domain record.
+  entityType    String   // Transfer | Withdrawal | InterbankTransfer | BankDeposit | SettlementBatch
+  entityId      String
+
+  /// Ordinal within the settlement, 0-based. Legs execute in sequence.
+  sequence      Int
+
+  /// LEDGER_DEBIT | CUSTODY_TRANSFER | ONCHAIN_SETTLE | CONVERT_FIAT
+  /// | PARTNER_PAYOUT | LEDGER_CREDIT | COMPENSATE
+  kind          String
+
+  /// PENDING | IN_FLIGHT | AWAITING_CONFIRMATION | COMPLETED | FAILED | COMPENSATED | ABANDONED
+  status        String   @default("PENDING")
+
+  /// Deterministic key handed to the external system so a resumed leg reuses
+  /// the same request rather than creating a second one.
+  externalKey   String   @unique
+
+  /// Identifier returned by the external system (Fireblocks tx id, B2BinPay
+  /// payout id, partner payment id).
+  externalRef   String?
+
+  asset         String?  // USDT | USDC | KES | GBP …
+  amount        Decimal? @db.Decimal(28, 10)
+
+  attempts      Int      @default(0)
+  maxAttempts   Int      @default(5)
+  /// Earliest time the resume worker may retry this leg.
+  nextAttemptAt DateTime?
+  lastError     String?
+
+  payload       Json?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  completedAt   DateTime?
+
+  @@unique([entityType, entityId, sequence])
+  @@index([status, nextAttemptAt])
+  @@index([entityType, entityId])
+}
+
+// ── On-chain settlement proof ─────────────────────────────────────────────────
+//
+// The point of not using SWIFT is that settlement is independently verifiable.
+// A Fireblocks transaction id proves only that Fireblocks accepted a request.
+// This table records what actually landed on Solana, confirmed against an RPC
+// node at `finalized` commitment — the artefact a counterparty or an auditor
+// can check without trusting us or our custodian.
+
+model SettlementProof {
+  id             String   @id @default(cuid())
+
+  entityType     String
+  entityId       String
+
+  /// Base-58 Solana transaction signature.
+  signature      String   @unique
+
+  /// Slot the transaction was confirmed in, and its block time.
+  slot           BigInt
+  blockTime      DateTime?
+
+  /// processed | confirmed | finalized. Only `finalized` is settlement.
+  commitment     String
+
+  /// SPL mint address of the settled asset (USDC/USDT on Solana).
+  mint           String
+  amountRaw      String   // integer string in the mint's smallest unit
+  decimals       Int
+  amount         Decimal  @db.Decimal(28, 10)
+
+  fromAddress    String
+  toAddress      String
+
+  /// Lamports actually paid. Recorded because "near-zero fee" is a claim we
+  /// should be able to evidence, not just assert.
+  feeLamports    BigInt?
+
+  /// Fireblocks transaction id, when the signing went through custody.
+  custodyTxId    String?
+
+  /// Set when the RPC reports an on-chain error; the transfer is then FAILED
+  /// regardless of what the custodian said.
+  onchainError   String?
+
+  verifiedAt     DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([mint, verifiedAt])
+}
+
+// ── Transactional outbox ──────────────────────────────────────────────────────
+//
+// Member-bank webhooks were dispatched with a floating `.then()`. A crash or a
+// partner 500 lost the notification permanently — and on this network the
+// webhook is how the receiving bank learns it has money. The event row is now
+// written in the same transaction as the state change, and a worker delivers it.
+
+model OutboxEvent {
+  id            String    @id @default(cuid())
+
+  /// bank.webhook | internal.event
+  channel       String
+  eventType     String
+
+  /// Delivery target — resolved at write time so a later config change cannot
+  /// silently redirect an already-committed event.
+  targetUrl     String?
+  targetSecret  String?
+
+  payload       Json
+
+  /// PENDING | DELIVERING | DELIVERED | FAILED | ABANDONED
+  status        String    @default("PENDING")
+  attempts      Int       @default(0)
+  maxAttempts   Int       @default(8)
+  nextAttemptAt DateTime  @default(now())
+  lastError     String?
+  lastStatus    Int?
+
+  entityType    String?
+  entityId      String?
+
+  createdAt     DateTime  @default(now())
+  deliveredAt   DateTime?
+
+  @@index([status, nextAttemptAt])
+  @@index([entityType, entityId])
+}
+
+// ── Provider attempt log ──────────────────────────────────────────────────────
+//
+// Every quote and payout we asked a partner for, and what it said. This is what
+// a partner's monthly statement gets reconciled against, and what the circuit
+// breaker's health picture is built from.
+
+model ProviderAttempt {
+  id            String   @id @default(cuid())
+
+  providerId    String
+  /// QUOTE | PAYOUT | FUND | STATUS
+  operation     String
+
+  entityType    String?
+  entityId      String?
+  reference     String?
+
+  currency      String?
+  amount        Decimal? @db.Decimal(28, 10)
+
+  /// Funding decision that produced this attempt, for audit.
+  fundingMode   String?  // ATOMIC_USDT | DIRECT_FIAT | PARTNER_FX
+  settlementCurrency String?
+
+  /// SUCCESS | FAILURE | TIMEOUT | SKIPPED_CIRCUIT_OPEN
+  outcome       String
+  latencyMs     Int?
+  httpStatus    Int?
+  errorCode     String?
+  errorMessage  String?
+
+  /// Quoted fee in USD, when operation = QUOTE. Used for routing analytics.
+  quotedFeeUsd  Decimal? @db.Decimal(20, 8)
+  /// True when this provider won the race.
+  selected      Boolean  @default(false)
+
+  externalRef   String?
+
+  createdAt     DateTime @default(now())
+
+  @@index([providerId, createdAt])
+  @@index([entityType, entityId])
+  @@index([outcome, createdAt])
+}
+
+// ── Reconciliation ────────────────────────────────────────────────────────────
+
+model ReconciliationRun {
+  id            String   @id @default(cuid())
+
+  /// TRIAL_BALANCE | CUSTODY | ONCHAIN | PROVIDER | FULL
+  kind          String
+
+  /// RUNNING | CLEAN | BREAKS | ERROR
+  status        String   @default("RUNNING")
+
+  asOf          DateTime
+  startedAt     DateTime @default(now())
+  finishedAt    DateTime?
+
+  /// Per-currency totals, position comparisons and timings.
+  summary       Json?
+
+  breakCount    Int      @default(0)
+  breaks        ReconciliationBreak[]
+
+  @@index([kind, startedAt])
+}
+
+model ReconciliationBreak {
+  id            String            @id @default(cuid())
+
+  runId         String
+  run           ReconciliationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  /// UNBALANCED_ENTRY | PROJECTION_DRIFT | CUSTODY_MISMATCH | ONCHAIN_MISMATCH
+  /// | ORPHAN_LEG | UNPROVEN_SETTLEMENT | SUSPENSE_NONZERO
+  kind          String
+
+  /// INFO | WARN | CRITICAL
+  severity      String            @default("WARN")
+
+  subject       String            // account code, entity id, address…
+  currency      String?
+  expected      Decimal?          @db.Decimal(28, 10)
+  actual        Decimal?          @db.Decimal(28, 10)
+  delta         Decimal?          @db.Decimal(28, 10)
+
+  detail        Json?
+
+  resolvedAt    DateTime?
+  resolvedNote  String?
+
+  createdAt     DateTime          @default(now())
+
+  @@index([runId, severity])
+  @@index([kind, resolvedAt])
 }

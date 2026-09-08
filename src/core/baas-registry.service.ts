@@ -21,8 +21,17 @@
  */
 
 import { randomUUID } from 'crypto';
-import { createPayout, calculatePayoutFee } from '../providers/live/b2binpay';
+import { createPayout, calculatePayoutFee, B2B_SETTLEMENT_CURRENCIES } from '../providers/live/b2binpay';
 import { createTransfer as fbTransfer } from '../providers/live/fireblocks';
+import { getRate as fxRate } from './fx.service';
+import {
+  deriveCapability,
+  capabilityPermits,
+  resolveFundingPlan,
+  type FundingPlan,
+} from './provider/capability';
+import { withBreaker, isAvailable, CircuitOpenError } from './provider/circuit-breaker';
+import * as attempts from './provider/attempt.service';
 import type {
   IBaaSProvider,
   PaymentDestination,
@@ -71,7 +80,40 @@ async function getBestProvider(
   amount: number,
   destination: PaymentDestination,
 ): Promise<{ provider: IBaaSProvider; quote: BaaSQuote }> {
-  const candidates = _providers.filter(p => p.canHandle(currency, destination));
+  // Two filters before any network call.
+  //
+  // capabilityPermits() rejects on currency, method, country and amount limits
+  // without allocating anything. canHandle() then validates the destination's
+  // fields, which is the provider's own business and stays with it.
+  //
+  // isAvailable() drops providers whose circuit is open. Previously a partner
+  // that was down was re-raced on every single payout, adding the full 4s quote
+  // timeout to every payment until someone edited the bootstrap file.
+  const structurallyCapable = _providers.filter(p => {
+    const cap = deriveCapability(p);
+    return (
+      capabilityPermits(cap, currency, amount, destination.method, destination.countryCode) &&
+      p.canHandle(currency, destination)
+    );
+  });
+
+  const candidates = structurallyCapable.filter(p => isAvailable(p.id));
+
+  const skipped = structurallyCapable.filter(p => !isAvailable(p.id));
+  for (const p of skipped) {
+    void attempts.record({ providerId: p.id, operation: 'QUOTE', outcome: 'SKIPPED_CIRCUIT_OPEN', currency, amount });
+  }
+
+  if (candidates.length === 0 && skipped.length > 0) {
+    throw Object.assign(
+      new Error(
+        `Every provider able to handle ${currency} is currently circuit-broken: ` +
+        `${skipped.map(p => p.id).join(', ')}. They are failing, not missing — ` +
+        `check partner status before changing routing.`,
+      ),
+      { code: 'ALL_PROVIDERS_UNAVAILABLE', statusCode: 503 },
+    );
+  }
 
   if (candidates.length === 0) {
     const method = destination.method ?? 'unspecified';
@@ -84,8 +126,12 @@ async function getBestProvider(
   }
 
   if (candidates.length === 1) {
-    const quote = await candidates[0].getQuote(currency, amount, destination);
-    return { provider: candidates[0], quote };
+    const only = candidates[0];
+    const quote = await attempts.timed(
+      { providerId: only.id, operation: 'QUOTE', currency, amount, selected: true },
+      () => withBreaker(only.id, () => only.getQuote(currency, amount, destination)),
+    );
+    return { provider: only, quote };
   }
 
   // Race quotes from all candidates in parallel, pick lowest fee
@@ -94,7 +140,10 @@ async function getBestProvider(
       const timeoutP = new Promise<never>((_, rej) =>
         setTimeout(() => rej(new Error(`${p.id} quote timed out`)), QUOTE_TIMEOUT_MS),
       );
-      const quote = await Promise.race([p.getQuote(currency, amount, destination), timeoutP]);
+      const quote = await attempts.timed(
+        { providerId: p.id, operation: 'QUOTE', currency, amount },
+        () => withBreaker(p.id, () => Promise.race([p.getQuote(currency, amount, destination), timeoutP])),
+      );
       return { provider: p, quote };
     }),
   );
@@ -106,6 +155,19 @@ async function getBestProvider(
     .map(r => r.value);
 
   if (successful.length === 0) {
+    // Separate "the partner said no" from "we never asked". Reporting a
+    // circuit-open skip as a quote failure sends whoever is on call looking at
+    // the wrong system.
+    const circuitOpen = settled.filter(
+      (r): r is PromiseRejectedResult => r.status === 'rejected' && r.reason instanceof CircuitOpenError,
+    );
+    if (circuitOpen.length === settled.length) {
+      throw Object.assign(
+        new Error(`All providers for ${currency} are circuit-broken — none were called`),
+        { code: 'ALL_PROVIDERS_UNAVAILABLE', statusCode: 503 },
+      );
+    }
+
     const reasons = settled
       .filter((r): r is PromiseRejectedResult => r.status === 'rejected')
       .map(r => r.reason instanceof Error ? r.reason.message : String(r.reason));
@@ -135,19 +197,33 @@ async function getBestProvider(
 // B2BinPay converts USDT → local fiat and sends to the provider's AxLink account.
 
 async function jitFundProvider(params: {
-  providerId:  string;
-  currency:    string;
-  amount:      number;
+  plan:        FundingPlan;
   usdtAmount:  number;
   reference:   string;
 }): Promise<string> {
-  const { providerId, currency, amount, usdtAmount, reference } = params;
+  const { plan, usdtAmount, reference } = params;
+  const providerId = plan.providerId;
+  // Fund in the SETTLEMENT currency the plan chose, which is not necessarily
+  // the payout currency. That distinction is the whole point of the plan: a
+  // partner delivering KES is funded in USD and applies its own FX.
+  const currency = plan.settlementCurrency;
+  const amount   = plan.settlementAmount;
 
   const fundingAddress = PROVIDER_FUNDING_ADDRESS[providerId];
   if (!fundingAddress) {
     throw new Error(
       `JIT funding address not configured for provider '${providerId}'. ` +
       `Set the corresponding env var (e.g. DARAJA_B2C_FLOAT_ACCOUNT).`,
+    );
+  }
+
+  // The plan guarantees the converter can produce this currency; assert it so a
+  // future planner change cannot quietly strand USDT in the converter's wallet.
+  if (!B2B_SETTLEMENT_CURRENCIES.has(currency)) {
+    throw new Error(
+      `Funding plan for '${providerId}' chose settlement currency ${currency}, which the ` +
+      `converter cannot produce (it settles ${[...B2B_SETTLEMENT_CURRENCIES].join(', ')}). ` +
+      `This is a planner bug — resolveFundingPlan should never emit it.`,
     );
   }
 
@@ -209,31 +285,73 @@ export async function deliverFiat(params: {
   destination: PaymentDestination;
   reference:   string;
   description: string;
-}): Promise<{ provider: string; paymentId: string; estimatedMinutes?: number }> {
+}): Promise<{ provider: string; paymentId: string; estimatedMinutes?: number; plan: FundingPlan }> {
   const { currency, amount, usdtAmount, destination, reference, description } = params;
   const curr = currency.toUpperCase();
 
   const { provider } = await getBestProvider(curr, amount, destination);
 
+  // Decide HOW to fund this partner before moving anything. resolveFundingPlan
+  // throws if no route exists, which is deliberately before any USDT leaves the
+  // treasury — the previous code could move USDT and only then discover the
+  // converter could not produce the payout currency, stranding it.
+  const plan = await resolveFundingPlan({
+    providerId: provider.id,
+    capability: deriveCapability(provider),
+    payoutCurrency: curr,
+    payoutAmount: amount,
+    usdtAmount,
+    context: {
+      converterSettlementCurrencies: B2B_SETTLEMENT_CURRENCIES,
+      getRate: fxRate,
+    },
+  });
+
+  console.log(`[BaaSRegistry] Funding plan for ${reference}: ${plan.rationale}`);
+
   let jitPayoutId: string | undefined;
 
-  if (!provider.atomicJit) {
-    // Two-phase: B2BinPay converts USDT → fiat → provider's AxLink account
-    jitPayoutId = await jitFundProvider({
-      providerId: provider.id,
-      currency:   curr,
-      amount,
-      usdtAmount,
-      reference,
-    });
+  // PREFUNDED_FLOAT pays the beneficiary FIRST from float the partner already
+  // holds, and replenishes afterwards. Funding before payout in that mode would
+  // throw away the only reason to hold float.
+  if (plan.requiresB2bConversion && !plan.payoutPrecedesFunding) {
+    jitPayoutId = await attempts.timed(
+      {
+        providerId: provider.id,
+        operation: 'FUND',
+        reference,
+        currency: plan.settlementCurrency,
+        amount: plan.settlementAmount,
+        plan,
+      },
+      () => jitFundProvider({ plan, usdtAmount, reference }),
+    );
   }
 
   const payoutParams: BaaSPayoutParams = {
     currency: curr, amount, destination, reference, description,
-    ...(provider.atomicJit ? { usdtAmount } : {}),
+    ...(plan.mode === 'ATOMIC_USDT' ? { usdtAmount } : {}),
   };
 
-  const result: BaaSPayoutResult = await provider.sendPayout(payoutParams);
+  const result: BaaSPayoutResult = await attempts.timed(
+    { providerId: provider.id, operation: 'PAYOUT', reference, currency: curr, amount, plan, selected: true },
+    () => withBreaker(provider.id, () => provider.sendPayout(payoutParams)),
+  );
+
+  // Replenishment runs after the beneficiary has been paid, and must not fail
+  // the payout: the customer has their money either way, and a failed
+  // replenishment is a treasury problem, surfaced by the float reconciliation.
+  if (plan.requiresB2bConversion && plan.payoutPrecedesFunding) {
+    jitFundProvider({ plan, usdtAmount, reference })
+      .then(id => { jitPayoutId = id; })
+      .catch(err =>
+        console.error(
+          `[BaaSRegistry] Float replenishment FAILED for ${provider.id} ref ${reference}: ` +
+          `${(err as Error).message} — beneficiary was paid from float, which is now short ` +
+          `${plan.settlementAmount} ${plan.settlementCurrency}`,
+        ),
+      );
+  }
 
   console.log(
     `[BaaSRegistry] Delivered ${amount} ${curr} via ${provider.id} ` +
@@ -244,6 +362,7 @@ export async function deliverFiat(params: {
     provider:         provider.id,
     paymentId:        result.paymentId,
     estimatedMinutes: result.estimatedMinutes,
+    plan,
   };
 }
 

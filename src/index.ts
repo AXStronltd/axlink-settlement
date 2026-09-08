@@ -11,6 +11,7 @@ import choicebankRoutes  from './routes/choicebank.routes';
 import networkRoutes     from './routes/network.routes';
 import treasuryRoutes   from './routes/treasury.routes';
 import depositRoutes    from './routes/deposit.routes';
+import settlementRoutes from './routes/settlement.routes';
 
 dotenv.config();
 
@@ -24,6 +25,22 @@ import('./bootstrap/baas.bootstrap');
 import('./core/payment-validator.service').then(m => m.startPaymentValidator()).catch(err =>
   console.error('[startup] Payment validator failed to start:', err)
 );
+
+// Settlement resume worker — drives stalled settlement legs forward after a
+// crash or a partner outage. Without it, a settlement that stops between the
+// customer debit and the partner payout stays stopped until a human notices.
+if (process.env.SETTLEMENT_WORKER_ENABLED !== 'false') {
+  import('./core/settlement/resume.worker').then(m => m.startResumeWorker()).catch(err =>
+    console.error('[startup] Settlement resume worker failed to start:', err)
+  );
+}
+
+// Outbox worker — at-least-once delivery of member-bank webhooks.
+if (process.env.OUTBOX_WORKER_ENABLED !== 'false') {
+  import('./core/outbox.service').then(m => m.startOutboxWorker()).catch(err =>
+    console.error('[startup] Outbox worker failed to start:', err)
+  );
+}
 
 
 // Fail fast on missing required env vars
@@ -97,6 +114,11 @@ app.use('/api/network', networkRoutes);
 // Internal treasury ops (OPS_API_KEY — never expose to banks or users)
 app.use('/api/ops', treasuryRoutes);
 
+// Settlement ops: books, legs, reconciliation, provider health.
+// /settlement/proof/* is intentionally public — a proof only we can read is
+// not a proof. Everything else requires OPS_API_KEY.
+app.use('/api/settlement', settlementRoutes);
+
 // Webhooks — inbound callbacks from rails and custody
 app.use('/api/webhooks', webhookRoutes);
 app.use('/api/webhooks', brainrockRoutes);
@@ -123,6 +145,13 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
   const BANK_ERR_CODES = new Set([
     'DAILY_LIMIT_EXCEEDED', 'CORRIDOR_LIMIT_EXCEEDED', 'UNKNOWN_RECEIVER_BANK',
     'RECEIVER_BANK_SUSPENDED', 'SELF_TRANSFER', 'DUPLICATE_REFERENCE',
+    // Settlement engine
+    'IDEMPOTENCY_CONFLICT', 'REQUEST_IN_FLIGHT', 'NO_FUNDING_ROUTE',
+    'INSUFFICIENT_BALANCE', 'INVALID_AMOUNT', 'VAULT_NOT_PROVISIONED',
+    'PROVIDER_CIRCUIT_OPEN', 'ALL_PROVIDERS_UNAVAILABLE',
+    // An unbalanced posting is a 500, but a named one: it means a caller built
+    // a posting that does not balance, and the refusal is the correct outcome.
+    'UNBALANCED_POSTING', 'SETTLEMENT_PROOF_MISMATCH', 'SETTLEMENT_NOT_FINAL',
   ]);
   if (err && typeof err === 'object') {
     const e = err as Record<string, unknown>;
