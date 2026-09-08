@@ -174,5 +174,5 @@ put the real figure at about 18% of statements. Worth knowing before anyone
 quotes a coverage number.
 
 **The database and Kafka topics were renamed separately.** They previously
-carried the older `fincruise` naming; that was retired in its own commit. This
+carried the previous brand's naming; that was retired in its own commit. This
 restructure does not touch either, and neither should be renamed as part of it.

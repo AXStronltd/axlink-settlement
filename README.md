@@ -235,7 +235,7 @@ The API shape is pre-built. Map the method names to actual Brainrock endpoints.
      -subj "/C=KE/O=AxLink/CN=axlink-settlement"
    ```
 
-> **If Fireblocks was already set up as FinCruse**, these two names exist in
+> **If Fireblocks was already set up under the previous brand**, these two names exist in
 > their console and must match: the CSR subject of the registered API user,
 > and the treasury vault's name. Either keep the old names or rename them in
 > the Fireblocks console too — the rebrand does not reach across.
