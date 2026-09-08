@@ -109,7 +109,7 @@ export default function Accounts() {
                 <span className="text-white font-bold text-xs">▣</span>
               </div>
               <div>
-                <div className="text-sm font-semibold text-white">FinCruse Debit Card</div>
+                <div className="text-sm font-semibold text-white">APPRA Debit Card</div>
                 <div className="text-xs text-gray-400">Linked to this account · spend in local currency globally</div>
               </div>
             </div>

@@ -8,9 +8,9 @@ import { confirmWithdrawalFromPartner } from '../core/settlement/payout-confirma
 // Choice Bank fires these events on inbound and outbound transfer updates.
 //
 // Inbound events (fiat deposited to user's Choice Bank virtual account):
-//   transfer.credit  → trigger full deposit flow into FinCruse
+//   transfer.credit  → trigger full deposit flow into APPRA
 //
-// Outbound events (FinCruse payout to user's bank):
+// Outbound events (APPRA payout to user's bank):
 //   transfer.success → mark withdrawal COMPLETED
 //   transfer.failed  → reverse ledger debit, mark REVERSED
 

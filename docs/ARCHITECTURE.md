@@ -1,6 +1,6 @@
 # Architecture
 
-**Axstron Group — FinCruse Settlement Service**
+**Axstron Group — APPRA Settlement Service**
 
 How the code is laid out and where to find things.
 

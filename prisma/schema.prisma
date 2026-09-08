@@ -88,7 +88,7 @@ model Transfer {
   updatedAt    DateTime @updatedAt
 }
 
-// ── Withdrawals (FinCruse → external bank) ────────────────────────────────────
+// ── Withdrawals (APPRA → external bank) ────────────────────────────────────
 
 model Withdrawal {
   id          String   @id @default(cuid())
@@ -112,7 +112,7 @@ model Withdrawal {
   updatedAt   DateTime @updatedAt
 }
 
-// ── Bank deposits (external bank → FinCruse) ──────────────────────────────────
+// ── Bank deposits (external bank → APPRA) ──────────────────────────────────
 
 model BankDeposit {
   id          String   @id @default(cuid())

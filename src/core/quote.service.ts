@@ -9,7 +9,7 @@ import type { LPQuote } from './lp.interface';
 const QUOTE_TTL_MS  = 30_000;
 const RATE_CACHE_MS = 10_000;
 
-// ── FinCruse Revenue Model ────────────────────────────────────────────────────
+// ── APPRA Revenue Model ────────────────────────────────────────────────────
 //
 // Spread is determined by the Smart Router based on route type:
 //   IDENTITY / STABLE → 0%      (same currency or USD↔USDT — no tax on 1:1 moves)

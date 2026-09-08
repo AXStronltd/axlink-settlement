@@ -166,7 +166,7 @@ export class MtnMomoBaaSProvider implements IBaaSProvider {
       externalId:   reference,
       payee:        { partyIdType: 'MSISDN', partyId: destination.mobileNumber.replace(/\D/g, '') },
       payerMessage: `AxLink transfer ${reference}`,
-      payeeNote:    `Sent via FinCruse AxLink`,
+      payeeNote:    `Sent via APPRA AxLink`,
     };
 
     const { referenceId } = await momoRequest<void>(

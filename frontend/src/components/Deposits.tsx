@@ -128,7 +128,7 @@ export default function Deposits() {
       <div>
         <h1 className="text-xl font-semibold text-white">Add Funds</h1>
         <p className="text-sm text-gray-500 mt-0.5">
-          Apple Pay · Google Pay · Open Banking — fiat lands in FinCruse segregated account,
+          Apple Pay · Google Pay · Open Banking — fiat lands in APPRA segregated account,
           AxLink converts internally, user sees local currency credited
         </p>
       </div>
@@ -225,10 +225,10 @@ export default function Deposits() {
                 <Row label="User"    value={userName} />
                 <Row label="Amount"  value={`${FLAGS[currency]} ${Number(amount).toLocaleString()} ${currency}`} />
                 <Row label="Method"  value={METHOD_LABELS[method].label} />
-                <Row label="To"      value="FinCruse segregated account (Brainrock)" />
+                <Row label="To"      value="APPRA segregated account (Brainrock)" />
               </div>
               <div className="text-xs text-gray-500 bg-gray-800/40 rounded-lg p-3 border border-gray-700">
-                Funds are held in a ring-fenced segregated account at Brainrock, separate from FinCruse
+                Funds are held in a ring-fenced segregated account at Brainrock, separate from APPRA
                 operational funds. AxLink converts fiat → USDT internally — you will never see crypto.
               </div>
               {err && <p className="text-xs text-red-400 bg-red-900/20 border border-red-800 rounded-lg p-2">{err}</p>}
@@ -257,7 +257,7 @@ export default function Deposits() {
                   <div className="space-y-2">
                     <p className="text-xs text-gray-400">
                       You'll be redirected to your bank to authorise the payment.
-                      Once authorised, funds arrive in the FinCruse segregated account
+                      Once authorised, funds arrive in the APPRA segregated account
                       and your balance is credited automatically.
                     </p>
                     <a href={session.checkoutUrl} target="_blank" rel="noreferrer"

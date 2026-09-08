@@ -92,7 +92,7 @@ app.get(['/health', '/api/health'], (_req, res) => {
 app.get(['/', '/api'], (_req, res) => {
   const base = process.env.API_BASE_URL ?? `http://localhost:${PORT}/api`;
   res.json({
-    service: 'FinCruse Settlement API — AxLink Network',
+    service: 'APPRA Settlement API — AxLink Network',
     version: '2.0.0',
     settlement: 'USDT (Fireblocks / Solana) — internal, users see local fiat only',
     callbackUrls: {
@@ -207,6 +207,6 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`FinCruse Settlement running on http://localhost:${PORT}`);
+  console.log(`APPRA Settlement running on http://localhost:${PORT}`);
   console.log(`AxLink network · B2BinPay mode: ${process.env.B2BINPAY_SANDBOX === 'true' ? 'SANDBOX' : 'PRODUCTION'}`);
 });

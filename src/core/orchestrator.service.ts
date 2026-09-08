@@ -1,5 +1,5 @@
 /**
- * FinCruse Orchestrator — AxLink Settlement Engine
+ * APPRA Orchestrator — AxLink Settlement Engine
  *
  * ══════════════════════════════════════════════════════════════════════
  *  INVARIANT: ALL USDT/SOLANA ACTIVITY IS INTERNAL TO AXLINK.
@@ -16,7 +16,7 @@
  * DEPOSIT flow (FIAT IN → user sees local currency credited):
  *   Local rail delivers fiat to AxLink's corridor account
  *   → AxLink internally: B2BinPay converts fiat → USDT → Fireblocks user vault
- *   → Fireblocks webhook confirms receipt → FinCruse credits user ledger in fiat
+ *   → Fireblocks webhook confirms receipt → APPRA credits user ledger in fiat
  *   External rail sees: "user paid KES 1000 to AxLink till" (pure fiat)
  *
  * WITHDRAWAL flow (ZERO PRE-FUNDED — JIT liquidity):
@@ -121,7 +121,7 @@ export async function handleFiatArrived(event: {
       walletId: user.b2bWalletId ?? B2B_WALLET_ID, // user's own B2BinPay wallet
       trackingId: `b2b_${deposit.trackingId}`,
       callbackUrl: `${CALLBACK}?depositId=${deposit.id}&userId=${userId}`,
-      label: `FinCruse ${currency} deposit via ${rail} → vault ${user.vaultId}`,
+      label: `APPRA ${currency} deposit via ${rail} → vault ${user.vaultId}`,
     });
 
     await audit('BankDeposit', deposit.id, 'B2BINPAY_CONVERTING', {
@@ -237,7 +237,7 @@ export async function handleWithdrawalRequest(params: {
       amount: usdtAmount.toString(),
       sourceVaultId: user.vaultId,
       destVaultId: TREASURY_VAULT,
-      note: `FinCruse withdrawal ${trackingId}`,
+      note: `APPRA withdrawal ${trackingId}`,
       externalTxId: trackingId,
     });
 
@@ -257,7 +257,7 @@ export async function handleWithdrawalRequest(params: {
       usdtAmount,
       currency,
       reference:   trackingId,
-      description: `FinCruse withdrawal ${trackingId}`,
+      description: `APPRA withdrawal ${trackingId}`,
     });
 
     await audit('Withdrawal', withdrawal.id, 'PAYOUT_SENT', {
@@ -318,7 +318,7 @@ export async function handleWithdrawalRequest(params: {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// P2P Transfer (user → user inside FinCruse)
+// P2P Transfer (user → user inside APPRA)
 // Supports same-currency (0 B2BinPay) and cross-currency (2 B2BinPay)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -390,7 +390,7 @@ export async function handleP2PTransfer(params: {
         amount: usdtAmount.toString(),
         sourceVaultId: sender.vaultId,
         destVaultId: receiver.vaultId,
-        note: note ?? `FinCruse P2P ${trackingId}`,
+        note: note ?? `APPRA P2P ${trackingId}`,
         externalTxId: trackingId,
       });
       fbTxId = fbTx?.id as string | undefined;
@@ -416,7 +416,7 @@ export async function handleP2PTransfer(params: {
         usdtAmount,
         currency:    toCurrency,
         reference:   `p2p_${trackingId}`,
-        description: `FinCruse transfer from ${sender.name}`,
+        description: `APPRA transfer from ${sender.name}`,
       });
       await audit('Transfer', transfer.id, 'EXTERNAL_PAYOUT_SENT', {
         provider: payout.provider, paymentId: payout.paymentId,

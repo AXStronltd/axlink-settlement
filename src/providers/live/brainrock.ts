@@ -5,8 +5,8 @@ import type { PaymentDestination } from '../../core/baas.interface';
 // Provides per-user virtual IBANs and outbound fiat payments.
 // Compatible pattern: swap BASE_URL + field names for Square, Railsr, ClearBank.
 //
-// Inbound:  User bank → user's virtual IBAN → Brainrock webhook → FinCruse
-// Outbound: FinCruse treasury account → user's bank / M-Pesa / SEPA
+// Inbound:  User bank → user's virtual IBAN → Brainrock webhook → APPRA
+// Outbound: APPRA treasury account → user's bank / M-Pesa / SEPA
 
 const BASE_URL = process.env.BRAINROCK_SANDBOX === 'true'
   ? 'https://sandbox.api.brainrock.io/v1'
@@ -70,7 +70,7 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
 // ── Virtual Accounts ──────────────────────────────────────────────────────────
 
 // Call on user signup — each user gets a unique IBAN for receiving deposits.
-// No KYC needed here; Brainrock just assigns an IBAN mapped to FinCruse's master account.
+// No KYC needed here; Brainrock just assigns an IBAN mapped to APPRA's master account.
 export async function createVirtualAccount(params: {
   userId: string;
   currency: string;   // ISO: GBP, EUR, USD, CAD
@@ -94,14 +94,14 @@ export async function getVirtualAccount(accountId: string): Promise<VirtualAccou
 
 // ── Outbound Payments ────────────────────────────────────────────────────────
 
-// Send fiat from FinCruse treasury → user's bank/mobile.
-// fromAccountId = BRAINROCK_TREASURY_ACCOUNT_ID (FinCruse's own Brainrock account).
+// Send fiat from APPRA treasury → user's bank/mobile.
+// fromAccountId = BRAINROCK_TREASURY_ACCOUNT_ID (APPRA's own Brainrock account).
 export async function sendPayment(params: {
   fromAccountId: string;
   destination: PaymentDestination;
   amount: number;
   currency: string;
-  reference: string;      // FinCruse tracking ID for reconciliation
+  reference: string;      // APPRA tracking ID for reconciliation
   description?: string;
 }): Promise<OutboundPayment> {
   const res = await apiFetch<{ data: OutboundPayment }>('/payments/outbound', {
@@ -122,7 +122,7 @@ export async function sendPayment(params: {
       amount:      params.amount,
       currency:    params.currency,
       reference:   params.reference,
-      description: params.description ?? 'FinCruse payout',
+      description: params.description ?? 'APPRA payout',
     }),
   });
   return res.data;
@@ -156,7 +156,7 @@ export function verifyWebhookSignature(rawBody: string, signatureHeader: string)
 
 // ── Card Issuance ─────────────────────────────────────────────────────────────
 // Brainrock (or any card provider) issues a virtual or physical debit card
-// linked to FinCruse's program. Authorization webhooks come back to AxLink.
+// linked to APPRA's program. Authorization webhooks come back to AxLink.
 
 export interface CardDetails {
   id:       string;    // store as Card.providerCardId
@@ -280,7 +280,7 @@ interface BrainrockSessionResponse {
 
 // Creates a Brainrock-hosted payment session.
 // User pays via Apple Pay sheet / Google Pay sheet / Open Banking redirect.
-// Fiat lands in FinCruse's Brainrock segregated account.
+// Fiat lands in APPRA's Brainrock segregated account.
 // Brainrock fires payment.received webhook → handleFiatArrived → B2BinPay → USDT → vault.
 export async function createPaymentSession(params: {
   userId:       string;

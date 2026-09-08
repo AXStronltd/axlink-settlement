@@ -1,4 +1,4 @@
-# FinCruse Settlement — gap analysis
+# APPRA Settlement — gap analysis
 
 Reviewed at `aa21369` (+ uncommitted work in progress). ~9.1k LOC across
 `src/core`, `src/providers`, `src/routes`, plus a React/Vite frontend.

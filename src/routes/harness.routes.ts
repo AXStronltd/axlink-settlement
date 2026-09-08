@@ -27,6 +27,12 @@ import { trialBalance } from '../core/settlement/journal.service';
 import { proofsFor } from '../core/settlement/proof.service';
 import { checkAll, postingsFor } from '../simulator/invariants';
 
+// Express 5 types route params as `string | string[]` because a wildcard
+// segment can repeat. Same helper as settlement.routes.ts — narrow once here
+// rather than casting at each call site.
+const param = (v: string | string[] | undefined): string =>
+  Array.isArray(v) ? (v[0] ?? '') : (v ?? '');
+
 const router = Router();
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
@@ -296,13 +302,13 @@ router.get(
 router.get(
   '/postings/:entityType/:entityId',
   wrap(async (req, res) =>
-    res.json({ postings: await postingsFor(req.params.entityType, req.params.entityId) }),
+    res.json({ postings: await postingsFor(param(req.params.entityType), param(req.params.entityId)) }),
   ),
 );
 
 router.get(
   '/proof/:entityType/:entityId',
-  wrap(async (req, res) => res.json({ proofs: await proofsFor(req.params.entityType, req.params.entityId) })),
+  wrap(async (req, res) => res.json({ proofs: await proofsFor(param(req.params.entityType), param(req.params.entityId)) })),
 );
 
 export default router;

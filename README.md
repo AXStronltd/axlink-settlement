@@ -1,4 +1,4 @@
-# FinCruse Settlement Service
+# APPRA Settlement Service
 
 **Users see a neobank. Crypto never appears.** All conversion happens silently in the backend across five layers.
 
@@ -19,7 +19,7 @@ USER (app — sees fiat only, no crypto ever)
         │
         ▼
 ┌───────────────────────────────────────────────────────────────────────┐
-│                         FinCruse Platform                              │
+│                         APPRA Platform                              │
 │                                                                        │
 │  LAYER 1 — FIAT RAILS         LAYER 2–3 — CRYPTO RAIL (hidden)        │
 │  ┌────────────────────┐       ┌─────────────────┐  ┌───────────────┐  │
@@ -41,7 +41,7 @@ USER (app — sees fiat only, no crypto ever)
 │                               │  Virtual fiat balances per user    │  │
 │                               └────────────────────────────────────┘  │
 │                                                                        │
-│                        FinCruse Orchestrator                           │
+│                        APPRA Orchestrator                           │
 │              (coordinates all five layers per transaction)             │
 └───────────────────────────────────────────────────────────────────────┘
 ```
@@ -54,7 +54,7 @@ USER (app — sees fiat only, no crypto ever)
 | Settlement | **Legs + journal** | Resumable state machine, double-entry, on-chain proof |
 | Ledger | **Prisma + PostgreSQL** | Tracks fiat balances, all flows atomic |
 
-Revenue model: **FX spread baked into rate** — no visible fee. B2BinPay gives institutional rate, FinCruse marks up, user sees a clean rate.
+Revenue model: **FX spread baked into rate** — no visible fee. B2BinPay gives institutional rate, APPRA marks up, user sees a clean rate.
 
 ---
 
@@ -92,7 +92,7 @@ Returns:
 **What happens behind the scenes:**
 
 ```
-1. User sends £500 from Barclays → their FinCruse IBAN (Brainrock)
+1. User sends £500 from Barclays → their APPRA IBAN (Brainrock)
 
 2. Brainrock → POST /api/webhooks/brainrock
    { "type": "payment.received", "data": { "accountId": "va_james", "amount": 500, "currency": "GBP" } }
@@ -145,7 +145,7 @@ Flow (0 B2BinPay calls, 1 Fireblocks):
 Step 1 — JIT Rate Lock (30 seconds):
   POST /api/quote { "fromCurrency": "GBP", "toCurrency": "KES", "fromAmount": 300 }
   → B2BinPay institutional rate: 1 GBP = 162.04 KES
-  → FinCruse applies 1.8% spread: customer rate = 159.12 KES
+  → APPRA applies 1.8% spread: customer rate = 159.12 KES
   → Locked for 30s. quoteId: "q_abc"
 
 Step 2 — Execute (uses locked rate):
@@ -154,13 +154,13 @@ Step 2 — Execute (uses locked rate):
     "toCurrency": "KES", "amount": 300, "quoteId": "q_abc" }
 
   2a. Ledger: debit Mike -£300
-  2b. B2BinPay on-ramp: £300 GBP → ~$381 USDT (credits FinCruse wallet)
+  2b. B2BinPay on-ramp: £300 GBP → ~$381 USDT (credits APPRA wallet)
   2c. Fireblocks: vault_mike → vault_james (~$381 USDT on Solana, gas $0.00025)
   2d. B2BinPay off-ramp: ~$381 USDT → ~$381 USD (B2BinPay settles USD/EUR/GBP only)
   2e. USD wired to Daraja; Daraja applies local FX and pays KSh 47,760 to James's M-Pesa
   2f. Ledger: credit James +KSh 47,760
 
-  FinCruse earns: ~$6.87 USD spread on this transaction
+  APPRA earns: ~$6.87 USD spread on this transaction
   B2BinPay cost:  ~$1.14 USD institutional fee
   Profit:         ~$5.73 USD
   SWIFT cost:     $0 (not used)
@@ -188,13 +188,13 @@ POST /api/orchestrator/withdraw
 Flow:
   A. Balance check: James has ≥ KSh 10,000
   B. Ledger: debit James -KSh 10,000
-  C. Fireblocks: vault_james → FinCruse treasury vault (USDT equivalent)
+  C. Fireblocks: vault_james → APPRA treasury vault (USDT equivalent)
   D. B2BinPay off-ramp: USDT → USD (B2BinPay settles USD/EUR/GBP only)
   E. USD wired to Daraja; Daraja applies local FX and sends KSh 10,000 → +254712345678
   F. Partner webhook: "payment.sent" → withdrawal marked COMPLETED
      If payout fails: Brainrock fires "payment.failed" → ledger credit reversed automatically
 
-James gets M-Pesa notification: "KSh 10,000 received from FinCruse"
+James gets M-Pesa notification: "KSh 10,000 received from APPRA"
 ```
 
 ---
@@ -207,7 +207,7 @@ James gets M-Pesa notification: "KSh 10,000 received from FinCruse"
 
 Setup:
 1. Create account at Brainrock → get API key
-2. Create FinCruse treasury account (for sending payouts)
+2. Create APPRA treasury account (for sending payouts)
 3. Register webhook URL: `https://your-domain/api/webhooks/brainrock`
 
 ```env
@@ -232,8 +232,14 @@ The API shape is pre-built. Map the method names to actual Brainrock endpoints.
    ```bash
    openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:4096 -out fireblocks_secret.key
    openssl req -new -key fireblocks_secret.key -out fireblocks.csr \
-     -subj "/C=KE/O=FinCruse/CN=fincruise-settlement"
+     -subj "/C=KE/O=APPRA/CN=fincruise-settlement"
    ```
+
+> **If Fireblocks was already set up as FinCruse**, these two names exist in
+> their console and must match: the CSR subject of the registered API user,
+> and the treasury vault's name. Either keep the old names or rename them in
+> the Fireblocks console too — the rebrand does not reach across.
+
 3. Upload `fireblocks.csr` → copy API Key
 4. Create treasury vault → add USDT_SOL → copy vault ID
 5. Set webhook URL → copy public key

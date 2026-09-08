@@ -10,7 +10,7 @@ import type { PaymentDestination } from '../providers/live/brainrock';
 const router = Router();
 
 // ── Payout Rail Webhook ───────────────────────────────────────────────────────
-// M-Pesa / bank partner POSTs here when fiat arrives at FinCruse's account
+// M-Pesa / bank partner POSTs here when fiat arrives at APPRA's account
 // This triggers the full: on-ramp → Fireblocks → ledger credit flow
 router.post('/payout-rail/fiat-arrived', async (req: Request, res: Response) => {
   const { userId, currency, amount, rail, railReference } = req.body as {
@@ -100,7 +100,7 @@ router.post('/withdraw', async (req: Request, res: Response) => {
 });
 
 // ── P2P Transfer ──────────────────────────────────────────────────────────────
-// User sends money to another FinCruse user (replaces old /api/transfers)
+// User sends money to another APPRA user (replaces old /api/transfers)
 router.post('/transfer', async (req: Request, res: Response) => {
   const { senderId, receiverId, fromCurrency, toCurrency, amount, quoteId, note } = req.body as {
     senderId: string;

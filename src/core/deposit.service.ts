@@ -6,8 +6,8 @@
  *   google_pay    — Brainrock JS SDK, Google Pay sheet on device
  *   open_banking  — PSD2 redirect: user authorises at their bank, fiat sent via Faster Payments / SEPA
  *
- * In all three cases the money lands in FinCruse's Brainrock SEGREGATED account
- * (ring-fenced from FinCruse operating funds — regulatory requirement).
+ * In all three cases the money lands in APPRA's Brainrock SEGREGATED account
+ * (ring-fenced from APPRA operating funds — regulatory requirement).
  * Brainrock fires payment.received webhook → handleFiatArrived → B2BinPay converts fiat→USDT
  * → Fireblocks sends USDT to user vault → ledger credits user in their local currency.
  *
@@ -116,7 +116,7 @@ export async function initiateDeposit(params: {
     sessionId:   session.sessionId,
     expiresAt:   session.expiresAt,
     segregatedAccount: {
-      note: 'Funds held in FinCruse segregated account at Brainrock — ring-fenced from operational funds',
+      note: 'Funds held in APPRA segregated account at Brainrock — ring-fenced from operational funds',
       provider: 'Brainrock',
     },
   };
@@ -175,7 +175,7 @@ function buildFlowDescription(status: string, method: string): string {
   const m = methodLabel[method] ?? method;
   switch (status) {
     case 'AWAITING_PAYMENT':
-      return `${m} → FinCruse segregated account (Brainrock) → awaiting confirmation`;
+      return `${m} → APPRA segregated account (Brainrock) → awaiting confirmation`;
     case 'PROCESSING':
       return `${m} confirmed → B2BinPay converting fiat→USDT (internal) → Fireblocks vault`;
     case 'COMPLETED':
@@ -183,6 +183,6 @@ function buildFlowDescription(status: string, method: string): string {
     case 'FAILED':
       return `${m} payment failed or cancelled — ledger unchanged`;
     default:
-      return `${m} → FinCruse (AxLink internal settlement)`;
+      return `${m} → APPRA (AxLink internal settlement)`;
   }
 }

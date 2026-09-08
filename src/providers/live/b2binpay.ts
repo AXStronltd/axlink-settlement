@@ -151,7 +151,7 @@ export async function createDeposit(params: {
     data: {
       type: 'deposit',
       attributes: {
-        label: params.label ?? 'FinCruse deposit',
+        label: params.label ?? 'APPRA deposit',
         tracking_id: params.trackingId,
         confirmations_needed: params.confirmationsNeeded ?? 1,
         callback_url: params.callbackUrl,
@@ -234,7 +234,7 @@ export async function createPayout(params: {
         fee_amount: params.feeAmount,
         address: params.address,
         tracking_id: params.trackingId,
-        label: params.label ?? 'FinCruse payout',
+        label: params.label ?? 'APPRA payout',
         callback_url: params.callbackUrl,
         confirmations_needed: params.confirmationsNeeded ?? 1,
       },
