@@ -94,7 +94,11 @@ router.post('/withdraw', async (req: Request, res: Response) => {
     withdrawalId: withdrawal.id,
     trackingId: withdrawal.trackingId,
     status: withdrawal.status,
-    flow: `Ledger debit → Fireblocks vault → B2BinPay off-ramp → Brainrock → ${destination.type}`,
+    provider: withdrawal.provider,
+    // Names the partner the registry actually chose. This used to say
+    // "Brainrock" for every withdrawal, including M-Pesa payouts that went to
+    // Daraja — a response field that quietly misreported where the money went.
+    flow: `Ledger debit → Fireblocks vault → B2BinPay off-ramp → ${withdrawal.provider} → ${destination.type}`,
     message: `Withdrawal of ${amount} ${currency} initiated to ${destination.type}`,
   });
 });

@@ -280,7 +280,10 @@ export async function handleWithdrawalRequest(params: {
       provider:  payout.provider,
       paymentId: payout.paymentId,
     });
-    return done;
+    // Return which partner actually took the payout. The registry picks it per
+    // corridor, so the caller cannot know it, and describing the flow without
+    // it means naming a partner that was never involved.
+    return { ...done, provider: payout.provider, paymentId: payout.paymentId };
 
   } catch (err) {
     // Return the money if we took it. Reversal used to exist only on the
