@@ -210,6 +210,34 @@ export async function executeLeg(
   }
 }
 
+/**
+ * Find a leg by the key we handed the external system.
+ *
+ * Every leg passes its `externalKey` as the partner's tracking id, so a
+ * callback carrying that id can be matched back to the leg that caused it
+ * without threading our own identifiers through their API.
+ */
+export async function legByExternalKey(externalKey: string) {
+  return prisma.settlementLeg.findFirst({ where: { externalKey } });
+}
+
+/**
+ * Merge fields into a leg's payload.
+ *
+ * Callbacks carry data the *next* leg needs — most importantly the on-chain
+ * hash, which arrives on the custody callback and is what ONCHAIN_SETTLE
+ * verifies. Merges rather than replaces: the payload also holds routing
+ * information written when the leg was planned.
+ */
+export async function mergeLegPayload(legId: string, patch: Prisma.InputJsonObject): Promise<void> {
+  const leg = await prisma.settlementLeg.findUniqueOrThrow({ where: { id: legId } });
+  const merged = { ...((leg.payload as Prisma.InputJsonObject) ?? {}), ...patch };
+  await prisma.settlementLeg.update({
+    where: { id: legId },
+    data: { payload: merged as Prisma.InputJsonValue },
+  });
+}
+
 /** Mark a leg awaiting confirmation as settled, once the confirmation arrives. */
 export async function confirmLeg(legId: string, externalRef?: string): Promise<void> {
   const leg = await prisma.settlementLeg.findUniqueOrThrow({ where: { id: legId } });

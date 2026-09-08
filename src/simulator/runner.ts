@@ -168,10 +168,10 @@ async function runOne(scenario: Scenario, world: StubWorld, keepData: boolean): 
       );
       for (const leg of waiting) {
         // A custody callback carries the on-chain hash, and ONCHAIN_SETTLE
-        // reads it from payload.signature. Nothing in the engine writes that
-        // field — the webhook that would is not built — so the harness has to
-        // play the callback in full, signature included, or the proof leg has
-        // nothing to verify and the deposit stalls forever.
+        // reads it from payload.signature. In production the B2BinPay webhook
+        // writes it (webhook.routes.ts); here there is no HTTP, so the harness
+        // plays the same callback directly — signature included, or the proof
+        // leg has nothing to verify.
         if (leg.kind === 'CUSTODY_TRANSFER') {
           const ref = leg.externalRef ?? leg.externalKey;
           const signature =
