@@ -30,7 +30,7 @@ router.post('/users', async (req: Request, res: Response) => {
 
   // Provision Fireblocks vault + Brainrock virtual IBAN in parallel
   const [vault, virtualAccount] = await Promise.all([
-    createVaultAccount(`fincruise_${email}`, true),
+    createVaultAccount(`axlink_${email}`, true),
     createVirtualAccount({
       userId: email,
       currency,

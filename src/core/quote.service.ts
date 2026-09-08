@@ -282,7 +282,7 @@ export function formatQuoteResponse(q: Quote) {
     },
     revenueModel: {
       type:             'FX spread (built into rate)',
-      fincruseRevenue:  `$${q.margin.revenueUsd} USD`,
+      axlinkRevenue:  `$${q.margin.revenueUsd} USD`,
       lpCost:           `$${q.margin.costUsd} USD`,
       profitPerTx:      `$${q.margin.profitUsd} USD`,
       swiftNotPaid:     `$${q.margin.swiftSaved} (not used)`,

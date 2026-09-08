@@ -21,7 +21,7 @@
 #    `doctl apps update --spec` with values injected from your secret store.
 #    Nothing sensitive is committed here.
 
-name: fincruse-settlement
+name: axlink-settlement
 region: fra
 
 # ── Managed Postgres ──────────────────────────────────────────────────────────
@@ -30,14 +30,14 @@ databases:
     engine: PG
     version: "16"
     production: true
-    cluster_name: fincruse-settlement-db
+    cluster_name: axlink-settlement-db
 
 # ── Pre-deploy migrations ─────────────────────────────────────────────────────
 jobs:
   - name: migrate
     kind: PRE_DEPLOY
     github:
-      repo: AXStronltd/Fincruse-settlement
+      repo: AXStronltd/axlink-settlement
       branch: main
       deploy_on_push: false
     dockerfile_path: Dockerfile
@@ -59,7 +59,7 @@ jobs:
 services:
   - name: api
     github:
-      repo: AXStronltd/Fincruse-settlement
+      repo: AXStronltd/axlink-settlement
       branch: main
       deploy_on_push: true
     dockerfile_path: Dockerfile
@@ -194,7 +194,7 @@ services:
 static_sites:
   - name: web
     github:
-      repo: AXStronltd/Fincruse-settlement
+      repo: AXStronltd/axlink-settlement
       branch: main
       deploy_on_push: true
     source_dir: frontend

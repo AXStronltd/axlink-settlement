@@ -82,7 +82,7 @@ app.use(express.json({
 app.get(['/health', '/api/health'], (_req, res) => {
   res.json({
     status: 'ok',
-    service: 'fincruise-settlement',
+    service: 'axlink-settlement',
     timestamp: new Date().toISOString(),
     sandbox: process.env.B2BINPAY_SANDBOX === 'true',
     callbackBase: process.env.API_BASE_URL,

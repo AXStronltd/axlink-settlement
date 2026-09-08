@@ -112,7 +112,7 @@ export default function LiveDemo() {
         quoteId: string; rate: number
         to: { amount: number }
         rfq?: { winningLP?: string; axlinkSpread?: string }
-        revenueModel?: { fincruseRevenue?: string }
+        revenueModel?: { axlinkRevenue?: string }
       }
       set('quote', {
         detail: `1 ${from} = ${quote.rate?.toFixed(4)} ${to} · LP ${quote.rfq?.winningLP ?? '—'}`,
@@ -138,7 +138,7 @@ export default function LiveDemo() {
         'Recipient gets':  `${quote.to?.amount?.toLocaleString()} ${to}`,
         'Winning LP':      quote.rfq?.winningLP ?? '—',
         'Spread':          quote.rfq?.axlinkSpread ?? '—',
-        'Revenue':         quote.revenueModel?.fincruseRevenue ?? '—',
+        'Revenue':         quote.revenueModel?.axlinkRevenue ?? '—',
         'Payout rail':     corridors.find(c => c.code === to)?.rail ?? '—',
         'SWIFT hops':      '0',
       })

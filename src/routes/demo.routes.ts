@@ -72,7 +72,7 @@ router.post('/user', async (req: Request, res: Response, next: NextFunction) => 
     // Same helper the real endpoint uses — creates the user and its Account row
     // in one transaction, so the demo user is shaped like any other.
     const user = await createUser({
-      email: `demo_${tag}@fincruse.test`,
+      email: `demo_${tag}@axlink.test`,
       name: who,
       vaultId,
       currency: ccy,

@@ -173,7 +173,6 @@ and reported nothing. It now covers `core/`, `providers/` and `routes/`, which
 put the real figure at about 18% of statements. Worth knowing before anyone
 quotes a coverage number.
 
-**The database and Kafka topics are unaffected.** They carry the older
-`fincruise` naming, which is deliberate and documented in
-`docs/ARCHITECTURE.md`. This restructure does not touch them, and neither
-should be renamed as part of it.
+**The database and Kafka topics were renamed separately.** They previously
+carried the older `fincruise` naming; that was retired in its own commit. This
+restructure does not touch either, and neither should be renamed as part of it.

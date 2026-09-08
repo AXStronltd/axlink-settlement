@@ -18,7 +18,7 @@
 set -euo pipefail
 
 API="${API:-http://localhost:4000/api}"
-PSQL_DB="${PSQL_DB:-fincruise_settlement}"
+PSQL_DB="${PSQL_DB:-axlink_settlement}"
 PSQL_USER="${PSQL_USER:-$(whoami)}"
 
 jsonf() { python3 -c "import json,sys;d=json.load(sys.stdin);print($1)"; }
@@ -92,7 +92,7 @@ money "customer rate" "$(echo "$Q" | jsonf "d['rate']")"
 money "James receives" "KSh $(echo "$Q" | jsonf "d['to']['amount']")"
 money "winning LP" "$(echo "$Q" | jsonf "d['rfq']['winningLP']")"
 money "our spread" "$(echo "$Q" | jsonf "d['rfq']['axlinkSpread']")"
-money "revenue on this txn" "$(echo "$Q" | jsonf "d['revenueModel']['fincruseRevenue']")"
+money "revenue on this txn" "$(echo "$Q" | jsonf "d['revenueModel']['axlinkRevenue']")"
 
 # ─────────────────────────────────────────────────────────────────────────────
 rule "5. Transfer \$300 Mike -> James"

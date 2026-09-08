@@ -342,9 +342,9 @@ export async function createPaymentSession(params: {
       payment_method: method,
       reference:      trackingId,
       customer_id:    userId,
-      redirect_url:   redirectUrl ?? `${process.env.APP_URL ?? 'https://app.fincruise.com'}/deposit/confirm`,
+      redirect_url:   redirectUrl ?? `${process.env.APP_URL ?? 'https://app.axlink.com'}/deposit/confirm`,
       webhook_url:    `${process.env.API_BASE_URL}/webhooks/brainrock`,
-      metadata: { tracking_id: trackingId, source: 'fincruise_add_funds' },
+      metadata: { tracking_id: trackingId, source: 'axlink_add_funds' },
     }),
   });
 

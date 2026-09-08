@@ -158,5 +158,5 @@ existing `backend` job already sets up. Add after the test step:
         run: npm run simulate
         env:
           SIMULATOR_ENABLED: 'true'
-          DATABASE_URL: postgresql://fincruise:fincruise@localhost:5432/fincruise_test
+          DATABASE_URL: postgresql://axlink:axlink@localhost:5432/axlink_test
 ```

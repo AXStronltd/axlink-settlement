@@ -7,15 +7,15 @@ services:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_USER:     fincruise
-      POSTGRES_PASSWORD: fincruise_secret
-      POSTGRES_DB:       fincruise_settlement
+      POSTGRES_USER:     axlink
+      POSTGRES_PASSWORD: axlink_secret
+      POSTGRES_DB:       axlink_settlement
     volumes:
       - db_data:/var/lib/postgresql/data
     ports:
       - '5432:5432'
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U fincruise -d fincruise_settlement']
+      test: ['CMD-SHELL', 'pg_isready -U axlink -d axlink_settlement']
       interval: 5s
       timeout: 5s
       retries: 10
@@ -41,7 +41,7 @@ services:
       target: builder
     command: sh -c "npx prisma migrate deploy"
     environment:
-      DATABASE_URL: postgresql://fincruise:fincruise_secret@db:5432/fincruise_settlement
+      DATABASE_URL: postgresql://axlink:axlink_secret@db:5432/axlink_settlement
     depends_on:
       db:
         condition: service_healthy
@@ -54,7 +54,7 @@ services:
     restart: unless-stopped
     env_file: .env.docker
     environment:
-      DATABASE_URL: postgresql://fincruise:fincruise_secret@db:5432/fincruise_settlement
+      DATABASE_URL: postgresql://axlink:axlink_secret@db:5432/axlink_settlement
       REDIS_URL:    redis://redis:6379
       PORT:         4000
     volumes:

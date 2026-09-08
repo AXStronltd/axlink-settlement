@@ -22,18 +22,18 @@ jobs:
       postgres:
         image: postgres:16-alpine
         env:
-          POSTGRES_USER: fincruise
-          POSTGRES_PASSWORD: fincruise
-          POSTGRES_DB: fincruise_test
+          POSTGRES_USER: axlink
+          POSTGRES_PASSWORD: axlink
+          POSTGRES_DB: axlink_test
         ports: ['5432:5432']
         options: >-
-          --health-cmd "pg_isready -U fincruise"
+          --health-cmd "pg_isready -U axlink"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
 
     env:
-      DATABASE_URL: postgresql://fincruise:fincruise@localhost:5432/fincruise_test
+      DATABASE_URL: postgresql://axlink:axlink@localhost:5432/axlink_test
       API_BASE_URL: http://localhost:4000/api
 
     steps:
@@ -75,7 +75,7 @@ jobs:
           SIMULATOR_ENABLED: 'true'
 
       - name: Verify the production image builds
-        run: docker build -t fincruse-settlement:ci .
+        run: docker build -t axlink-settlement:ci .
 
   frontend:
     name: Frontend — build

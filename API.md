@@ -60,7 +60,7 @@ AxLink is a **Banking as a Service (BaaS)** platform. Users get a bank account, 
 └───────────────────────────────┬─────────────────────────────────┘
                                 │ REST API
 ┌───────────────────────────────▼─────────────────────────────────┐
-│                    FINCRUISE SETTLEMENT API                      │
+│                    AXLINK SETTLEMENT API                      │
 │                                                                  │
 │  ┌─────────────┐  ┌──────────┐  ┌──────────┐  ┌─────────────┐  │
 │  │  Kafka Gate │  │ JIT RFQ  │  │  Ledger  │  │  Orchestr.  │  │
@@ -273,7 +273,7 @@ Check if the service is running.
 ```json
 {
   "status": "ok",
-  "service": "fincruise-settlement",
+  "service": "axlink-settlement",
   "timestamp": "2026-06-12T21:00:00.000Z",
   "sandbox": true,
   "callbackBase": "http://localhost:4000/api"
@@ -462,7 +462,7 @@ Broadcasts an RFQ to all registered LPs simultaneously. Returns the winner's rat
   },
   "revenueModel": {
     "type":          "FX spread (built into rate)",
-    "fincruseRevenue": "$11.46 USD",
+    "axlinkRevenue": "$11.46 USD",
     "profitPerTx":   "$9.96 USD",
     "fireblocksGas": "$0.00025 (Solana/USDT)",
     "swiftNotPaid":  "$25 (not used)",
@@ -716,7 +716,7 @@ Lower-level deposit endpoint. Use `/orchestrator/payout-rail/fiat-arrived` inste
   "currency":  "GBP",
   "amount":    1000,
   "bankName":  "HSBC UK",
-  "reference": "FINCRUISE-REF-001"
+  "reference": "AXLINK-REF-001"
 }
 ```
 
@@ -812,7 +812,7 @@ When a USDT transfer **completes** and the destination is a known user vault, th
     "amount": 127.06,
     "txHash": "solana_hash",
     "externalTxId": "dep_f1a2...",
-    "destination": { "id": "vault_alice_001", "name": "fincruise_alice" }
+    "destination": { "id": "vault_alice_001", "name": "axlink_alice" }
   }
 }
 ```
@@ -841,7 +841,7 @@ When a USDT transfer **completes** and the destination is a known user vault, th
     "amount": 500,
     "currency": "GBP",
     "senderName": "John Smith",
-    "reference": "FINCRUISE-REF-001"
+    "reference": "AXLINK-REF-001"
   }
 }
 ```
@@ -990,8 +990,8 @@ Every orchestrator handler publishes a `payment.validation.requested` event **be
 
 | Topic | Direction | Payload |
 |---|---|---|
-| `fincruise.payment.validation.requested` | API → validator | `{ correlationId, type, payload, timestamp }` |
-| `fincruise.payment.validation.result` | validator → API | `{ correlationId, approved, reason?, timestamp }` |
+| `axlink.payment.validation.requested` | API → validator | `{ correlationId, type, payload, timestamp }` |
+| `axlink.payment.validation.result` | validator → API | `{ correlationId, approved, reason?, timestamp }` |
 
 `type` values: `P2P_TRANSFER` | `DEPOSIT` | `WITHDRAWAL`
 
@@ -999,8 +999,8 @@ Every orchestrator handler publishes a `payment.validation.requested` event **be
 
 | Topic | Trigger | Payload |
 |---|---|---|
-| `fincruise.payment.settled` | AxLink Fireblocks LP stepped in as fallback (external LPs failed) | `{ event: 'rfq.axlink_fireblocks_fallback', pair, fromAmount, failedLPs }` |
-| `fincruise.payment.failed` | Buffer EMPTY or CRITICAL (if buffer monitor is running) | `{ event: 'buffer.empty', severity: 'CRITICAL' }` |
+| `axlink.payment.settled` | AxLink Fireblocks LP stepped in as fallback (external LPs failed) | `{ event: 'rfq.axlink_fireblocks_fallback', pair, fromAmount, failedLPs }` |
+| `axlink.payment.failed` | Buffer EMPTY or CRITICAL (if buffer monitor is running) | `{ event: 'buffer.empty', severity: 'CRITICAL' }` |
 
 **In sandbox:** No broker needed. Set `KAFKA_BROKERS=broker1:9092` in production to switch to real Kafka automatically.
 

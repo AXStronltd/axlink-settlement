@@ -29,8 +29,8 @@ Revenue model: **FX spread baked into rate** (no visible fee). B2BinPay charges 
 ## Step 1 — Clone & install
 
 ```bash
-git clone https://github.com/AXStronltd/fincruise-settlement.git
-cd fincruise-settlement
+git clone https://github.com/AXStronltd/axlink-settlement.git
+cd axlink-settlement
 npm install
 cp .env.example .env
 ```
@@ -68,7 +68,7 @@ openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:4096 -out fireblocks_sec
 
 # Generate CSR to upload to Fireblocks
 openssl req -new -key fireblocks_secret.key -out fireblocks.csr \
-  -subj "/C=KE/O=AxLink/CN=fincruise-settlement"
+  -subj "/C=KE/O=AxLink/CN=axlink-settlement"
 ```
 
 > **If Fireblocks was already set up as FinCruse**, these two names exist in
@@ -81,7 +81,7 @@ openssl req -new -key fireblocks_secret.key -out fireblocks.csr \
 
 1. Go to **https://sandbox.fireblocks.io**
 2. **Settings** → **Users & API Keys** → **Add API User**
-3. Name: `fincruise-settlement`, Role: `Editor`
+3. Name: `axlink-settlement`, Role: `Editor`
 4. In the CSR field: paste contents of `fireblocks.csr`
 5. Click **Create** → copy the **API Key** shown
 

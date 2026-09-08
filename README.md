@@ -68,7 +68,7 @@ Revenue model: **FX spread baked into rate** — no visible fee. B2BinPay gives 
 POST /api/users { "email": "james@example.com", "name": "James", "currency": "KES" }
 
 Orchestrator in parallel:
-  → Fireblocks: createVaultAccount("fincruise_james@example.com")
+  → Fireblocks: createVaultAccount("axlink_james@example.com")
   → Brainrock: createVirtualAccount({ userId, currency: "KES", country: "KE" })
 
 Returns:
@@ -232,7 +232,7 @@ The API shape is pre-built. Map the method names to actual Brainrock endpoints.
    ```bash
    openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:4096 -out fireblocks_secret.key
    openssl req -new -key fireblocks_secret.key -out fireblocks.csr \
-     -subj "/C=KE/O=AxLink/CN=fincruise-settlement"
+     -subj "/C=KE/O=AxLink/CN=axlink-settlement"
    ```
 
 > **If Fireblocks was already set up as FinCruse**, these two names exist in
@@ -280,7 +280,7 @@ B2BINPAY_SANDBOX=true
 ### 4. Database
 
 ```bash
-DATABASE_URL=postgresql://user:pass@host:5432/fincruise_settlement
+DATABASE_URL=postgresql://user:pass@host:5432/axlink_settlement
 npx prisma db push        # no migrations dir — schema is pushed directly
 ```
 
@@ -290,7 +290,7 @@ npx prisma db push        # no migrations dir — schema is pushed directly
 
 ```bash
 git clone <repo>
-cd fincruise-settlement
+cd axlink-settlement
 npm install
 cp .env.example .env
 # Fill in .env
