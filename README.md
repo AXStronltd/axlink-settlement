@@ -2,6 +2,12 @@
 
 **Users see a neobank. Crypto never appears.** All conversion happens silently in the backend across five layers.
 
+**No SWIFT.** No correspondent banks, no nostro accounts. Cross-border value
+moves as USDT on Solana — seconds, ~$0.00025 in gas, provable on-chain.
+B2BinPay handles the **USD ↔ USDT** hop in both directions at **1:1**, so the
+internal transport never loses value. FX happens only where fiat meets a rail —
+at collection and at payout — never in the crypto hop.
+
 > Architecture and code layout: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) · Deployment: [`docs/DEPLOY.md`](docs/DEPLOY.md) · Running locally: [`CLAUDE.md`](CLAUDE.md)
 
 ---
@@ -43,7 +49,7 @@ USER (app — sees fiat only, no crypto ever)
 | Layer | Provider | Role |
 |-------|----------|------|
 | Fiat rails | **Daraja** · **Choice Bank** · **Brainrock** | Collection and payout. Chosen per corridor; the partner applies local FX |
-| Liquidity | **B2BinPay** | Converts fiat ↔ USDT. **Settles USD, EUR, GBP only** — never local currency |
+| Liquidity | **B2BinPay** | USD ↔ USDT at 1:1, both directions. **Settles USD, EUR, GBP only** — never local currency |
 | Custody | **Fireblocks** | Holds USDT per-user vault on Solana (~$0.00025 gas) |
 | Settlement | **Legs + journal** | Resumable state machine, double-entry, on-chain proof |
 | Ledger | **Prisma + PostgreSQL** | Tracks fiat balances, all flows atomic |

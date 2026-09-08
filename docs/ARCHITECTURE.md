@@ -31,15 +31,33 @@ How the code is laid out and where to find things.
 
 ---
 
-## 2. The one invariant
+## 2. Invariants
 
-> **All USDT and Solana activity is internal.** Payout partners see only
-> "send X currency to Y destination". A partner receives crypto *only* if
-> explicitly marked `cryptoLicensed: true`.
+**No SWIFT. Ever.** There is no correspondent bank, no nostro/vostro account
+and no SWIFT message anywhere in this system. Cross-border value moves as USDT
+on Solana — seconds, ~$0.00025, with a signature anyone can verify. That is the
+entire argument for this network.
 
-`orchestrator.service.ts` states it; `provider/capability.ts` enforces it.
-`resolveFundingPlan` refuses to build a USDT funding plan for an unlicensed
-partner — a compliance guardrail, not a config option.
+**Crypto is internal.** Payout partners see only "send X currency to Y
+destination". A partner receives crypto *only* if explicitly marked
+`cryptoLicensed: true`. `orchestrator.service.ts` states it;
+`provider/capability.ts` enforces it — `resolveFundingPlan` refuses to build a
+USDT funding plan for an unlicensed partner. A compliance guardrail, not a
+config option.
+
+**USD is the unit of account, and USD:USDT is 1:1 by construction.** Every
+amount is converted to a USD value first, and the crypto hop carries that value
+unchanged. In `fx.service.ts`: `USDT: 1.000` in the rate table, `getRate`
+returns exactly `1` for any USD/USDT pair, and `usdToUsdt` returns its argument.
+
+This matters because it means **the internal transport is value-preserving**.
+Moving money through Fireblocks and Solana costs gas, never basis points.
+
+FX happens only where fiat meets a rail, never in the crypto hop. A USD-in /
+local-out corridor converts once, at payout. A GBP→KES transfer converts twice
+— GBP→USD at collection, USD→KES at payout — because USD is the unit of
+account and everything routes through it. Either way the USDT leg is free of
+FX, so no rounding difference can accumulate in transport.
 
 ---
 
@@ -70,6 +88,25 @@ partner — a compliance guardrail, not a config option.
 Layer 4 is new and is what the README predates. Everything above it used to
 write straight to the ledger; now money moves as *legs* that survive a crash,
 and every movement posts a balanced journal entry.
+
+### B2BinPay is the USD leg in both directions
+
+```
+DEPOSIT      partner collects local fiat
+             → B2BinPay:  USD  → USDT        (1:1, no value lost)
+             → Solana:    USDT → user vault, verified at finalized
+             → ledger:    credit the customer
+
+WITHDRAWAL   ledger:      debit the customer
+             → Solana:    USDT user vault → treasury, verified at finalized
+             → B2BinPay:  USDT → USD         (1:1, no value lost)
+             → wire USD to the payout partner, who applies local FX
+```
+
+Symmetric on purpose. B2BinPay only ever handles the **USD ↔ USDT** hop — it
+never touches local currency in either direction, because it settles USD, EUR
+and GBP only (`B2B_SETTLEMENT_CURRENCIES` in `b2binpay.ts`). Local currency is
+the payout partner's job at the edge.
 
 ---
 
