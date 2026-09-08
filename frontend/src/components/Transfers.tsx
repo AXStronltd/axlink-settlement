@@ -76,7 +76,7 @@ export default function Transfers() {
     <div className="p-6 max-w-4xl mx-auto space-y-6">
       <div>
         <h1 className="text-xl font-semibold text-white">P2P Transfers</h1>
-        <p className="text-sm text-gray-500 mt-0.5">Send between APPRA users — same or cross-currency</p>
+        <p className="text-sm text-gray-500 mt-0.5">Send between AxLink users — same or cross-currency</p>
       </div>
 
       {/* Progress */}
@@ -190,7 +190,7 @@ export default function Transfers() {
               <RevRow label="AxLink spread" value={quote.rfq.axlinkSpread} />
               <RevRow label="LPs in RFQ" value={quote.rfq.registeredLPs.join(', ')} />
               <div className="border-t border-gray-800 pt-2 space-y-2">
-                <RevRow label="APPRA profit" value={quote.revenueModel.profitPerTx} positive />
+                <RevRow label="AxLink profit" value={quote.revenueModel.profitPerTx} positive />
                 <RevRow label="Fireblocks gas" value={quote.revenueModel.fireblocksGas} />
                 <RevRow label="SWIFT avoided" value={quote.revenueModel.swiftNotPaid} />
                 <RevRow label="vs Traditional" value={quote.revenueModel.vsTraditional} />

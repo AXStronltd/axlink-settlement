@@ -1,8 +1,8 @@
-# APPRA Settlement Service — Integration Guide
+# AxLink Settlement Service — Integration Guide
 
 ## What this service does
 
-Handles the full crypto-rail settlement for APPRA. Users see a traditional digital bank — no crypto visible. Behind the scenes:
+Handles the full crypto-rail settlement for AxLink. Users see a traditional digital bank — no crypto visible. Behind the scenes:
 
 - **B2BinPay** (LP) — converts fiat ↔ USDT at institutional rates
 - **Fireblocks** — custody + USDT vault per user on Solana (near-gasless)
@@ -13,16 +13,16 @@ Handles the full crypto-rail settlement for APPRA. Users see a traditional digit
 ```
 Payout Rail (M-Pesa / Bank)
         ↓ webhook
-APPRA Orchestrator
+AxLink Orchestrator
         ↓
 B2BinPay: fiat → USDT ──→ sends directly to user's Fireblocks vault address
                                     ↓
-                           Fireblocks webhook → APPRA
+                           Fireblocks webhook → AxLink
                                     ↓
                            Ledger credits user balance
 ```
 
-Revenue model: **FX spread baked into rate** (no visible fee). B2BinPay charges institutional per-transaction fee. APPRA earns the spread difference. No SWIFT = much higher margins.
+Revenue model: **FX spread baked into rate** (no visible fee). B2BinPay charges institutional per-transaction fee. AxLink earns the spread difference. No SWIFT = much higher margins.
 
 ---
 
@@ -68,7 +68,7 @@ openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:4096 -out fireblocks_sec
 
 # Generate CSR to upload to Fireblocks
 openssl req -new -key fireblocks_secret.key -out fireblocks.csr \
-  -subj "/C=KE/O=APPRA/CN=fincruise-settlement"
+  -subj "/C=KE/O=AxLink/CN=fincruise-settlement"
 ```
 
 > **If Fireblocks was already set up as FinCruse**, these two names exist in
@@ -92,10 +92,10 @@ FIREBLOCKS_SANDBOX=true
 FIREBLOCKS_USDT_ASSET=USDT_SOL
 ```
 
-### Create APPRA treasury vault
+### Create AxLink treasury vault
 
 In Fireblocks sandbox:
-1. **Vaults** → **Add Vault Account** → name it `APPRA Treasury`
+1. **Vaults** → **Add Vault Account** → name it `AxLink Treasury`
 2. Add USDT_SOL asset → copy the vault ID
 
 ```env
@@ -247,11 +247,11 @@ curl -X POST http://localhost:4000/api/orchestrator/transfer \
 
 ## Revenue model
 
-APPRA earns via **FX spread** — no visible fee to user:
+AxLink earns via **FX spread** — no visible fee to user:
 - B2BinPay gives institutional rate (close to mid-market)
-- APPRA applies spread markup (e.g. 1.8% on USD→KES)
+- AxLink applies spread markup (e.g. 1.8% on USD→KES)
 - User sees a clean rate — no fee line
-- B2BinPay charges APPRA per-transaction at institutional grade
+- B2BinPay charges AxLink per-transaction at institutional grade
 - Solana gas: ~$0.00025 per transaction
 - No SWIFT, no correspondent banks
 

@@ -2,8 +2,8 @@
 // Safaricom Daraja v3 — last-mile M-Pesa delivery for TZS, UGX.
 // KES (Kenya) bank payouts are routed through Choice Bank.
 //
-// B2C (Business to Customer): APPRA → user's M-Pesa wallet (withdrawals/payouts)
-// STK Push (C2B lipa na M-Pesa): user's M-Pesa → APPRA (deposits)
+// B2C (Business to Customer): AxLink → user's M-Pesa wallet (withdrawals/payouts)
+// STK Push (C2B lipa na M-Pesa): user's M-Pesa → AxLink (deposits)
 //
 // Docs: https://developer.safaricom.co.ke/APIs/MpesaExpressSimulate
 // Set DARAJA_SANDBOX=true to use sandbox.safaricom.co.ke
@@ -112,7 +112,7 @@ export interface STKCallbackResult {
 
 // ── B2C — Business to Customer (Withdrawals / Payouts) ───────────────────────
 
-// Sends money from APPRA's M-Pesa shortcode → user's mobile number.
+// Sends money from AxLink's M-Pesa shortcode → user's mobile number.
 // commandId:
 //   'BusinessPayment'     — standard payout (most cases)
 //   'SalaryPayment'       — payroll
@@ -136,7 +136,7 @@ function stubRef(prefix: string): string {
 export async function sendB2C(params: {
   amount: number;
   phoneNumber: string;   // format: 2547XXXXXXXX (no leading +)
-  reference: string;     // APPRA trackingId
+  reference: string;     // AxLink trackingId
   occasion?: string;     // short description shown to recipient
   commandId?: 'BusinessPayment' | 'SalaryPayment' | 'PromotionPayment';
 }): Promise<B2CResult> {
@@ -158,13 +158,13 @@ export async function sendB2C(params: {
     method: 'POST',
     body: JSON.stringify({
       OriginatorConversationID: params.reference,
-      InitiatorName:            process.env.DARAJA_INITIATOR_NAME ?? 'APPRA',
+      InitiatorName:            process.env.DARAJA_INITIATOR_NAME ?? 'AxLink',
       SecurityCredential:       process.env.DARAJA_SECURITY_CREDENTIAL ?? '',
       CommandID:                params.commandId ?? 'BusinessPayment',
       Amount:                   Math.round(params.amount),
       PartyA:                   shortcode,
       PartyB:                   normalizeMsisdn(params.phoneNumber),
-      Remarks:                  params.occasion ?? 'APPRA payout',
+      Remarks:                  params.occasion ?? 'AxLink payout',
       QueueTimeOutURL:          `${callbackBase}/webhooks/daraja/b2c/timeout`,
       ResultURL:                `${callbackBase}/webhooks/daraja/b2c/result`,
       Occasion:                 params.occasion ?? '',
@@ -174,7 +174,7 @@ export async function sendB2C(params: {
   return res;
 }
 
-// ── STK Push — Customer pays APPRA (Deposits) ─────────────────────────────
+// ── STK Push — Customer pays AxLink (Deposits) ─────────────────────────────
 
 // Prompts user's M-Pesa PIN screen on their phone.
 // Use for accepting deposits from customers.
@@ -204,7 +204,7 @@ export async function initiateSTKPush(params: {
       PhoneNumber:       normalizeMsisdn(params.phoneNumber),
       CallBackURL:       `${callbackBase}/webhooks/daraja/stk`,
       AccountReference:  params.accountReference,
-      TransactionDesc:   params.description ?? 'APPRA deposit',
+      TransactionDesc:   params.description ?? 'AxLink deposit',
     }),
   });
 

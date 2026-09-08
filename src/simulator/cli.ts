@@ -136,7 +136,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  console.log(c.bold('\nAPPRA settlement harness'));
+  console.log(c.bold('\nAxLink settlement harness'));
   console.log(
     c.dim(`database: ${maskUrl(process.env.DATABASE_URL)}  ·  ports: stubbed converter, custody, chain`),
   );

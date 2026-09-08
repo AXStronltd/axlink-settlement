@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 #
-# APPRA Settlement — production image.
+# AxLink Settlement — production image.
 #
 # Changes from the previous version:
 #   - No `COPY public` / `COPY --from=builder /app/public`. There is no

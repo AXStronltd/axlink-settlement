@@ -82,8 +82,8 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
 
 // ── Virtual Accounts ──────────────────────────────────────────────────────────
 
-// Create a dedicated deposit account for a APPRA user.
-// Each user gets a unique account number — deposits trigger a webhook to APPRA.
+// Create a dedicated deposit account for a AxLink user.
+// Each user gets a unique account number — deposits trigger a webhook to AxLink.
 export async function createVirtualAccount(params: {
   userId: string;
   currency: ChoiceBankCurrency;
@@ -147,8 +147,8 @@ export async function resolveAccountName(params: {
 
 // ── Outbound Transfers ────────────────────────────────────────────────────────
 
-// Send fiat from APPRA treasury → recipient's bank account.
-// reference = APPRA trackingId for reconciliation.
+// Send fiat from AxLink treasury → recipient's bank account.
+// reference = AxLink trackingId for reconciliation.
 export async function sendTransfer(params: {
   destination: ChoiceBankDestination;
   amount: number;
@@ -165,7 +165,7 @@ export async function sendTransfer(params: {
       amount,
       currency:       destination.currency,
       reference,
-      narration:      narration ?? 'APPRA payout',
+      narration:      narration ?? 'AxLink payout',
     }),
   });
   return res.data;

@@ -60,7 +60,7 @@ export default function Dashboard() {
       <div className="rounded-2xl border border-brand-700/40 bg-gradient-to-br from-brand-900/25 via-gray-900 to-gray-900 p-8">
         <div className="flex items-start justify-between gap-6 flex-wrap">
           <div>
-            <div className="text-xs font-mono text-brand-400 tracking-widest uppercase mb-2">AXSTRON · APPRA Settlement</div>
+            <div className="text-xs font-mono text-brand-400 tracking-widest uppercase mb-2">AXSTRON · AxLink Settlement</div>
             <h1 className="text-2xl font-bold text-white">Banking as a Service — Instant Cross-Border</h1>
             <p className="text-brand-300 font-semibold mt-1 text-base">Accounts · Cards · Transfers · No SWIFT. No Prefunding.</p>
             <p className="text-sm text-gray-400 mt-3 max-w-2xl leading-relaxed">
@@ -260,7 +260,7 @@ export default function Dashboard() {
             </div>
           </div>
           <div className="rounded-xl border border-emerald-900/40 bg-emerald-900/10 p-5">
-            <div className="text-xs font-mono text-emerald-400 uppercase tracking-wider mb-4">APPRA · AxLink Network</div>
+            <div className="text-xs font-mono text-emerald-400 uppercase tracking-wider mb-4">AxLink Network</div>
             <div className="space-y-2.5">
               {[
                 ['Speed',               '< 60 seconds end-to-end'],

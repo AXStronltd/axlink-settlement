@@ -1,6 +1,6 @@
 # Architecture
 
-**Axstron Group — APPRA Settlement Service**
+**Axstron Group — AxLink Settlement Service**
 
 How the code is laid out and where to find things.
 

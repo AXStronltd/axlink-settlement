@@ -1,5 +1,5 @@
 /**
- * APPRA Event Bus
+ * AxLink Event Bus
  *
  * Real Kafka (KafkaJS) when KAFKA_BROKERS is set.
  * In-process EventEmitter fallback for sandbox/dev — same interface, no broker needed.

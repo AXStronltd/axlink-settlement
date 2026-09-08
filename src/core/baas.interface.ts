@@ -8,7 +8,7 @@
  * ══════════════════════════════════════════════════════════════════════
  *  JIT LIQUIDITY MODEL (zero pre-funded corridors)
  *
- *  APPRA never pre-funds corridor accounts.  Instead, for each
+ *  AxLink never pre-funds corridor accounts.  Instead, for each
  *  withdrawal the registry triggers a real-time USDT→fiat conversion
  *  (via B2BinPay or the winning LP) and immediately delivers fiat.
  *

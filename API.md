@@ -1,8 +1,8 @@
-# APPRA Settlement API — Developer Reference
+# AxLink Settlement API — Developer Reference
 
 > **AxLink Network · Fireblocks USDT on Solana · Multi-rail BaaS**
 >
-> Built by AXSTRON. This document is for backend engineers integrating with or extending the APPRA settlement service. Every endpoint, every webhook, and every money-movement flow is documented here.
+> Built by AXSTRON. This document is for backend engineers integrating with or extending the AxLink settlement service. Every endpoint, every webhook, and every money-movement flow is documented here.
 
 ---
 
@@ -40,7 +40,7 @@
 
 ## 1. What This System Does
 
-APPRA is a **Banking as a Service (BaaS)** platform. Users get a bank account, virtual IBAN, and debit card. They see and spend local fiat only. The backend settles everything in **USDT on Solana** via Fireblocks vaults — users never know or care about USDT.
+AxLink is a **Banking as a Service (BaaS)** platform. Users get a bank account, virtual IBAN, and debit card. They see and spend local fiat only. The backend settles everything in **USDT on Solana** via Fireblocks vaults — users never know or care about USDT.
 
 **Key properties:**
 - **No SWIFT** — AxLink is the alternative. Settlement is vault-to-vault on Solana.
@@ -91,11 +91,11 @@ Winner = highest `toAmount`. If `axlink-fireblocks` wins, settlement is **direct
 
 ## 3. Settlement Flows
 
-### 3.1 Deposit (fiat → APPRA account)
+### 3.1 Deposit (fiat → AxLink account)
 
 ```
 User's bank / M-Pesa
-    → fiat arrives at APPRA's rails account
+    → fiat arrives at AxLink's rails account
     → rail webhook → POST /api/webhooks/brainrock (or /daraja/stk, /choicebank)
     → handleFiatArrived()
         → Kafka validation (user exists, KYC, currency, amount)
@@ -106,7 +106,7 @@ User's bank / M-Pesa
     → User sees +KES / +GBP / +NGN in their account
 ```
 
-### 3.2 Withdrawal (APPRA account → bank)
+### 3.2 Withdrawal (AxLink account → bank)
 
 ```
 User requests withdrawal
@@ -114,7 +114,7 @@ User requests withdrawal
         → Kafka validation (balance, KYC, destination)
         → Ledger: debit user's fiat balance (immediate)
         → Fireblocks: user vault → treasury vault (USDT)
-        → B2BinPay: off-ramp USDT → fiat (fills APPRA's treasury)
+        → B2BinPay: off-ramp USDT → fiat (fills AxLink's treasury)
         → Corridor routing:
               KES → Daraja M-Pesa B2C
               NGN/GHS/ZAR/UGX/TZS → Choice Bank bank transfer
@@ -180,7 +180,7 @@ npm run dev                 # starts on :4000
 
 **Startup output (all systems healthy):**
 ```
-APPRA Settlement running on http://localhost:4000
+AxLink Settlement running on http://localhost:4000
 [AxLink LP] Registered: AxLink Fireblocks Vault (axlink-fireblocks)
 [AxLink LP] Registered: B2BinPay (b2binpay)
 [AxLink LP] Registered: AxLink Internal (axlink)
@@ -214,7 +214,7 @@ In sandbox mode (no real credentials) every external service returns a stub — 
 | `B2BINPAY_CLIENT_ID` | prod | OAuth client ID |
 | `B2BINPAY_CLIENT_SECRET` | prod | OAuth client secret |
 | `B2BINPAY_SANDBOX` | — | `"true"` for B2BinPay sandbox |
-| `B2BINPAY_WALLET_ID` | prod | APPRA's B2BinPay master wallet |
+| `B2BINPAY_WALLET_ID` | prod | AxLink's B2BinPay master wallet |
 | `B2BINPAY_CALLBACK_SECRET` | prod | HMAC secret for webhook verification |
 | **Brainrock** | | |
 | `BRAINROCK_API_KEY` | prod | Brainrock API key |
@@ -313,7 +313,7 @@ Creates a user account with a Fireblocks vault and Brainrock virtual IBAN provis
 }
 ```
 
-`depositAccount` is `null` if Brainrock is not configured (sandbox). The IBAN is the user's deposit account — they send bank transfers here and the funds land in their APPRA balance.
+`depositAccount` is `null` if Brainrock is not configured (sandbox). The IBAN is the user's deposit account — they send bank transfers here and the funds land in their AxLink balance.
 
 ---
 
@@ -331,7 +331,7 @@ Find a user by email. Used in the P2P send flow to resolve the receiver.
 }
 ```
 
-**Response 404** — user not found on APPRA.
+**Response 404** — user not found on AxLink.
 
 ---
 
@@ -588,7 +588,7 @@ This is the recommended endpoint for transfers. Runs the full Kafka validation +
 
 #### `POST /orchestrator/withdraw` — Withdrawal
 
-Withdraw from a user's APPRA balance to their bank account, mobile money, or IBAN.
+Withdraw from a user's AxLink balance to their bank account, mobile money, or IBAN.
 
 **Request**
 ```json
@@ -1083,5 +1083,5 @@ One row per user per currency.
 
 ---
 
-*APPRA Settlement — AxLink Network — AXSTRON*
+*AxLink Settlement — AXSTRON*
 *For internal use only. Do not share externally.*

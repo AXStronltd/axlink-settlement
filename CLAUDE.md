@@ -1,4 +1,4 @@
-# APPRA Settlement — working notes
+# AxLink Settlement — working notes
 
 Crypto-rail settlement service. Express + Prisma/Postgres backend (`src/`), React/Vite frontend (`frontend/`).
 Users see fiat only; USDT on Solana via Fireblocks is the internal settlement layer.

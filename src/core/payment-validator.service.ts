@@ -1,5 +1,5 @@
 /**
- * APPRA Payment Validator
+ * AxLink Payment Validator
  *
  * Subscribes to `fincruise.payment.validation.requested` and publishes
  * `fincruise.payment.validation.result`. Runs before any ledger write.

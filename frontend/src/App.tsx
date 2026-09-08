@@ -30,7 +30,7 @@ export default function App() {
       <aside className="w-56 flex-shrink-0 bg-gray-900 border-r border-gray-800 flex flex-col">
         <div className="p-5 border-b border-gray-800">
           <div className="text-xs font-mono text-brand-400 mb-0.5">AXSTRON</div>
-          <div className="text-sm font-semibold text-white">APPRA Settlement</div>
+          <div className="text-sm font-semibold text-white">AxLink Settlement</div>
           <div className="text-xs text-gray-500 mt-0.5">Ops Dashboard</div>
         </div>
         <nav className="flex-1 p-3 space-y-0.5">

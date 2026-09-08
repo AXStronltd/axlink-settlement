@@ -151,7 +151,7 @@ export async function createDeposit(params: {
     data: {
       type: 'deposit',
       attributes: {
-        label: params.label ?? 'APPRA deposit',
+        label: params.label ?? 'AxLink deposit',
         tracking_id: params.trackingId,
         confirmations_needed: params.confirmationsNeeded ?? 1,
         callback_url: params.callbackUrl,
@@ -234,7 +234,7 @@ export async function createPayout(params: {
         fee_amount: params.feeAmount,
         address: params.address,
         tracking_id: params.trackingId,
-        label: params.label ?? 'APPRA payout',
+        label: params.label ?? 'AxLink payout',
         callback_url: params.callbackUrl,
         confirmations_needed: params.confirmationsNeeded ?? 1,
       },

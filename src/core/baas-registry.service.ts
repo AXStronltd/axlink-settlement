@@ -4,7 +4,7 @@
  * ══════════════════════════════════════════════════════════════════════
  *  ZERO PRE-FUNDED CORRIDORS
  *
- *  APPRA never maintains standing fiat balances.
+ *  AxLink never maintains standing fiat balances.
  *  Each withdrawal triggers a real-time USDT→fiat conversion (JIT):
  *
  *  Atomic providers (Thunes):
