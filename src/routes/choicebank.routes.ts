@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { verifyWebhookSignature } from '../providers/live/choicebank';
 import { prisma, credit } from '../core/ledger.service';
 import { handleFiatArrived } from '../core/orchestrator.service';
+import { confirmWithdrawalFromPartner } from '../core/settlement/payout-confirmation.service';
 
 // ── Choice Bank Nigeria Webhook Handlers ──────────────────────────────────────
 // Choice Bank fires these events on inbound and outbound transfer updates.
@@ -86,11 +87,13 @@ router.post('/choicebank', async (req: Request, res: Response) => {
     });
 
     if (byRef) {
-      await prisma.withdrawal.update({
-        where: { id: byRef.id },
-        data: { status: 'COMPLETED' },
+      // Through the settlement engine: confirms the PARTNER_PAYOUT leg and
+      // clears suspense. A direct status write would leave the books unbalanced.
+      await confirmWithdrawalFromPartner({
+        withdrawalId:     byRef.id,
+        partnerReference: data.id,
+        providerId:       'choicebank',
       });
-      console.log(`[ChoiceBank] Withdrawal ${byRef.trackingId} confirmed — transfer ${data.id}`);
     } else {
       console.warn(`[ChoiceBank] No withdrawal matched transferId=${data.id} ref=${data.reference}`);
     }
