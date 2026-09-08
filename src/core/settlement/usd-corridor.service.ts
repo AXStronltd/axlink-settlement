@@ -51,8 +51,7 @@ import { planLegs, executeLeg, confirmLeg, legsFor, nextLeg } from './leg.servic
 import { proveSettlement } from './proof.service';
 import { withIdempotency } from '../idempotency.service';
 import { usdToUsdt } from '../fx.service';
-import { createDeposit, createPayout } from '../../providers/live/b2binpay';
-import { createTransfer as fbTransfer } from '../../providers/live/fireblocks';
+import { ports } from '../ports';
 
 const USDT_ASSET = process.env.FIREBLOCKS_USDT_ASSET ?? 'USDT_SOL';
 const TREASURY_VAULT = process.env.FIREBLOCKS_TREASURY_VAULT ?? '';
@@ -180,7 +179,7 @@ export async function advanceDeposit(depositId: string): Promise<void> {
     // implementation skipped.
     case 'CONVERT_FIAT_TO_CRYPTO':
       await executeLeg(leg.id, async ({ externalKey }) => {
-        const conversion = await createDeposit({
+        const conversion = await ports().converter.createDeposit({
           walletId: user.b2bWalletId ?? B2B_WALLET_ID,
           trackingId: externalKey,
           callbackUrl: `${CALLBACK()}?depositId=${depositId}&leg=convert`,
@@ -193,7 +192,7 @@ export async function advanceDeposit(depositId: string): Promise<void> {
     // ── 1: converter → user's vault, on Solana ───────────────────────────────
     case 'CUSTODY_TRANSFER':
       await executeLeg(leg.id, async ({ externalKey, amount }) => {
-        const payout = await createPayout({
+        const payout = await ports().converter.createPayout({
           walletId: user.b2bWalletId ?? B2B_WALLET_ID,
           currencyId: 'USDT_SOL',
           address: payload.vaultAddress!,
@@ -389,7 +388,7 @@ export async function advanceWithdrawal(withdrawalId: string): Promise<void> {
     // ── 0: collect the USDT into treasury ────────────────────────────────────
     case 'CUSTODY_TRANSFER':
       await executeLeg(leg.id, async ({ externalKey, amount }) => {
-        const tx = await fbTransfer({
+        const tx = await ports().custody.createTransfer({
           assetId: USDT_ASSET,
           amount: (amount ?? dec(0)).toString(),
           sourceVaultId: user.vaultId,
@@ -468,7 +467,7 @@ export async function advanceWithdrawal(withdrawalId: string): Promise<void> {
     // payments that are still in a correspondent's queue.
     case 'PARTNER_PAYOUT':
       await executeLeg(leg.id, async ({ externalKey, amount }) => {
-        const payout = await createPayout({
+        const payout = await ports().converter.createPayout({
           walletId: B2B_WALLET_ID,
           currencyId: 'USD',
           address: payload.partnerAccount!,

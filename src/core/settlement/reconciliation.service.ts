@@ -21,8 +21,8 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../ledger.service';
 import { trialBalance } from './journal.service';
-import { getVaultAssetBalance } from '../../providers/live/fireblocks';
-import { getTokenBalanceRaw, SOLANA_MINTS, formatUnits } from '../../providers/live/solana';
+import { ports } from '../ports';
+import { SOLANA_MINTS, formatUnits } from '../../providers/live/solana';
 
 export type BreakSeverity = 'INFO' | 'WARN' | 'CRITICAL';
 
@@ -201,7 +201,7 @@ async function checkCustody(breaks: Break[]) {
 
     let custodianBalance: Prisma.Decimal;
     try {
-      const fbAsset = await getVaultAssetBalance(vaultId, process.env.FIREBLOCKS_USDT_ASSET ?? 'USDT_SOL');
+      const fbAsset = await ports().custody.getVaultAssetBalance(vaultId, process.env.FIREBLOCKS_USDT_ASSET ?? 'USDT_SOL');
       custodianBalance = new Prisma.Decimal((fbAsset as { total?: string }).total ?? '0');
     } catch (err) {
       breaks.push({
@@ -259,7 +259,7 @@ async function checkOnChain(breaks: Break[]) {
     if (!address) continue;
 
     try {
-      const raw = await getTokenBalanceRaw(address, mintInfo.mint);
+      const raw = await ports().chain.getTokenBalanceRaw(address, mintInfo.mint);
       const onchain = new Prisma.Decimal(formatUnits(raw, mintInfo.decimals));
 
       const ledgerAccount = await prisma.ledgerAccount.findUnique({

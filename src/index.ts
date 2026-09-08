@@ -114,6 +114,17 @@ app.use('/api/network', networkRoutes);
 // Internal treasury ops (OPS_API_KEY — never expose to banks or users)
 app.use('/api/ops', treasuryRoutes);
 
+// Settlement harness — runs real settlements against stubbed rails.
+// Mounted ONLY when explicitly enabled: it writes to the database and replaces
+// the payment providers, so an environment holding customer funds must not
+// expose it. Also gated by OPS_API_KEY behind this check.
+if (process.env.SIMULATOR_ENABLED === 'true' && process.env.NODE_ENV !== 'production') {
+  console.warn('[startup] Settlement harness ENABLED at /api/settlement/harness — payment rails are stubbable in this process');
+  import('./routes/harness.routes')
+    .then(m => app.use('/api/settlement/harness', m.default))
+    .catch(err => console.error('[startup] Harness routes failed to mount:', err));
+}
+
 // Settlement ops: books, legs, reconciliation, provider health.
 // /settlement/proof/* is intentionally public — a proof only we can read is
 // not a proof. Everything else requires OPS_API_KEY.

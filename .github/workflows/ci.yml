@@ -67,6 +67,13 @@ jobs:
       - name: Test
         run: npx vitest run
 
+      - name: Settlement harness
+        # Drives real settlements through the engine against stubbed rails and
+        # asserts the ledger invariants after each. See docs/SIMULATOR.md.
+        run: npm run simulate
+        env:
+          SIMULATOR_ENABLED: 'true'
+
       - name: Verify the production image builds
         run: docker build -t fincruse-settlement:ci .
 

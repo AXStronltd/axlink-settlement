@@ -16,10 +16,8 @@
 
 import { Prisma } from '@prisma/client';
 import { prisma } from '../ledger.service';
-import { getTransaction as fbGetTransaction } from '../../providers/live/fireblocks';
+import { ports } from '../ports';
 import {
-  awaitFinality,
-  getTransaction as solGetTransaction,
   SOLANA_MINTS,
   SETTLEMENT_COMMITMENT,
   SettlementNotFinalError,
@@ -60,7 +58,7 @@ export class ProofMismatchError extends Error {
  * caller should retry rather than fail the settlement.
  */
 export async function resolveChainHash(custodyTxId: string): Promise<string | null> {
-  const tx = (await fbGetTransaction(custodyTxId)) as Record<string, unknown>;
+  const tx = (await ports().custody.getTransaction(custodyTxId)) as Record<string, unknown>;
 
   // Guard against the sandbox stub in fireblocks.ts, which fabricates an id
   // and reports COMPLETED. Treating that as settlement is exactly the failure
@@ -108,7 +106,7 @@ export async function proveSettlement(params: ProveParams) {
   //     the first is a settlement failure, the second says nothing at all.
   let status;
   try {
-    status = await awaitFinality(signature, { commitment: SETTLEMENT_COMMITMENT });
+    status = await ports().chain.awaitFinality(signature, { commitment: SETTLEMENT_COMMITMENT });
   } catch (err) {
     if (err instanceof SettlementNotFinalError) {
       await recordFailure(entityType, entityId, signature, mintInfo.mint, err.message);
@@ -122,7 +120,7 @@ export async function proveSettlement(params: ProveParams) {
   }
 
   // 2 — detail, for the amount check and the fee record.
-  const tx = await solGetTransaction(signature, SETTLEMENT_COMMITMENT);
+  const tx = await ports().chain.getTransaction(signature, SETTLEMENT_COMMITMENT);
   if (!tx) {
     throw Object.assign(
       new Error(`Signature ${signature} is finalized but the node returned no transaction detail`),
