@@ -6,8 +6,9 @@ import Transfers from './components/Transfers'
 import Deposits from './components/Deposits'
 import Withdrawals from './components/Withdrawals'
 import Simulator from './components/Simulator'
+import LiveDemo from './components/LiveDemo'
 
-type Page = 'dashboard' | 'users' | 'wallet' | 'transfers' | 'deposits' | 'withdrawals' | 'simulator'
+type Page = 'dashboard' | 'users' | 'wallet' | 'transfers' | 'deposits' | 'withdrawals' | 'simulator' | 'livedemo'
 
 const NAV: { id: Page; label: string; icon: string }[] = [
   { id: 'dashboard',   label: 'Dashboard',   icon: '▦' },
@@ -17,6 +18,7 @@ const NAV: { id: Page; label: string; icon: string }[] = [
   { id: 'deposits',    label: 'Deposits',     icon: '↓' },
   { id: 'withdrawals', label: 'Withdrawals',  icon: '↑' },
   { id: 'simulator',   label: 'Simulator',    icon: '▷' },
+  { id: 'livedemo',    label: 'Live Demo',    icon: '◈' },
 ]
 
 export default function App() {
@@ -28,7 +30,7 @@ export default function App() {
       <aside className="w-56 flex-shrink-0 bg-gray-900 border-r border-gray-800 flex flex-col">
         <div className="p-5 border-b border-gray-800">
           <div className="text-xs font-mono text-brand-400 mb-0.5">AXSTRON</div>
-          <div className="text-sm font-semibold text-white">FinCruse Settlement</div>
+          <div className="text-sm font-semibold text-white">APPRA Settlement</div>
           <div className="text-xs text-gray-500 mt-0.5">Ops Dashboard</div>
         </div>
         <nav className="flex-1 p-3 space-y-0.5">
@@ -61,6 +63,7 @@ export default function App() {
         {page === 'deposits'    && <Deposits />}
         {page === 'withdrawals' && <Withdrawals />}
         {page === 'simulator'   && <Simulator />}
+        {page === 'livedemo'    && <LiveDemo />}
       </main>
     </div>
   )

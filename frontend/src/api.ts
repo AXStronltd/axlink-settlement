@@ -121,3 +121,50 @@ export const simulateDeposit = (currency: string, amount: number, rail: string) 
 export const simulateWithdraw = (currency: string, amount: number, rail: string) =>
   req<{ steps: SimStep[] }>(`/simulate/withdraw?currency=${currency}&amount=${amount}&rail=${rail}`)
 
+
+// ── Live Demo ─────────────────────────────────────────────────────────────────
+// Drives the real corridor: real users, real ledger, real quote, real webhook.
+// Available only when the backend runs with DEMO_ENABLED=true.
+
+export type Corridor = {
+  code: string; country: string; flag: string; rail: string
+  deliverable: boolean; providers: string[]
+}
+export const getCorridors = () => req<{ currencies: Corridor[] }>('/demo/corridors')
+
+export type DemoUser = { id: string; name: string; vaultId: string; currency: string }
+export const createDemoUser = (body: { name: string; currency: string }) =>
+  req<DemoUser>('/demo/user', { method: 'POST', body: JSON.stringify(body) })
+
+export const depositFiat = (body: {
+  userId: string; currency: string; amount: number; rail: string; railReference: string
+}) => req<{ trackingId: string; status: string; flow: string }>(
+  '/orchestrator/payout-rail/fiat-arrived', { method: 'POST', body: JSON.stringify(body) })
+
+/** Stands in for Fireblocks confirming USDT landed in the user's vault. */
+export const confirmUsdtLanded = (body: {
+  vaultId: string; trackingId: string; amount: number
+}) => req<{ received: boolean }>('/webhooks/fireblocks', {
+  method: 'POST',
+  body: JSON.stringify({
+    type: 'TRANSACTION_STATUS_UPDATED',
+    data: {
+      id: `fbtx_${Date.now()}`, status: 'COMPLETED', assetId: 'USDT_SOL',
+      amount: String(body.amount), txHash: `demo_sig_${Date.now()}`,
+      externalTxId: body.trackingId, destination: { id: body.vaultId },
+    },
+  }),
+})
+
+export const runTransfer = (body: {
+  senderId: string; receiverId: string; fromCurrency: string
+  toCurrency: string; amount: number; quoteId?: string
+}) => req<Record<string, unknown>>('/orchestrator/transfer', {
+  method: 'POST', body: JSON.stringify(body),
+})
+
+export const runWithdrawal = (body: {
+  userId: string; currency: string; amount: number
+  recipientName: string; destination: Record<string, string>
+}) => req<{ trackingId: string; status: string; flow: string }>(
+  '/orchestrator/withdraw', { method: 'POST', body: JSON.stringify(body) })
