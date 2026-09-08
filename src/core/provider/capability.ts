@@ -282,8 +282,16 @@ export async function resolveFundingPlan(params: {
   //     the beneficiary now; our wire replenishes the float behind the payout.
   //     This is the only real-time path for an unlicensed partner.
   if (capability.prefundedFloat) {
+    // Same preference as the bridge path below: USD unless the partner is a
+    // EUR or GBP partner. Picking the first entry of the partner's own list
+    // instead would make the wire currency depend on declaration order, so
+    // reordering an array in a provider file would quietly change which
+    // currency we send — and the two paths could disagree for one partner.
+    const preference = context.bridgePreference ?? DEFAULT_BRIDGE_PREFERENCE;
     const fundingCurrency =
-      settles.find(c => context.converterSettlementCurrencies.has(c)) ?? payoutCurrency;
+      preference.find(c => settles.includes(c) && context.converterSettlementCurrencies.has(c))
+      ?? settles.find(c => context.converterSettlementCurrencies.has(c))
+      ?? payoutCurrency;
 
     const needsFx = fundingCurrency !== payoutCurrency;
     const rate = needsFx ? await context.getRate(fundingCurrency, payoutCurrency) : null;

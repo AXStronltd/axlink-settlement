@@ -243,3 +243,52 @@ describe('capabilityPermits', () => {
     expect(capabilityPermits(anywhere, 'KES', 5_000, 'mobile_money', 'ZA')).toBe(true);
   });
 });
+
+describe('funding currency preference', () => {
+  // The rule: we wire USD to every payout partner unless that partner is a
+  // EUR or GBP partner. Both funding paths must agree on it, and neither may
+  // depend on the order a provider file happens to declare its currencies in.
+  const scrambled = ['GBP', 'EUR', 'USD'];
+
+  it('wires USD to a prefunded partner even when its list starts with GBP', async () => {
+    const result = await plan({
+      settlementCurrencies: scrambled,
+      payoutCurrencies: ['JPY'],
+      methods: ['bank_transfer'],
+      partnerAppliesFx: true,
+      prefundedFloat: true,
+      cryptoLicensed: false,
+    }, 'JPY', 100_000);
+
+    expect(result.mode).toBe('PREFUNDED_FLOAT');
+    expect(result.settlementCurrency).toBe('USD');
+  });
+
+  it('wires USD on the bridge path too, from the same scrambled list', async () => {
+    const result = await plan({
+      settlementCurrencies: scrambled,
+      payoutCurrencies: ['JPY'],
+      methods: ['bank_transfer'],
+      partnerAppliesFx: true,
+      cryptoLicensed: false,
+    }, 'JPY', 100_000);
+
+    expect(result.mode).toBe('PARTNER_FX');
+    expect(result.settlementCurrency).toBe('USD');
+  });
+
+  // A GBP payout to a GBP-capable partner is funded in GBP, not bridged
+  // through USD — there is no reason to convert twice.
+  it('funds a GBP payout directly in GBP', async () => {
+    const result = await plan({
+      settlementCurrencies: scrambled,
+      payoutCurrencies: ['GBP'],
+      methods: ['bank_transfer'],
+      partnerAppliesFx: false,
+      cryptoLicensed: false,
+    }, 'GBP', 500);
+
+    expect(result.mode).toBe('DIRECT_FIAT');
+    expect(result.settlementCurrency).toBe('GBP');
+  });
+});
