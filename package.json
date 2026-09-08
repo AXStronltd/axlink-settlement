@@ -10,7 +10,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "simulate": "ts-node src/simulator/cli.ts"
+    "simulate": "ts-node src/simulator/cli.ts",
+    "dev:console": "./scripts/dev-up.sh"
   },
   "keywords": [],
   "author": "",

@@ -8,6 +8,7 @@
 import 'dotenv/config';
 
 import express, { Request, Response, NextFunction } from 'express';
+import path from 'path';
 import transferRoutes    from './routes/transfer.routes';
 import quoteRoutes       from './routes/quote.routes';
 import simulateRoutes    from './routes/simulate.routes';
@@ -130,6 +131,13 @@ if (process.env.SIMULATOR_ENABLED === 'true' && process.env.NODE_ENV !== 'produc
   import('./routes/harness.routes')
     .then(m => app.use('/api/settlement/harness', m.default))
     .catch(err => console.error('[startup] Harness routes failed to mount:', err));
+
+  // The operator console. Static HTML — it authenticates by passing
+  // ?key=<OPS_API_KEY> through to the harness API, so the page itself carries
+  // no secret and serving it reveals nothing.
+  app.get('/console', (_req, res) => {
+    res.sendFile(path.join(__dirname, '..', 'public', 'console.html'));
+  });
 }
 
 // Demo endpoints for the Live Demo UI. Hands out KYC-approved accounts, so it

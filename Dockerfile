@@ -53,6 +53,12 @@ COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 COPY scripts/write-fireblocks-key.sh /app/scripts/write-fireblocks-key.sh
 RUN chmod +x /app/scripts/write-fireblocks-key.sh
 
+# public/ is deliberately NOT copied. It holds public/console.html, the local
+# operator console, which exists to drive stubbed payment rails. The image is
+# what runs in production, and the console has no business being in it —
+# SIMULATOR_ENABLED already gates the routes, but not shipping the page at all
+# is the stronger guarantee.
+
 # Fireblocks signing key is mounted at runtime, never baked into the image:
 #   -v /secure/fireblocks_secret.key:/app/secrets/fireblocks_secret.key:ro
 # and set FIREBLOCKS_SECRET_KEY_PATH=/app/secrets/fireblocks_secret.key
