@@ -334,6 +334,21 @@ export async function createPaymentSession(params: {
     };
   }
 
+  // Where the customer lands after paying. Falling back to a guessed domain
+  // meant an unset APP_URL sent them to a host that may not resolve — after
+  // their money had moved. Refuse to open the session instead: failing before
+  // the payment is recoverable, stranding someone after it is not.
+  const returnUrl = redirectUrl ?? (
+    process.env.APP_URL
+      ? `${process.env.APP_URL}/deposit/confirm`
+      : (() => {
+          throw new Error(
+            'Cannot create a payment session: APP_URL is not set and no redirectUrl was ' +
+            'given, so there is nowhere to send the customer after they pay.',
+          );
+        })()
+  );
+
   const session = await apiFetch<BrainrockSessionResponse>('/payment-sessions', {
     method: 'POST',
     body: JSON.stringify({
@@ -342,7 +357,7 @@ export async function createPaymentSession(params: {
       payment_method: method,
       reference:      trackingId,
       customer_id:    userId,
-      redirect_url:   redirectUrl ?? `${process.env.APP_URL ?? 'https://app.axlink.com'}/deposit/confirm`,
+      redirect_url:   returnUrl,
       webhook_url:    `${process.env.API_BASE_URL}/webhooks/brainrock`,
       metadata: { tracking_id: trackingId, source: 'axlink_add_funds' },
     }),
