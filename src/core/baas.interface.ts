@@ -157,14 +157,18 @@ export interface IBaaSProvider {
 
   /**
    * If true: provider handles USDT→fiat conversion + delivery atomically.
-   * Registry passes usdtAmount in BaaSPayoutParams and skips B2BinPay JIT step.
+   * Registry passes usdtAmount in BaaSPayoutParams and skips the JIT step.
    * (Thunes, direct MoMo FX providers)
    *
-   * If false: registry converts USDT→fiat via B2BinPay first, then calls sendPayout.
-   * Provider just needs to deliver the fiat amount.
-   * (Daraja, ChoiceBank, Brainrock)
+   * If false: the converter produces the settlement currency first, then
+   * sendPayout delivers it. (Daraja, ChoiceBank, Brainrock)
+   *
+   * @deprecated Superseded by `capability.settlementCurrencies`. Optional so a
+   * new provider need not declare a legacy flag it does not use; treated as
+   * false when omitted. Retained because `deriveCapability` still reads it for
+   * providers that predate the capability model.
    */
-  readonly atomicJit: boolean;
+  readonly atomicJit?: boolean;
 
   /**
    * Fine-grained check — does this provider handle THIS currency + method + destination?
@@ -180,6 +184,25 @@ export interface IBaaSProvider {
    */
   getQuote(currency: string, amount: number, destination: PaymentDestination): Promise<BaaSQuote>;
 
-  /** Execute the payout. Idempotent — reference is the AxLink trackingId. */
-  sendPayout(params: BaaSPayoutParams): Promise<BaaSPayoutResult>;
+  /**
+   * Execute the payout. Idempotent — reference is the AxLink trackingId.
+   *
+   * Optional, because a provider should not be forced to implement a capability
+   * it does not have: a collection-only or conversion-only partner has no
+   * payout to make. Declare `PAYOUT` in `capability.operations` and the
+   * orchestrator will only route payouts to providers that implement this; omit
+   * it, and the registry refuses the registration rather than discovering the
+   * gap at payment time.
+   */
+  sendPayout?(params: BaaSPayoutParams): Promise<BaaSPayoutResult>;
+
+  /**
+   * Is this provider actually reachable?
+   *
+   * Optional, but its absence is reported as UNCONFIGURED rather than assumed
+   * healthy — see `provider/health.ts`. The adapter is the only thing that
+   * knows whether its credentials are real, so this cannot be answered from
+   * outside it.
+   */
+  healthCheck?(): Promise<import('./provider/health').AdapterHealth>;
 }

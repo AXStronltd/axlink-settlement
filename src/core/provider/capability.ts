@@ -41,6 +41,57 @@ export const USDT = 'USDT';
 
 // ── Capability descriptor ─────────────────────────────────────────────────────
 
+/**
+ * What a provider can be asked to do.
+ *
+ * A provider declares the operations it serves and the orchestrator only routes
+ * it work of that kind. This is what lets a collection-only or conversion-only
+ * provider exist without implementing a payout method it will never serve.
+ */
+export type ProviderOperation =
+  | 'COLLECTION'      // take money in from a customer
+  | 'PAYOUT'          // send money to a beneficiary
+  | 'BANK_TRANSFER'   // payout specifically over bank rails
+  | 'CRYPTO'          // send or receive crypto
+  | 'CONVERSION'      // exchange one asset for another
+  | 'BALANCE'         // report what we hold with them
+  | 'STATUS';         // report the state of one transaction
+
+export type ProviderEnvironment = 'sandbox' | 'production';
+
+/**
+ * Why a provider was not selected.
+ *
+ * Routing that returns a bare `false` cannot answer "why did this payment go to
+ * B and not A", which is the first question asked when a corridor misbehaves.
+ * Every rejection carries one of these.
+ */
+export type RejectionReason =
+  | 'OPERATION_UNSUPPORTED'
+  | 'CURRENCY_UNSUPPORTED'
+  | 'METHOD_UNSUPPORTED'
+  | 'COUNTRY_UNSUPPORTED'
+  | 'AMOUNT_BELOW_MIN'
+  | 'AMOUNT_ABOVE_MAX'
+  | 'ENVIRONMENT_MISMATCH';
+
+export interface CapabilityRequest {
+  operation: ProviderOperation;
+  currency: string;
+  amount: number;
+  method?: PayoutMethod;
+  countryCode?: string;
+  environment?: ProviderEnvironment;
+}
+
+export interface CapabilityMatch {
+  permitted: boolean;
+  /** Checks this provider passed — the positive half of the audit trail. */
+  matched: string[];
+  reason?: RejectionReason;
+  detail?: string;
+}
+
 export interface AmountBand {
   /** Inclusive minimum, in the payout currency. */
   min?: number;
@@ -104,6 +155,34 @@ export interface ProviderCapability {
    * failure.
    */
   prefundedFloat?: boolean;
+
+  /**
+   * Operations this provider serves. Omitted means PAYOUT only — which is what
+   * every provider written before this field existed does, so leaving it out
+   * keeps their behaviour exactly as it was.
+   */
+  operations?: ProviderOperation[];
+
+  /**
+   * Environments this provider may be routed in. Omitted means both.
+   *
+   * A provider pointed at a partner's sandbox must never serve production
+   * traffic, and the registry cannot infer that from credentials alone — a
+   * sandbox key is still a valid key.
+   */
+  environments?: ProviderEnvironment[];
+
+  /** Whether the partner sends webhooks we can settle against. */
+  webhooks?: boolean;
+
+  /**
+   * Whether the partner honours an idempotency key. Where false, a retry is
+   * only as safe as our own deduplication — worth knowing before routing money.
+   */
+  idempotency?: boolean;
+
+  /** Indicative cost, for routing. The binding number comes from getQuote. */
+  fees?: { fixedUsd?: number; percent?: number };
 }
 
 // ── Compatibility shim ────────────────────────────────────────────────────────
@@ -396,24 +475,84 @@ export function capabilityPermits(
   method?: PayoutMethod,
   countryCode?: string,
 ): boolean {
-  const curr = payoutCurrency.toUpperCase();
+  return evaluateCapability(capability, {
+    operation: 'PAYOUT',
+    currency: payoutCurrency,
+    amount,
+    method,
+    countryCode,
+  }).permitted;
+}
 
-  if (!capability.payoutCurrencies.map(c => c.toUpperCase()).includes(curr)) return false;
-  if (method && !capability.methods.includes(method)) return false;
+/**
+ * The same decision, with its reasoning.
+ *
+ * `capabilityPermits` answers "can this provider serve the request". This
+ * answers "and if not, which check failed" — the difference between a routing
+ * layer you can operate and one you can only guess at. The orchestrator keeps
+ * every rejection so a payment can always explain where it went and why the
+ * alternatives were passed over.
+ *
+ * Checks run cheapest-first and stop at the first failure, so `matched` lists
+ * what was confirmed before the rejection rather than everything that would
+ * have passed.
+ */
+export function evaluateCapability(
+  capability: ProviderCapability,
+  request: CapabilityRequest,
+): CapabilityMatch {
+  const curr = request.currency.toUpperCase();
+  const matched: string[] = [];
 
-  if (countryCode && capability.countries?.length) {
-    if (!capability.countries.map(c => c.toUpperCase()).includes(countryCode.toUpperCase())) {
-      return false;
+  const no = (reason: RejectionReason, detail: string): CapabilityMatch =>
+    ({ permitted: false, matched, reason, detail });
+
+  // Operation. Absent means PAYOUT only — the behaviour of every provider
+  // written before operations existed.
+  const operations = capability.operations ?? ['PAYOUT'];
+  if (!operations.includes(request.operation)) {
+    return no('OPERATION_UNSUPPORTED', `serves ${operations.join(', ')}`);
+  }
+  matched.push(`operation:${request.operation}`);
+
+  // Environment. Absent means both, so an undeclared provider keeps working.
+  if (request.environment && capability.environments?.length) {
+    if (!capability.environments.includes(request.environment)) {
+      return no('ENVIRONMENT_MISMATCH', `configured for ${capability.environments.join(', ')}`);
     }
+    matched.push(`environment:${request.environment}`);
+  }
+
+  if (!capability.payoutCurrencies.map(c => c.toUpperCase()).includes(curr)) {
+    return no('CURRENCY_UNSUPPORTED', `delivers ${capability.payoutCurrencies.join(', ')}`);
+  }
+  matched.push(`currency:${curr}`);
+
+  if (request.method && !capability.methods.includes(request.method)) {
+    return no('METHOD_UNSUPPORTED', `supports ${capability.methods.join(', ')}`);
+  }
+  if (request.method) matched.push(`method:${request.method}`);
+
+  if (request.countryCode && capability.countries?.length) {
+    const cc = request.countryCode.toUpperCase();
+    if (!capability.countries.map(c => c.toUpperCase()).includes(cc)) {
+      return no('COUNTRY_UNSUPPORTED', `covers ${capability.countries.join(', ')}`);
+    }
+    matched.push(`country:${cc}`);
   }
 
   const band = capability.limits?.[curr];
   if (band) {
-    if (band.min !== undefined && amount < band.min) return false;
-    if (band.max !== undefined && amount > band.max) return false;
+    if (band.min !== undefined && request.amount < band.min) {
+      return no('AMOUNT_BELOW_MIN', `minimum is ${band.min} ${curr}`);
+    }
+    if (band.max !== undefined && request.amount > band.max) {
+      return no('AMOUNT_ABOVE_MAX', `maximum is ${band.max} ${curr}`);
+    }
+    matched.push(`amount:within-limits`);
   }
 
-  return true;
+  return { permitted: true, matched };
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────

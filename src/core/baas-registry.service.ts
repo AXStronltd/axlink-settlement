@@ -26,10 +26,19 @@ import { createTransfer as fbTransfer } from '../providers/live/fireblocks';
 import { getRate as fxRate } from './fx.service';
 import {
   deriveCapability,
-  capabilityPermits,
+  evaluateCapability,
   resolveFundingPlan,
   type FundingPlan,
+  type ProviderOperation,
+  type ProviderEnvironment,
 } from './provider/capability';
+import {
+  summarise,
+  noRouteError,
+  type RoutingDecision,
+  type RejectedProvider,
+} from './provider/decision';
+import { checkAll } from './provider/health';
 import { withBreaker, isAvailable, CircuitOpenError } from './provider/circuit-breaker';
 import * as attempts from './provider/attempt.service';
 import type {
@@ -49,28 +58,153 @@ const TREASURY_VAULT  = process.env.FIREBLOCKS_TREASURY_VAULT  ?? '';
 const USDT_ASSET      = process.env.FIREBLOCKS_USDT_ASSET      ?? 'USDT_SOL';
 const CALLBACK        = `${process.env.API_BASE_URL}/webhooks/b2binpay`;
 
-// Maps each two-phase provider ID to the AxLink account address that B2BinPay
-// sends fiat to before that provider can disburse.
-const PROVIDER_FUNDING_ADDRESS: Record<string, string> = {
-  daraja:      process.env.DARAJA_B2C_FLOAT_ACCOUNT    ?? '',
-  choicebank:  process.env.CHOICEBANK_FLOAT_ACCOUNT    ?? '',
-  brainrock:   process.env.BRAINROCK_TREASURY_ACCOUNT_ID ?? '',
-  mtnmomo:     process.env.MTN_FLOAT_ACCOUNT           ?? '',
-  orange:      process.env.ORANGE_FLOAT_ACCOUNT        ?? '',
+/**
+ * Providers whose float-account variable does not follow the convention.
+ *
+ * These names predate the convention below and are set in deployed
+ * environments, so they are honoured rather than renamed — an env var rename
+ * is a coordinated deploy, and getting it wrong strands a payout.
+ */
+const LEGACY_FUNDING_ENV: Record<string, string> = {
+  daraja:     'DARAJA_B2C_FLOAT_ACCOUNT',
+  choicebank: 'CHOICEBANK_FLOAT_ACCOUNT',
+  brainrock:  'BRAINROCK_TREASURY_ACCOUNT_ID',
+  mtnmomo:    'MTN_FLOAT_ACCOUNT',
+  orange:     'ORANGE_FLOAT_ACCOUNT',
 };
+
+/**
+ * The account a partner is funded into before it can disburse.
+ *
+ * Resolved from the provider's own id — `<PROVIDER_ID>_FLOAT_ACCOUNT` — rather
+ * than a map in core. A hard-coded map meant adding a provider required editing
+ * this file, which is precisely the coupling the registry exists to remove: a
+ * new partner would register, pass every capability check, win a route, and
+ * then fail at funding because core had never heard of it.
+ *
+ * Read per call, not at import, so a corrected variable takes effect on the
+ * next payment rather than the next restart.
+ */
+function fundingAccountFor(providerId: string): string {
+  const legacy = LEGACY_FUNDING_ENV[providerId];
+  if (legacy && process.env[legacy]) return process.env[legacy] as string;
+
+  const conventional = `${providerId.toUpperCase().replace(/[^A-Z0-9]/g, '_')}_FLOAT_ACCOUNT`;
+  return process.env[conventional] ?? '';
+}
 
 // ── Registry management ───────────────────────────────────────────────────────
 
+/**
+ * Which environment routing is running in.
+ *
+ * Read per call rather than captured at import, so it stays correctable — a
+ * module-scope env read is a value nothing can fix without a restart, which is
+ * exactly the class of bug that made TREASURY_VAULT permanently empty.
+ */
+function environment(): ProviderEnvironment {
+  return process.env.NODE_ENV === 'production' ? 'production' : 'sandbox';
+}
+
+/** Providers switched off at runtime — see `setProviderEnabled`. */
+const _disabled = new Set<string>();
+
+/**
+ * Register a provider.
+ *
+ * Declaring an operation you cannot perform is rejected here rather than
+ * discovered when a payment is already in flight. A provider claiming PAYOUT
+ * without `sendPayout` would pass every capability check, win the route, and
+ * then fail with the customer's money already debited — so the registration
+ * fails at boot instead, where it is one obvious error in a startup log.
+ */
 export function registerBaaSProvider(provider: IBaaSProvider): void {
   if (_providers.find(p => p.id === provider.id)) {
     throw new Error(`BaaS provider '${provider.id}' is already registered`);
   }
+
+  const cap = deriveCapability(provider);
+  const operations = cap.operations ?? ['PAYOUT'];
+
+  if (operations.includes('PAYOUT') && typeof provider.sendPayout !== 'function') {
+    throw new Error(
+      `Provider '${provider.id}' declares the PAYOUT operation but implements no sendPayout(). ` +
+      `It would win payout routing and fail after the customer was debited. ` +
+      `Either implement sendPayout or remove PAYOUT from capability.operations.`,
+    );
+  }
+
   _providers.push(provider);
-  console.log(`[BaaSRegistry] Registered: ${provider.name} | currencies: ${provider.supportedCurrencies.join(', ')} | JIT: ${provider.atomicJit ? 'atomic' : 'two-phase'}`);
+
+  const env = cap.environments?.length ? cap.environments.join('/') : 'any';
+  console.log(
+    `[BaaSRegistry] Registered: ${provider.name} | currencies: ${provider.supportedCurrencies.join(', ')} ` +
+    `| operations: ${operations.join(', ')} | env: ${env}`,
+  );
 }
 
-export function getRegisteredProviders(): Array<{ id: string; name: string; currencies: string[]; atomicJit: boolean }> {
-  return _providers.map(p => ({ id: p.id, name: p.name, currencies: p.supportedCurrencies, atomicJit: p.atomicJit }));
+export function getRegisteredProviders(): Array<{
+  id: string; name: string; currencies: string[]; atomicJit: boolean;
+  operations: string[]; environments: string[]; enabled: boolean;
+}> {
+  return _providers.map(p => {
+    const cap = deriveCapability(p);
+    return {
+      id: p.id,
+      name: p.name,
+      currencies: p.supportedCurrencies,
+      atomicJit: p.atomicJit ?? false,
+      operations: cap.operations ?? ['PAYOUT'],
+      environments: cap.environments ?? ['sandbox', 'production'],
+      enabled: !_disabled.has(p.id),
+    };
+  });
+}
+
+/**
+ * Turn a provider off without removing it.
+ *
+ * A partner having an incident needs to stop receiving traffic in seconds,
+ * and the alternatives are worse: a deploy is too slow, and deleting the
+ * registration loses the capability declaration needed to turn it back on.
+ * Disabled providers still appear in routing decisions, marked DISABLED, so
+ * "why did this route change" stays answerable.
+ */
+export function setProviderEnabled(providerId: string, enabled: boolean): void {
+  if (!_providers.find(p => p.id === providerId)) {
+    throw new Error(`Unknown provider '${providerId}'`);
+  }
+  if (enabled) _disabled.delete(providerId);
+  else _disabled.add(providerId);
+  console.warn(`[BaaSRegistry] Provider ${providerId} ${enabled ? 'ENABLED' : 'DISABLED'}`);
+}
+
+export function isProviderEnabled(providerId: string): boolean {
+  return !_disabled.has(providerId);
+}
+
+/** Health for every registered provider. Concurrent; one bad probe cannot fail the rest. */
+export function providerHealthReports() {
+  return checkAll(_providers);
+}
+
+/**
+ * Empty the registry. Tests only.
+ *
+ * Registration is process-global, so without this each test inherits the
+ * providers of the one before it and routing assertions stop meaning anything.
+ *
+ * Guarded like the settlement ports: a process that can be talked into
+ * forgetting its payment providers is worse than one that cannot be tested.
+ * The check is at call time, not import, so the guard cannot be dodged by
+ * setting the variable afterwards.
+ */
+export function resetRegistryForTests(): void {
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('Refusing to clear the provider registry: NODE_ENV is production');
+  }
+  _providers.length = 0;
+  _disabled.clear();
 }
 
 // ── Provider selection ────────────────────────────────────────────────────────
@@ -79,7 +213,11 @@ async function getBestProvider(
   currency: string,
   amount: number,
   destination: PaymentDestination,
-): Promise<{ provider: IBaaSProvider; quote: BaaSQuote }> {
+  operation: ProviderOperation = 'PAYOUT',
+  environment?: ProviderEnvironment,
+): Promise<{ provider: IBaaSProvider; quote: BaaSQuote; decision: RoutingDecision }> {
+  const startedAt = Date.now();
+  const correlationId = randomUUID();
   // Two filters before any network call.
   //
   // capabilityPermits() rejects on currency, method, country and amount limits
@@ -89,20 +227,66 @@ async function getBestProvider(
   // isAvailable() drops providers whose circuit is open. Previously a partner
   // that was down was re-raced on every single payout, adding the full 4s quote
   // timeout to every payment until someone edited the bootstrap file.
+  // Every provider that does not make the cut records why. Discarding the
+  // reason is what makes "why did this go to B and not A" unanswerable later,
+  // once limits have moved and breakers have closed again.
+  const rejected: RejectedProvider[] = [];
+
   const structurallyCapable = _providers.filter(p => {
+    if (!isProviderEnabled(p.id)) {
+      rejected.push({ providerId: p.id, reason: 'DISABLED', detail: 'switched off at runtime' });
+      return false;
+    }
+
     const cap = deriveCapability(p);
-    return (
-      capabilityPermits(cap, currency, amount, destination.method, destination.countryCode) &&
-      p.canHandle(currency, destination)
-    );
+    const verdict = evaluateCapability(cap, {
+      operation,
+      currency,
+      amount,
+      method: destination.method,
+      countryCode: destination.countryCode,
+      environment,
+    });
+
+    if (!verdict.permitted) {
+      rejected.push({ providerId: p.id, reason: verdict.reason!, detail: verdict.detail });
+      return false;
+    }
+
+    // canHandle validates the destination's own fields — the provider's
+    // business, and the one check that stays with it.
+    if (!p.canHandle(currency, destination)) {
+      rejected.push({
+        providerId: p.id,
+        reason: 'METHOD_UNSUPPORTED',
+        detail: 'destination fields not accepted by this provider',
+      });
+      return false;
+    }
+
+    return true;
   });
 
   const candidates = structurallyCapable.filter(p => isAvailable(p.id));
 
   const circuitOpen = structurallyCapable.filter(p => !isAvailable(p.id));
   for (const p of circuitOpen) {
+    rejected.push({ providerId: p.id, reason: 'CIRCUIT_OPEN', detail: 'failing — breaker open' });
     void attempts.record({ providerId: p.id, operation: 'QUOTE', outcome: 'SKIPPED_CIRCUIT_OPEN', currency, amount });
   }
+
+  const decisionSoFar = (selectedProviderId: string | null, matched: string[], basis?: string): RoutingDecision => ({
+    correlationId,
+    operation,
+    currency,
+    amount,
+    selectedProviderId,
+    matched,
+    ...(basis ? { selectionBasis: basis } : {}),
+    rejected,
+    latencyMs: Date.now() - startedAt,
+    decidedAt: new Date().toISOString(),
+  });
 
   if (candidates.length === 0 && circuitOpen.length > 0) {
     throw Object.assign(
@@ -111,27 +295,32 @@ async function getBestProvider(
         `${circuitOpen.map(p => p.id).join(', ')}. They are failing, not missing — ` +
         `check partner status before changing routing.`,
       ),
-      { code: 'ALL_PROVIDERS_UNAVAILABLE', statusCode: 503 },
+      { code: 'ALL_PROVIDERS_UNAVAILABLE', statusCode: 503, decision: decisionSoFar(null, []) },
     );
   }
 
   if (candidates.length === 0) {
-    const method = destination.method ?? 'unspecified';
-    const mobile = destination.mobileProvider ? ` (${destination.mobileProvider})` : '';
-    throw new Error(
-      `No BaaS provider available for ${currency} via ${method}${mobile}. ` +
-      `Check that the destination has the required fields (mobileNumber, accountNumber+bankCode, IBAN, etc.). ` +
-      `Registered providers: ${_providers.map(p => p.id).join(', ') || 'none'}`,
-    );
+    // Carries every rejection, so the answer is "Daraja does not cover NG,
+    // Choice Bank's maximum is 500000" rather than "no provider available".
+    throw noRouteError(decisionSoFar(null, []));
   }
 
   if (candidates.length === 1) {
     const only = candidates[0];
+    const cap = deriveCapability(only);
+    const verdict = evaluateCapability(cap, {
+      operation, currency, amount, method: destination.method,
+      countryCode: destination.countryCode, environment,
+    });
     const quote = await attempts.timed(
       { providerId: only.id, operation: 'QUOTE', currency, amount, selected: true },
       () => withBreaker(only.id, () => only.getQuote(currency, amount, destination)),
     );
-    return { provider: only, quote };
+    return {
+      provider: only,
+      quote,
+      decision: decisionSoFar(only.id, verdict.matched, 'only capable provider'),
+    };
   }
 
   // Race quotes from all candidates in parallel, pick lowest fee
@@ -174,6 +363,17 @@ async function getBestProvider(
     throw new Error(`All BaaS providers failed to quote for ${currency}: ${reasons.join('; ')}`);
   }
 
+  // A provider that could serve the request but failed to quote belongs in the
+  // rejection list too — it was considered and passed over, and "it timed out"
+  // is a different fact from "it does not cover this country".
+  candidates
+    .filter(c => !successful.some(s => s.provider.id === c.id))
+    .forEach(c => rejected.push({
+      providerId: c.id,
+      reason: 'QUOTE_FAILED',
+      detail: 'did not return a quote in time',
+    }));
+
   // Lowest fee first; tie → fastest delivery
   successful.sort((a, b) => {
     const diff = a.quote.fee - b.quote.fee;
@@ -182,14 +382,30 @@ async function getBestProvider(
   });
 
   const winner = successful[0];
-  const skipped = successful.slice(1).map(s => `${s.provider.id}($${s.quote.fee.toFixed(3)})`).join(', ');
-  console.log(
-    `[BaaSRegistry] Winner for ${currency}: ${winner.provider.id} ` +
-    `fee=$${winner.quote.fee.toFixed(3)} ~${winner.quote.estimatedMinutes}min` +
-    (skipped ? ` | dropped: ${skipped}` : ''),
-  );
+  const runnersUp = successful.slice(1);
 
-  return winner;
+  // Losing on price is a rejection like any other. Without this, a decision
+  // shows one winner and no trace of the alternative that was 0.001 dearer.
+  runnersUp.forEach(s => rejected.push({
+    providerId: s.provider.id,
+    reason: 'QUOTE_FAILED',
+    detail: `quoted $${s.quote.fee.toFixed(3)} vs winner $${winner.quote.fee.toFixed(3)}`,
+  }));
+
+  const basis = runnersUp.length
+    ? `cheapest of ${successful.length}: $${winner.quote.fee.toFixed(3)} vs ${runnersUp.map(s => `${s.provider.id} $${s.quote.fee.toFixed(3)}`).join(', ')}`
+    : 'only provider to return a quote';
+
+  const winnerCap = deriveCapability(winner.provider);
+  const winnerVerdict = evaluateCapability(winnerCap, {
+    operation, currency, amount, method: destination.method,
+    countryCode: destination.countryCode, environment,
+  });
+
+  const decision = decisionSoFar(winner.provider.id, winnerVerdict.matched, basis);
+  console.log(`[BaaSRegistry] ${summarise(decision)}`);
+
+  return { provider: winner.provider, quote: winner.quote, decision };
 }
 
 // ── JIT two-phase funding ─────────────────────────────────────────────────────
@@ -209,11 +425,13 @@ async function jitFundProvider(params: {
   const currency = plan.settlementCurrency;
   const amount   = plan.settlementAmount;
 
-  const fundingAddress = PROVIDER_FUNDING_ADDRESS[providerId];
+  const fundingAddress = fundingAccountFor(providerId);
   if (!fundingAddress) {
+    const expected = LEGACY_FUNDING_ENV[providerId]
+      ?? `${providerId.toUpperCase().replace(/[^A-Z0-9]/g, '_')}_FLOAT_ACCOUNT`;
     throw new Error(
-      `JIT funding address not configured for provider '${providerId}'. ` +
-      `Set the corresponding env var (e.g. DARAJA_B2C_FLOAT_ACCOUNT).`,
+      `No funding account configured for provider '${providerId}'. Set ${expected} — ` +
+      `it is the account the converter wires settlement funds to before this partner can disburse.`,
     );
   }
 
@@ -285,11 +503,11 @@ export async function deliverFiat(params: {
   destination: PaymentDestination;
   reference:   string;
   description: string;
-}): Promise<{ provider: string; paymentId: string; estimatedMinutes?: number; plan: FundingPlan }> {
+}): Promise<{ provider: string; paymentId: string; estimatedMinutes?: number; plan: FundingPlan; decision: RoutingDecision }> {
   const { currency, amount, usdtAmount, destination, reference, description } = params;
   const curr = currency.toUpperCase();
 
-  const { provider } = await getBestProvider(curr, amount, destination);
+  const { provider, decision } = await getBestProvider(curr, amount, destination, 'PAYOUT', environment());
 
   // Decide HOW to fund this partner before moving anything. resolveFundingPlan
   // throws if no route exists, which is deliberately before any USDT leaves the
@@ -333,9 +551,20 @@ export async function deliverFiat(params: {
     ...(plan.mode === 'ATOMIC_USDT' ? { usdtAmount } : {}),
   };
 
+  // Registration rejects a PAYOUT provider without sendPayout, so reaching here
+  // without one means the registry was bypassed. Assert rather than assume: the
+  // alternative is a crash after the customer has already been debited.
+  const send = provider.sendPayout?.bind(provider);
+  if (!send) {
+    throw Object.assign(
+      new Error(`Provider '${provider.id}' was routed a payout but implements no sendPayout()`),
+      { code: 'PROVIDER_CANNOT_PAYOUT', statusCode: 500 },
+    );
+  }
+
   const result: BaaSPayoutResult = await attempts.timed(
     { providerId: provider.id, operation: 'PAYOUT', reference, currency: curr, amount, plan, selected: true },
-    () => withBreaker(provider.id, () => provider.sendPayout(payoutParams)),
+    () => withBreaker(provider.id, () => send(payoutParams)),
   );
 
   // Replenishment runs after the beneficiary has been paid, and must not fail
@@ -363,6 +592,7 @@ export async function deliverFiat(params: {
     paymentId:        result.paymentId,
     estimatedMinutes: result.estimatedMinutes,
     plan,
+    decision,
   };
 }
 
@@ -376,7 +606,7 @@ export function getCapableProviders(
 ): Array<{ id: string; name: string; atomicJit: boolean }> {
   return _providers
     .filter(p => p.canHandle(currency, (destination ?? {}) as PaymentDestination))
-    .map(p => ({ id: p.id, name: p.name, atomicJit: p.atomicJit }));
+    .map(p => ({ id: p.id, name: p.name, atomicJit: p.atomicJit ?? false }));
 }
 
 /**
