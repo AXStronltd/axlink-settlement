@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatUnits, parseUnits, commitmentReached, SOLANA_MINTS } from '../providers/live/solana';
+import { formatUnits, parseUnits, commitmentReached, SOLANA_MINTS, SETTLEMENT_ASSET } from '../providers/live/solana';
 import { hashRequest } from '../core/idempotency.service';
 import { backoffDelay, defaultIsRetryable } from '../core/provider/retry';
 
@@ -7,7 +7,7 @@ import { backoffDelay, defaultIsRetryable } from '../core/provider/retry';
 // settlement path. Doing that in floating point is how a settlement proof ends
 // up disagreeing with the chain by a rounding error, so it is done in BigInt.
 describe('unit conversion', () => {
-  it('round-trips USDC amounts exactly', () => {
+  it('round-trips USDT amounts exactly', () => {
     for (const value of ['0', '1', '0.000001', '1234.567891', '999999999.999999']) {
       expect(formatUnits(parseUnits(value, 6), 6)).toBe(value);
     }
@@ -53,6 +53,11 @@ describe('commitment ordering', () => {
 });
 
 describe('mint registry', () => {
+  it('settles in USDT by default', () => {
+    expect(SETTLEMENT_ASSET).toBe('USDT');
+    expect(SOLANA_MINTS[SETTLEMENT_ASSET]).toBeDefined();
+  });
+
   it('uses six decimals for both settlement assets', () => {
     expect(SOLANA_MINTS.USDC.decimals).toBe(6);
     expect(SOLANA_MINTS.USDT.decimals).toBe(6);

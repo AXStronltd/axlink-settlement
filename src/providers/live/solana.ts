@@ -29,13 +29,23 @@ const RPC_URL = () => process.env.SOLANA_RPC_URL ?? 'https://api.mainnet-beta.so
 const RPC_TIMEOUT_MS = Number(process.env.SOLANA_RPC_TIMEOUT_MS ?? 10_000);
 
 /**
- * SPL mints we settle in. USDC is the default settlement asset; USDT is
- * supported because the existing Fireblocks integration uses `USDT_SOL`.
+ * SPL mints we can settle in.
+ *
+ * USDT is the settlement asset: it is what the Fireblocks integration moves
+ * (`USDT_SOL`) and what the treasury actually holds. USDC is listed because
+ * the choice of settlement asset is a business decision that can change —
+ * notably, USDT is not authorised as an e-money token under MiCA, which is
+ * live for the Lithuanian entity. Keeping both here means switching, or
+ * running a second asset per region, is a config change rather than a
+ * refactor. Nothing hard-codes a mint outside this table.
  */
 export const SOLANA_MINTS: Record<string, { mint: string; decimals: number }> = {
-  USDC: { mint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', decimals: 6 },
   USDT: { mint: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', decimals: 6 },
+  USDC: { mint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', decimals: 6 },
 };
+
+/** The asset settlements are denominated in. Override per environment. */
+export const SETTLEMENT_ASSET = (process.env.SETTLEMENT_ASSET ?? 'USDT') as keyof typeof SOLANA_MINTS;
 
 export type Commitment = 'processed' | 'confirmed' | 'finalized';
 

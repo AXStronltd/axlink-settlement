@@ -1,10 +1,12 @@
 # FinCruse Settlement Service
 
-**Users see a neobank. Crypto never appears.** All conversion happens silently in the backend across four layers.
+**Users see a neobank. Crypto never appears.** All conversion happens silently in the backend across five layers.
+
+> Architecture and code layout: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) · Deployment: [`docs/DEPLOY.md`](docs/DEPLOY.md) · Running locally: [`CLAUDE.md`](CLAUDE.md)
 
 ---
 
-## Four-Layer Architecture
+## Five-Layer Architecture
 
 ```
 USER (app — sees fiat only, no crypto ever)
@@ -13,30 +15,37 @@ USER (app — sees fiat only, no crypto ever)
 ┌───────────────────────────────────────────────────────────────────────┐
 │                         FinCruse Platform                              │
 │                                                                        │
-│  LAYER 1 — FIAT RAIL          LAYER 2–3 — CRYPTO RAIL (hidden)        │
+│  LAYER 1 — FIAT RAILS         LAYER 2–3 — CRYPTO RAIL (hidden)        │
 │  ┌────────────────────┐       ┌─────────────────┐  ┌───────────────┐  │
-│  │    Brainrock       │ ←──→  │    B2BinPay     │→ │  Fireblocks   │  │
-│  │  (or Square)       │       │  fiat ↔ USDT    │  │  USDT vaults  │  │
-│  │                    │       │  LP (wholesale)  │  │  on Solana    │  │
-│  │  Per-user virtual  │       └─────────────────┘  └───────────────┘  │
-│  │  IBAN / M-Pesa /   │                                                │
-│  │  bank transfers    │       LAYER 4 — LEDGER                        │
-│  └────────────────────┘       ┌────────────────────────────────────┐  │
-│                                │  Prisma + PostgreSQL               │  │
-│                                │  Virtual fiat balances per user    │  │
-│                                │  Atomic debit / credit / audit     │  │
-│                                └────────────────────────────────────┘  │
+│  │ Daraja   (M-Pesa)  │ ←──→  │    B2BinPay     │→ │  Fireblocks   │  │
+│  │ Choice Bank (Afr.) │       │  fiat ↔ USDT    │  │  USDT vaults  │  │
+│  │ Brainrock (EU/UK)  │       │  USD/EUR/GBP    │  │  on Solana    │  │
+│  │                    │       │  only           │  └───────────────┘  │
+│  │ chosen per corridor│       └─────────────────┘                     │
+│  └────────────────────┘                                                │
+│                               LAYER 4 — SETTLEMENT ENGINE             │
+│                               ┌────────────────────────────────────┐  │
+│                               │ legs · journal · proof · reconcile │  │
+│                               │ resumable, double-entry, provable  │  │
+│                               └────────────────────────────────────┘  │
+│                                                                        │
+│                               LAYER 5 — LEDGER                        │
+│                               ┌────────────────────────────────────┐  │
+│                               │  Prisma + PostgreSQL               │  │
+│                               │  Virtual fiat balances per user    │  │
+│                               └────────────────────────────────────┘  │
 │                                                                        │
 │                        FinCruse Orchestrator                           │
-│              (coordinates all four layers per transaction)             │
+│              (coordinates all five layers per transaction)             │
 └───────────────────────────────────────────────────────────────────────┘
 ```
 
 | Layer | Provider | Role |
 |-------|----------|------|
-| Fiat banking | **Brainrock** (or Square / Railsr) | Virtual IBANs, inbound detection, fiat payouts |
-| Liquidity | **B2BinPay** | Converts fiat ↔ USDT at institutional rates |
+| Fiat rails | **Daraja** · **Choice Bank** · **Brainrock** | Collection and payout. Chosen per corridor; the partner applies local FX |
+| Liquidity | **B2BinPay** | Converts fiat ↔ USDT. **Settles USD, EUR, GBP only** — never local currency |
 | Custody | **Fireblocks** | Holds USDT per-user vault on Solana (~$0.00025 gas) |
+| Settlement | **Legs + journal** | Resumable state machine, double-entry, on-chain proof |
 | Ledger | **Prisma + PostgreSQL** | Tracks fiat balances, all flows atomic |
 
 Revenue model: **FX spread baked into rate** — no visible fee. B2BinPay gives institutional rate, FinCruse marks up, user sees a clean rate.
@@ -141,8 +150,8 @@ Step 2 — Execute (uses locked rate):
   2a. Ledger: debit Mike -£300
   2b. B2BinPay on-ramp: £300 GBP → ~$381 USDT (credits FinCruse wallet)
   2c. Fireblocks: vault_mike → vault_james (~$381 USDT on Solana, gas $0.00025)
-  2d. B2BinPay off-ramp: ~$381 USDT → KSh 47,760 (credits FinCruse Brainrock treasury)
-  2e. Brainrock: KSh 47,760 from FinCruse treasury → James's M-Pesa/bank
+  2d. B2BinPay off-ramp: ~$381 USDT → ~$381 USD (B2BinPay settles USD/EUR/GBP only)
+  2e. USD wired to Daraja; Daraja applies local FX and pays KSh 47,760 to James's M-Pesa
   2f. Ledger: credit James +KSh 47,760
 
   FinCruse earns: ~$6.87 USD spread on this transaction
@@ -174,9 +183,9 @@ Flow:
   A. Balance check: James has ≥ KSh 10,000
   B. Ledger: debit James -KSh 10,000
   C. Fireblocks: vault_james → FinCruse treasury vault (USDT equivalent)
-  D. B2BinPay off-ramp: USDT → KSh 10,000 (credits FinCruse Brainrock treasury)
-  E. Brainrock: sends KSh 10,000 from FinCruse treasury → +254712345678 (M-Pesa STK push)
-  F. Brainrock webhook: "payment.sent" → withdrawal marked COMPLETED
+  D. B2BinPay off-ramp: USDT → USD (B2BinPay settles USD/EUR/GBP only)
+  E. USD wired to Daraja; Daraja applies local FX and sends KSh 10,000 → +254712345678
+  F. Partner webhook: "payment.sent" → withdrawal marked COMPLETED
      If payout fails: Brainrock fires "payment.failed" → ledger credit reversed automatically
 
 James gets M-Pesa notification: "KSh 10,000 received from FinCruse"
@@ -202,7 +211,7 @@ BRAINROCK_SANDBOX=true
 BRAINROCK_TREASURY_ACCOUNT_ID=
 ```
 
-**Integration file:** `src/services/brainrock.service.ts`  
+**Integration files:** `src/providers/live/brainrock.ts` (API client) + `brainrock.baas.ts` (adapter)  
 The API shape is pre-built. Map the method names to actual Brainrock endpoints.
 
 > **Alternative:** Square (US corridors), Railsr/Bankable (EU), ClearBank (UK).  
@@ -233,7 +242,7 @@ FIREBLOCKS_SETTLEMENT_ADDRESS=
 FIREBLOCKS_WEBHOOK_PUBLIC_KEY=
 ```
 
-**Integration file:** `src/services/fireblocks.service.ts` — complete, no changes needed.
+**Integration files:** `src/providers/live/fireblocks.ts` (API client) + `fireblocks.lp.ts` (LP adapter) — complete, no changes needed.
 
 ---
 
@@ -252,7 +261,7 @@ B2BINPAY_WALLET_ID=
 B2BINPAY_SANDBOX=true
 ```
 
-**Integration file:** `src/services/b2binpay.service.ts` — complete, no changes needed.
+**Integration file:** `src/providers/live/b2binpay.ts` — API client and LP adapter in one file. Complete, no changes needed.
 
 ---
 
@@ -260,7 +269,7 @@ B2BINPAY_SANDBOX=true
 
 ```bash
 DATABASE_URL=postgresql://user:pass@host:5432/fincruise_settlement
-npx prisma migrate deploy
+npx prisma db push        # no migrations dir — schema is pushed directly
 ```
 
 ---
@@ -274,7 +283,8 @@ npm install
 cp .env.example .env
 # Fill in .env
 
-npx prisma migrate dev --name init
+npx prisma db push
+npx prisma generate
 npm run dev
 ```
 
@@ -282,9 +292,6 @@ Health check:
 ```bash
 curl http://localhost:4000/api/health
 ```
-
-Live visualiser: `http://localhost:4000/monitor`  
-End-to-end demo: `http://localhost:4000/demo`
 
 ---
 
@@ -301,15 +308,15 @@ End-to-end demo: `http://localhost:4000/demo`
 | POST | `/api/orchestrator/withdraw` | Withdraw to bank / M-Pesa |
 | POST | `/api/orchestrator/payout-rail/fiat-arrived` | Manual deposit trigger |
 | POST | `/api/orchestrator/payout-rail/confirmed` | Manual payout confirmation |
-| GET | `/api/rates?symbols=USDT,GBP` | Live FX rates |
-| GET | `/api/fireblocks/vaults` | List Fireblocks vaults |
-| POST | `/api/fireblocks/vaults` | Create vault |
-| GET | `/api/fireblocks/assets` | Supported assets |
+| GET | `/api/network/rates` | Live FX rates — **requires bank bearer auth** |
 | POST | `/api/webhooks/brainrock` | Brainrock inbound payment events |
 | POST | `/api/webhooks/b2binpay` | B2BinPay transfer status |
 | POST | `/api/webhooks/fireblocks` | Fireblocks transaction confirmation |
-| GET | `/monitor` | Live money flow visualiser |
-| GET | `/demo` | End-to-end demo (Mike → James) |
+| POST | `/api/webhooks/daraja/*` | M-Pesa B2C and STK callbacks |
+| POST | `/api/webhooks/choicebank` | Choice Bank transfer status |
+| GET | `/api/settlement/proof/:type/:id` | On-chain settlement proof (public) |
+| GET | `/api/settlement/books/*` | Journal, balances — **`OPS_API_KEY`** |
+| GET | `/api/simulate/*` | Narrated demo flows (no DB, no partners) |
 
 ---
 

@@ -10,6 +10,7 @@
 
 import { Prisma } from '@prisma/client';
 import { prisma } from '../ledger.service';
+import { SETTLEMENT_ASSET } from '../../providers/live/solana';
 
 export type AccountType = 'ASSET' | 'LIABILITY' | 'EQUITY' | 'INCOME' | 'EXPENSE';
 
@@ -124,7 +125,7 @@ export async function resolveAccount(
   const type = accountTypeFor(code);
   // Currency/asset is the final segment for every code shape except ONCHAIN,
   // whose final segment is a mint address.
-  const currency = opts.currency ?? (prefix === 'ONCHAIN' ? 'USDC' : parts[parts.length - 1]);
+  const currency = opts.currency ?? (prefix === 'ONCHAIN' ? SETTLEMENT_ASSET : parts[parts.length - 1]);
 
   const created = await tx.ledgerAccount.create({
     data: {
