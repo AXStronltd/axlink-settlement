@@ -28,10 +28,15 @@ fi
 echo "==> Generating baseline SQL from prisma/schema.prisma"
 mkdir -p "$MIGRATION_DIR"
 
+# Prisma 7 renamed --to-schema-datamodel to --to-schema. Write via --output
+# rather than a shell redirect: a redirect creates the file before the command
+# runs, so a failure leaves a 0-byte migration behind that looks like a
+# baseline and silently applies nothing.
 npx prisma migrate diff \
   --from-empty \
-  --to-schema-datamodel prisma/schema.prisma \
-  --script > "$MIGRATION_DIR/migration.sql"
+  --to-schema prisma/schema.prisma \
+  --script \
+  --output "$MIGRATION_DIR/migration.sql"
 
 LINES=$(wc -l < "$MIGRATION_DIR/migration.sql" | tr -d ' ')
 if [ "$LINES" -lt 10 ]; then
