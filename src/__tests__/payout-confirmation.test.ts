@@ -1,21 +1,30 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // State the fakes read from, reset per test.
-let withdrawalRow: { id: string; trackingId: string; status: string } | null = null;
+let withdrawalRow: {
+  id: string; trackingId: string; status: string;
+  userId?: string; currency?: string; amount?: number;
+} | null = null;
 let legs: Array<{ kind: string; status: string }> = [];
 
 const updateWithdrawal = vi.fn(async () => ({}));
 const auditLog = vi.fn(async () => undefined);
 const confirmPartnerPayout = vi.fn(async () => undefined);
+const compensateWithdrawal = vi.fn(async () => 'COMPENSATED' as const);
+const creditFn = vi.fn(async () => undefined);
 
 vi.mock('../core/ledger.service', () => ({
   prisma: {
+    // The legacy reversal path credits and updates inside one transaction.
+    $transaction: async (fn: (tx: unknown) => Promise<unknown>) =>
+      fn({ withdrawal: { update: (...a: unknown[]) => updateWithdrawal(...(a as [])) } }),
     withdrawal: {
       findUnique: vi.fn(async () => withdrawalRow),
       update: (...args: unknown[]) => updateWithdrawal(...(args as [])),
     },
   },
   audit: (...args: unknown[]) => auditLog(...(args as [])),
+  credit: (...args: unknown[]) => creditFn(...(args as [])),
 }));
 
 vi.mock('../core/settlement/leg.service', () => ({
@@ -24,9 +33,13 @@ vi.mock('../core/settlement/leg.service', () => ({
 
 vi.mock('../core/settlement/usd-corridor.service', () => ({
   confirmPartnerPayout: (...args: unknown[]) => confirmPartnerPayout(...(args as [])),
+  compensateWithdrawal: (...args: unknown[]) => compensateWithdrawal(...(args as [])),
 }));
 
-import { confirmWithdrawalFromPartner } from '../core/settlement/payout-confirmation.service';
+import {
+  confirmWithdrawalFromPartner,
+  reverseWithdrawalFromPartner,
+} from '../core/settlement/payout-confirmation.service';
 
 const call = () =>
   confirmWithdrawalFromPartner({
@@ -37,7 +50,8 @@ const call = () =>
 
 beforeEach(() => {
   vi.clearAllMocks();
-  withdrawalRow = { id: 'wdr_1', trackingId: 'wdr_abc', status: 'PENDING_PAYOUT' };
+  withdrawalRow = { id: 'wdr_1', trackingId: 'wdr_abc', status: 'PENDING_PAYOUT',
+                    userId: 'usr_1', currency: 'USD', amount: 5000 };
   legs = [];
 });
 
@@ -97,5 +111,58 @@ describe('confirmWithdrawalFromPartner', () => {
     expect(await call()).toBe('NOT_FOUND');
     expect(confirmPartnerPayout).not.toHaveBeenCalled();
     expect(updateWithdrawal).not.toHaveBeenCalled();
+  });
+});
+
+const reverse = () =>
+  reverseWithdrawalFromPartner({ withdrawalId: 'wdr_1', reason: 'partner declined', providerId: 'daraja' });
+
+describe('reverseWithdrawalFromPartner', () => {
+  // The bug: all three webhooks credited the projection and set REVERSED
+  // without posting anything, so the journal kept the money in suspense.
+  it('reverses through the settlement engine when the withdrawal is on it', async () => {
+    legs = [{ kind: 'PARTNER_PAYOUT', status: 'AWAITING_CONFIRMATION' }];
+
+    expect(await reverse()).toBe('COMPENSATED');
+    expect(compensateWithdrawal).toHaveBeenCalledWith('wdr_1', 'daraja: partner declined');
+    expect(creditFn).not.toHaveBeenCalled();
+  });
+
+  // A legacy withdrawal never posted a journal entry, so compensating one
+  // would credit a suspense balance that was never debited.
+  it('reverses the projection only when there are no legs', async () => {
+    legs = [];
+
+    expect(await reverse()).toBe('LEGACY');
+    expect(compensateWithdrawal).not.toHaveBeenCalled();
+    expect(creditFn).toHaveBeenCalled();
+  });
+
+  // Non-USD corridors do not post to the journal, so they must not be routed
+  // into USD-denominated compensation even when legs somehow exist.
+  it('keeps a non-USD withdrawal off the USD corridor', async () => {
+    withdrawalRow = { id: 'wdr_1', trackingId: 'wdr_abc', status: 'PENDING_PAYOUT',
+                      userId: 'usr_1', currency: 'KES', amount: 5000 };
+    legs = [{ kind: 'PARTNER_PAYOUT', status: 'AWAITING_CONFIRMATION' }];
+
+    expect(await reverse()).toBe('LEGACY');
+    expect(compensateWithdrawal).not.toHaveBeenCalled();
+  });
+
+  it('is idempotent against webhook re-delivery', async () => {
+    withdrawalRow = { id: 'wdr_1', trackingId: 'wdr_abc', status: 'REVERSED',
+                      userId: 'usr_1', currency: 'USD', amount: 5000 };
+
+    expect(await reverse()).toBe('ALREADY_REVERSED');
+    expect(compensateWithdrawal).not.toHaveBeenCalled();
+    expect(creditFn).not.toHaveBeenCalled();
+  });
+
+  it('refuses to reverse money the beneficiary already has', async () => {
+    withdrawalRow = { id: 'wdr_1', trackingId: 'wdr_abc', status: 'COMPLETED',
+                      userId: 'usr_1', currency: 'USD', amount: 5000 };
+
+    expect(await reverse()).toBe('ALREADY_DELIVERED');
+    expect(creditFn).not.toHaveBeenCalled();
   });
 });

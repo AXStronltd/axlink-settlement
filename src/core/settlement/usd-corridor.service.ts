@@ -538,6 +538,15 @@ export async function compensateWithdrawal(
   reason: string,
 ): Promise<'COMPENSATED' | 'ALREADY_REVERSED' | 'NEEDS_TREASURY' | 'ALREADY_DELIVERED'> {
   const w = await prisma.withdrawal.findUniqueOrThrow({ where: { id: withdrawalId } });
+  // This corridor is USD-only and posts USD-denominated lines. A withdrawal in
+  // another currency reaching here would be reversed against the wrong
+  // accounts, so refuse rather than write a plausible-looking wrong entry.
+  if (w.currency !== 'USD') {
+    throw new Error(
+      `compensateWithdrawal is USD-only; withdrawal ${withdrawalId} is ${w.currency}. ` +
+      `Non-USD corridors do not post to the journal yet and must be reversed on the projection.`,
+    );
+  }
   if (w.status === 'REVERSED') return 'ALREADY_REVERSED';
   // Money the beneficiary already has is not reversible by us. A refund is a
   // new payment in the other direction, with its own consent and its own legs.

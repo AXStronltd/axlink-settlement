@@ -32,9 +32,9 @@
  * update when there is not, and say which one happened.
  */
 
-import { prisma, audit } from '../ledger.service';
+import { prisma, audit, credit } from '../ledger.service';
 import { legsFor } from './leg.service';
-import { confirmPartnerPayout } from './usd-corridor.service';
+import { confirmPartnerPayout, compensateWithdrawal } from './usd-corridor.service';
 
 export type ConfirmOutcome =
   /** Settlement engine closed it: leg confirmed, suspense cleared. */
@@ -98,6 +98,87 @@ export async function confirmWithdrawalFromPartner(params: {
   console.warn(
     `[${providerId}] Withdrawal ${withdrawal.trackingId} closed on the legacy path ` +
     `— no settlement leg, so no journal entry (ref ${partnerReference})`,
+  );
+  return 'LEGACY';
+}
+
+export type ReverseOutcome =
+  /** Settlement engine reversed it: journal entry posted, legs compensated. */
+  | 'COMPENSATED'
+  /** Pre-settlement-engine withdrawal — projection reversed, no journal entry. */
+  | 'LEGACY'
+  /** Already reversed. Webhooks are re-delivered; this is normal. */
+  | 'ALREADY_REVERSED'
+  /** Already delivered — a refund is a new payment, not a reversal. */
+  | 'ALREADY_DELIVERED'
+  /** USDT was already sold; putting the customer back needs treasury action. */
+  | 'NEEDS_TREASURY'
+  /** No withdrawal with that id. */
+  | 'NOT_FOUND';
+
+/**
+ * Reverse a withdrawal because a payout partner reported it failed.
+ *
+ * The three webhook routes each did this by hand: credit the Account
+ * projection, set REVERSED, done. No journal entry, no leg compensation. So a
+ * reversed withdrawal left the journal still holding the money in SUSPENSE
+ * while the projection showed it back with the customer — I-3 and I-4 both
+ * broken, on every failed payout, silently.
+ *
+ * Why this is not just a call to compensateWithdrawal: a withdrawal created by
+ * the legacy orchestrator never posted to the journal at all. Its debit was a
+ * projection change only. Posting a compensating entry for one would credit a
+ * suspense balance that was never debited — inventing a reversal of something
+ * that never happened, which is a worse lie than the one being fixed.
+ *
+ * So: the engine reverses what the engine created, and legacy withdrawals are
+ * reversed the way they were debited, with the difference recorded.
+ */
+export async function reverseWithdrawalFromPartner(params: {
+  withdrawalId: string;
+  reason: string;
+  providerId: string;
+}): Promise<ReverseOutcome> {
+  const { withdrawalId, reason, providerId } = params;
+
+  const withdrawal = await prisma.withdrawal.findUnique({
+    where: { id: withdrawalId },
+    select: { id: true, trackingId: true, status: true, userId: true, currency: true, amount: true },
+  });
+
+  if (!withdrawal) return 'NOT_FOUND';
+  if (withdrawal.status === 'REVERSED') return 'ALREADY_REVERSED';
+  if (withdrawal.status === 'COMPLETED') return 'ALREADY_DELIVERED';
+
+  const legs = await legsFor('Withdrawal', withdrawalId);
+  const onEngine = legs.length > 0 && withdrawal.currency === 'USD';
+
+  if (onEngine) {
+    const outcome = await compensateWithdrawal(withdrawalId, `${providerId}: ${reason}`);
+    console.log(
+      `[${providerId}] Withdrawal ${withdrawal.trackingId} reversed via settlement engine — ${outcome}`,
+    );
+    return outcome === 'NEEDS_TREASURY' ? 'NEEDS_TREASURY'
+      : outcome === 'ALREADY_REVERSED' ? 'ALREADY_REVERSED'
+      : outcome === 'ALREADY_DELIVERED' ? 'ALREADY_DELIVERED'
+      : 'COMPENSATED';
+  }
+
+  // Legacy: the debit was a projection change, so the reversal is too.
+  await prisma.$transaction(async tx => {
+    await credit(tx as Parameters<typeof credit>[0], withdrawal.userId, withdrawal.currency, Number(withdrawal.amount));
+    await tx.withdrawal.update({ where: { id: withdrawalId }, data: { status: 'REVERSED' } });
+  });
+  await audit('Withdrawal', withdrawalId, 'REVERSED_WITHOUT_SETTLEMENT', {
+    providerId,
+    reason,
+    amount: withdrawal.amount,
+    currency: withdrawal.currency,
+    note: 'No settlement legs — projection reversed directly. No journal entry posted.',
+  });
+  console.warn(
+    `[${providerId}] Withdrawal ${withdrawal.trackingId} reversed on the legacy path ` +
+    `— no journal entry (${reason})`,
   );
   return 'LEGACY';
 }

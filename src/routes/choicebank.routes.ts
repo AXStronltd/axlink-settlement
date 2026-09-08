@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { verifyWebhookSignature } from '../providers/live/choicebank';
 import { prisma, credit } from '../core/ledger.service';
 import { handleFiatArrived } from '../core/orchestrator.service';
-import { confirmWithdrawalFromPartner } from '../core/settlement/payout-confirmation.service';
+import { confirmWithdrawalFromPartner, reverseWithdrawalFromPartner } from '../core/settlement/payout-confirmation.service';
 
 // ── Choice Bank Nigeria Webhook Handlers ──────────────────────────────────────
 // Choice Bank fires these events on inbound and outbound transfer updates.
@@ -113,16 +113,13 @@ router.post('/choicebank', async (req: Request, res: Response) => {
     });
 
     if (withdrawal) {
-      await prisma.$transaction(async (tx: Parameters<typeof credit>[0]) => {
-        await credit(tx, withdrawal.userId, withdrawal.currency, Number(withdrawal.amount));
+      // Through the settlement engine, so the journal is reversed alongside
+      // the balance projection rather than drifting from it.
+      await reverseWithdrawalFromPartner({
+        withdrawalId: withdrawal.id,
+        reason:       data.failureReason ?? 'transfer failed',
+        providerId:   'choicebank',
       });
-      await prisma.withdrawal.update({
-        where: { id: withdrawal.id },
-        data: { status: 'REVERSED' },
-      });
-      console.warn(
-        `[ChoiceBank] Withdrawal ${withdrawal.trackingId} reversed — ${data.failureReason ?? 'unknown'}`,
-      );
     } else {
       console.warn(`[ChoiceBank] No PENDING_PAYOUT withdrawal matched for failure event — transferId=${data.id}`);
     }
