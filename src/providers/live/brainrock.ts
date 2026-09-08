@@ -96,6 +96,21 @@ export async function getVirtualAccount(accountId: string): Promise<VirtualAccou
 
 // Send fiat from AxLink treasury → user's bank/mobile.
 // fromAccountId = BRAINROCK_TREASURY_ACCOUNT_ID (AxLink's own Brainrock account).
+
+// ── Sandbox stub ─────────────────────────────────────────────────────────────
+// Matches the contract B2BinPay, Fireblocks and Daraja already follow: a real
+// call when credentials are present, a shaped stub when they are not. Without
+// it no corridor ending at this partner could be exercised locally, which is
+// how a broken payout path stays invisible until production.
+const PLACEHOLDER_PREFIXES = ['your_', 'YOUR_', 'sandbox_'];
+function isConfigured(value: string | undefined): boolean {
+  const v = value ?? '';
+  return !!v && !PLACEHOLDER_PREFIXES.some(p => v.startsWith(p));
+}
+function stubRef(prefix: string): string {
+  return `${prefix}_sandbox_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+}
+
 export async function sendPayment(params: {
   fromAccountId: string;
   destination: PaymentDestination;
@@ -104,6 +119,16 @@ export async function sendPayment(params: {
   reference: string;      // AxLink tracking ID for reconciliation
   description?: string;
 }): Promise<OutboundPayment> {
+  if (!isConfigured(process.env.BRAINROCK_API_KEY)) {
+    const id = stubRef('brpay');
+    const where = params.destination.iban ?? params.destination.accountNumber ?? params.destination.mobileNumber ?? '-';
+    console.log(`[Brainrock] SANDBOX — would send ${params.amount} ${params.currency} to ${where} (${id})`);
+    return {
+      id, status: 'processing', amount: params.amount,
+      currency: params.currency, reference: params.reference,
+    };
+  }
+
   const res = await apiFetch<{ data: OutboundPayment }>('/payments/outbound', {
     method: 'POST',
     body: JSON.stringify({

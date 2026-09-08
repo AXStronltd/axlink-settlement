@@ -149,6 +149,21 @@ export async function resolveAccountName(params: {
 
 // Send fiat from AxLink treasury → recipient's bank account.
 // reference = AxLink trackingId for reconciliation.
+
+// ── Sandbox stub ─────────────────────────────────────────────────────────────
+// Matches the contract B2BinPay, Fireblocks and Daraja already follow: a real
+// call when credentials are present, a shaped stub when they are not. Without
+// it no corridor ending at this partner could be exercised locally, which is
+// how a broken payout path stays invisible until production.
+const PLACEHOLDER_PREFIXES = ['your_', 'YOUR_', 'sandbox_'];
+function isConfigured(value: string | undefined): boolean {
+  const v = value ?? '';
+  return !!v && !PLACEHOLDER_PREFIXES.some(p => v.startsWith(p));
+}
+function stubRef(prefix: string): string {
+  return `${prefix}_sandbox_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+}
+
 export async function sendTransfer(params: {
   destination: ChoiceBankDestination;
   amount: number;
@@ -156,6 +171,19 @@ export async function sendTransfer(params: {
   narration?: string;
 }): Promise<ChoiceBankTransfer> {
   const { destination, amount, reference, narration } = params;
+
+  if (!isConfigured(process.env.CHOICE_BANK_API_KEY)) {
+    const id = stubRef('cbtx');
+    console.log(`[ChoiceBank] SANDBOX — would send ${amount} ${destination.currency} to ${destination.accountNumber} (${id})`);
+    return {
+      id, reference, status: 'processing', amount,
+      currency: destination.currency,
+      recipientName: destination.accountName,
+      recipientAccountNumber: destination.accountNumber,
+      recipientBankCode: destination.bankCode,
+    };
+  }
+
   const res = await apiFetch<{ data: ChoiceBankTransfer }>('/transfers', {
     method: 'POST',
     body: JSON.stringify({
