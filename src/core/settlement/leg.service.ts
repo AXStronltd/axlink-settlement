@@ -179,13 +179,21 @@ export async function executeLeg(
     return { status: outcome.status, externalRef: outcome.externalRef };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    const attempts = leg.attempts + 1;
-    const exhausted = attempts >= leg.maxAttempts;
+
+    // Some failures are permanent: the chain moved the wrong amount, the asset
+    // was not what we expected. Retrying asks the same question and gets the
+    // same answer, while the customer's money sits in suspense. An error that
+    // says retryable: false is taken at its word and the budget is spent at
+    // once, so compensation runs now rather than four delays from now.
+    const permanent = (err as { retryable?: boolean }).retryable === false;
+    const attempts = permanent ? leg.maxAttempts : leg.attempts + 1;
+    const exhausted = permanent || attempts >= leg.maxAttempts;
 
     await prisma.settlementLeg.update({
       where: { id: legId },
       data: {
         status: 'FAILED',
+        attempts,
         lastError: message.slice(0, 2000),
         nextAttemptAt: exhausted ? null : new Date(Date.now() + retryDelayMs(attempts)),
       },

@@ -45,6 +45,12 @@ export interface ProveParams {
 export class ProofMismatchError extends Error {
   readonly code = 'SETTLEMENT_PROOF_MISMATCH';
   readonly statusCode = 500;
+  /**
+   * Never retry. The chain moved the wrong amount, or moved a different asset.
+   * A second look at the same signature returns the same answer, so retrying
+   * only delays the compensation and keeps the customer's money in suspense.
+   */
+  readonly retryable = false;
   constructor(message: string) {
     super(message);
   }
@@ -100,7 +106,21 @@ export async function proveSettlement(params: ProveParams) {
   }
 
   const existing = await prisma.settlementProof.findUnique({ where: { signature } });
-  if (existing) return { status: 'ALREADY_PROVEN' as const, signature, proof: existing };
+
+  // A proof row is written for failures too — that is how an on-chain error is
+  // preserved rather than discarded. So "a row exists" does not mean "it
+  // settled". Reading a failure row back as ALREADY_PROVEN let a transaction
+  // that landed and failed complete its leg on the next attempt: the first
+  // attempt recorded the failure, the second found the record and called it
+  // proof. Only a row with no onchainError is evidence of settlement.
+  if (existing && !existing.onchainError) {
+    return { status: 'ALREADY_PROVEN' as const, signature, proof: existing };
+  }
+  if (existing?.onchainError) {
+    throw new ProofMismatchError(
+      `Signature ${signature} already failed on chain and cannot settle: ${existing.onchainError}`,
+    );
+  }
 
   // 1 — finality. Distinguish "failed on chain" from "cannot reach a node":
   //     the first is a settlement failure, the second says nothing at all.

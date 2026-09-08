@@ -246,7 +246,9 @@ export const SCENARIOS: Scenario[] = [
       const withdrawalId = (result.value as { withdrawalId: string }).withdrawalId;
       scope.withdrawalIds.push(withdrawalId);
 
-      await drive(ctx, 'Withdrawal', withdrawalId, 3);
+      // Far enough to see the failure AND to reach a settled end state:
+      // the leg exhausts, compensation reverses the debit, suspense clears.
+      await drive(ctx, 'Withdrawal', withdrawalId, 5);
 
       const row = await prisma.withdrawal.findUniqueOrThrow({ where: { id: withdrawalId } });
       const legs = await legsFor('Withdrawal', withdrawalId);
@@ -254,7 +256,14 @@ export const SCENARIOS: Scenario[] = [
 
       note(`ONCHAIN_SETTLE=${settleLeg?.status} · ${settleLeg?.lastError?.slice(0, 90) ?? 'no error recorded'}`);
       expect('the settlement did not complete', row.status !== 'COMPLETED', `status=${row.status}`);
-      expect('the leg is FAILED, not awaiting', settleLeg?.status === 'FAILED', `leg=${settleLeg?.status}`);
+      // FAILED while retries remain, COMPENSATED once the withdrawal has been
+      // reversed. The claim is that it is not awaiting and never COMPLETED —
+      // an unreachable node holds, a failed transaction does not.
+      expect(
+        'the leg is failed or compensated, not awaiting',
+        settleLeg?.status === 'FAILED' || settleLeg?.status === 'COMPENSATED',
+        `leg=${settleLeg?.status}`,
+      );
 
       const failureProof = await prisma.settlementProof.findFirst({ where: { entityId: withdrawalId } });
       expect(
@@ -293,7 +302,13 @@ export const SCENARIOS: Scenario[] = [
       const row = await prisma.withdrawal.findUniqueOrThrow({ where: { id: withdrawalId } });
 
       note(`ONCHAIN_SETTLE=${settleLeg?.status} · ${settleLeg?.lastError?.slice(0, 100) ?? ''}`);
-      expect('the mismatch was caught', settleLeg?.status === 'FAILED', `leg=${settleLeg?.status}`);
+      // FAILED while retries remain, COMPENSATED once the withdrawal has been
+      // reversed. Both mean the mismatch was caught; only COMPLETED would not.
+      expect(
+        'the mismatch was caught',
+        settleLeg?.status === 'FAILED' || settleLeg?.status === 'COMPENSATED',
+        `leg=${settleLeg?.status}`,
+      );
       expect('the settlement did not complete', row.status !== 'COMPLETED', `status=${row.status}`);
       expect(
         'the error names the amount mismatch',

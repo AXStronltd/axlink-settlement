@@ -47,7 +47,7 @@ import { Prisma } from '@prisma/client';
 import { prisma, audit } from '../ledger.service';
 import { AccountCode } from './accounts';
 import { post } from './journal.service';
-import { planLegs, executeLeg, confirmLeg, legsFor, nextLeg } from './leg.service';
+import { planLegs, executeLeg, confirmLeg, legsFor, nextLeg, compensateLeg, isTerminal } from './leg.service';
 import { proveSettlement } from './proof.service';
 import { withIdempotency } from '../idempotency.service';
 import { usdToUsdt } from '../fx.service';
@@ -387,6 +387,18 @@ export async function advanceWithdrawal(withdrawalId: string): Promise<void> {
   const leg = await nextLeg('Withdrawal', withdrawalId);
   if (!leg) return;
 
+  // A leg that has spent its retry budget is not going to succeed on the next
+  // pass. Leaving it there keeps the customer's money in suspense indefinitely
+  // and keeps the worker retrying a payment that has already failed, so undo
+  // the withdrawal instead of stalling on it.
+  if (leg.status === 'FAILED' && leg.attempts >= leg.maxAttempts) {
+    await compensateWithdrawal(
+      withdrawalId,
+      `${leg.kind} failed after ${leg.attempts} attempts: ${leg.lastError ?? 'no error recorded'}`,
+    );
+    return;
+  }
+
   const withdrawal = await prisma.withdrawal.findUniqueOrThrow({ where: { id: withdrawalId } });
   const user = await prisma.user.findUniqueOrThrow({ where: { id: withdrawal.userId } });
   const payload = (leg.payload ?? {}) as { providerId?: string; partnerAccount?: string; recipientName?: string };
@@ -500,6 +512,83 @@ export async function advanceWithdrawal(withdrawalId: string): Promise<void> {
   if (following && following.id !== leg.id && following.status === 'PENDING') {
     await advanceWithdrawal(withdrawalId);
   }
+}
+
+/**
+ * Undo a withdrawal that cannot be delivered.
+ *
+ * A withdrawal debits the customer immediately and parks the money in
+ * SUSPENSE, which is transient by design: reconciliation asserts it is flat at
+ * close of day. So a settlement that fails after the debit and is never undone
+ * leaves the customer short and the books holding a balance nobody owns. Until
+ * now nothing emitted a COMPENSATE leg — the kind existed and was unreachable.
+ *
+ * What can be reversed depends on how far it got, and the boundary is real:
+ *
+ *   before CONVERT_CRYPTO_TO_FIAT — nothing has left the building. The debit
+ *     is a journal entry and a projection, and both are ours to reverse.
+ *
+ *   after it — the USDT has been sold for USD at the converter. Putting the
+ *     customer back means buying it again at whatever the rate is now, which
+ *     is a treasury decision with a real cost, not a bookkeeping entry.
+ *     Refuse, and say so, rather than invent a reversal that did not happen.
+ */
+export async function compensateWithdrawal(
+  withdrawalId: string,
+  reason: string,
+): Promise<'COMPENSATED' | 'ALREADY_REVERSED' | 'NEEDS_TREASURY' | 'ALREADY_DELIVERED'> {
+  const w = await prisma.withdrawal.findUniqueOrThrow({ where: { id: withdrawalId } });
+  if (w.status === 'REVERSED') return 'ALREADY_REVERSED';
+  // Money the beneficiary already has is not reversible by us. A refund is a
+  // new payment in the other direction, with its own consent and its own legs.
+  if (w.status === 'COMPLETED') return 'ALREADY_DELIVERED';
+
+  const legs = await legsFor('Withdrawal', withdrawalId);
+  const converted = legs.find(l => l.kind === 'CONVERT_CRYPTO_TO_FIAT')?.status === 'COMPLETED';
+
+  if (converted) {
+    await audit('Withdrawal', withdrawalId, 'COMPENSATION_NEEDS_TREASURY', {
+      reason,
+      amount: w.amount,
+      note: 'USDT already sold for USD. Reversal requires a treasury buy-back, not a journal entry.',
+    });
+    console.error(
+      `[usd] withdrawal ${w.trackingId} failed after conversion — ${w.amount} USD is at the converter ` +
+      `and the customer is short. Needs treasury action.`,
+    );
+    return 'NEEDS_TREASURY';
+  }
+
+  await prisma.$transaction(async tx => {
+    // The exact inverse of the debit posted in withdraw(). Same two accounts,
+    // opposite signs, so the pair nets to zero and SUSPENSE returns to flat.
+    await post(tx, {
+      eventType: 'WITHDRAWAL',
+      entityType: 'Withdrawal',
+      entityId: withdrawalId,
+      narrative: `Reversed — ${reason}`,
+      postingKey: `Withdrawal:${withdrawalId}:compensation`,
+      lines: [
+        { account: AccountCode.user(w.userId, 'USD'), amount: dec(w.amount).negated(), currency: 'USD', userId: w.userId },
+        { account: AccountCode.suspense('USD'), amount: dec(w.amount), currency: 'USD' },
+      ],
+    });
+
+    await tx.account.update({
+      where: { userId_currency: { userId: w.userId, currency: 'USD' } },
+      data: { balance: { increment: dec(w.amount) }, balanceUsd: { increment: dec(w.amount) } },
+    });
+
+    await tx.withdrawal.update({ where: { id: withdrawalId }, data: { status: 'REVERSED' } });
+  });
+
+  // Close the open legs so the worker stops retrying something we have undone.
+  for (const leg of legs) {
+    if (!isTerminal(leg.status)) await compensateLeg(leg.id, reason);
+  }
+
+  await audit('Withdrawal', withdrawalId, 'COMPENSATED', { reason, amount: w.amount });
+  return 'COMPENSATED';
 }
 
 /**
