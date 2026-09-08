@@ -232,7 +232,13 @@ export async function advanceDeposit(depositId: string): Promise<void> {
     }
 
     // ── 3: funds become spendable ────────────────────────────────────────────
+    // Wrapped in executeLeg like every other leg. Without it this leg never
+    // entered IN_FLIGHT, so confirmLeg's PENDING → COMPLETED was an illegal
+    // transition and threw *after* the credit had committed. The leg stayed
+    // PENDING and every later attempt credited again — the resume worker runs
+    // every 15s, so a completed deposit paid the customer indefinitely.
     case 'LEDGER_CREDIT':
+      await executeLeg(leg.id, async () => {
       await prisma.$transaction(async tx => {
         const usdt = dec(deposit.usdtAmount);
         const usd = dec(deposit.amount);
@@ -266,8 +272,9 @@ export async function advanceDeposit(depositId: string): Promise<void> {
         await tx.bankDeposit.update({ where: { id: depositId }, data: { status: 'COMPLETED' } });
       });
 
-      await confirmLeg(leg.id);
       await audit('BankDeposit', depositId, 'COMPLETED', { amount: deposit.amount });
+      return { status: 'COMPLETED' };
+      });
       break;
   }
 

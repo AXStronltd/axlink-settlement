@@ -17,9 +17,11 @@
 
 import { randomBytes } from 'crypto';
 import { prisma } from '../core/ledger.service';
+import { legsFor, confirmLeg } from '../core/settlement/leg.service';
+import { confirmPartnerPayout } from '../core/settlement/usd-corridor.service';
 import { useTestPorts, resetPorts } from '../core/ports';
 import { StubWorld, stubPorts } from './stubs';
-import { SCENARIOS, type Scenario, type ScenarioContext } from './scenarios';
+import { SCENARIOS, CALLBACK_DRIVEN, type Scenario, type ScenarioContext } from './scenarios';
 import { checkAll, postingsFor, type Check, type Scope } from './invariants';
 
 export interface Assertion {
@@ -159,6 +161,37 @@ async function runOne(scenario: Scenario, world: StubWorld, keepData: boolean): 
       await prisma.account.create({ data: { userId: user.id, currency, balance: 0, balanceUsd: 0 } });
       scope.userIds.push(user.id);
       return user.id;
+    },
+    settleExternals: async (entityType, entityId) => {
+      const waiting = (await legsFor(entityType, entityId)).filter(
+        l => l.status === 'AWAITING_CONFIRMATION' && CALLBACK_DRIVEN.has(l.kind),
+      );
+      for (const leg of waiting) {
+        // A custody callback carries the on-chain hash, and ONCHAIN_SETTLE
+        // reads it from payload.signature. Nothing in the engine writes that
+        // field — the webhook that would is not built — so the harness has to
+        // play the callback in full, signature included, or the proof leg has
+        // nothing to verify and the deposit stalls forever.
+        if (leg.kind === 'CUSTODY_TRANSFER') {
+          const ref = leg.externalRef ?? leg.externalKey;
+          const signature =
+            world.signatureFor(ref) ?? world.broadcast(ref, (leg.amount ?? 0).toString());
+          await prisma.settlementLeg.update({
+            where: { id: leg.id },
+            data: { payload: { ...((leg.payload as object) ?? {}), signature } },
+          });
+        }
+        // A partner confirming a payout is not just a leg transition: it
+        // clears suspense and closes the withdrawal. confirmPartnerPayout is
+        // the only place that happens, and it is what the partner webhooks
+        // call, so the harness calls it too rather than reimplementing it.
+        if (leg.kind === 'PARTNER_PAYOUT' && entityType === 'Withdrawal') {
+          await confirmPartnerPayout(entityId, leg.externalRef ?? leg.externalKey);
+          continue;
+        }
+        await confirmLeg(leg.id, leg.externalRef ?? undefined);
+      }
+      return waiting.length;
     },
   };
 

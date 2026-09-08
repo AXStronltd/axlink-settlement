@@ -27,6 +27,50 @@ export interface ScenarioContext {
   note: (line: string) => void;
   /** Assertion that fails the scenario without throwing past the runner. */
   expect: (claim: string, condition: boolean, detail?: string) => void;
+  /**
+   * Deliver the callbacks the outside world would send.
+   *
+   * A leg that ends at AWAITING_CONFIRMATION is waiting on an asynchronous
+   * partner: B2BinPay confirming a fiat→USDT conversion, the custodian
+   * confirming a payout. In production a webhook completes it. Nothing did so
+   * here, so every settlement stalled at its first such leg and no scenario
+   * could reach its own claim.
+   *
+   * ONCHAIN_SETTLE is deliberately excluded — it resolves by polling the chain
+   * stub, so advanceDeposit finishes it. Confirming it here would skip the
+   * finality check the engine exists to enforce, and `rpc-unreachable` and
+   * `onchain-failure` would pass while proving nothing.
+   *
+   * Returns how many legs it confirmed.
+   */
+  settleExternals: (entityType: string, entityId: string) => Promise<number>;
+}
+
+/** Legs completed by a partner callback rather than by our own polling. */
+// PARTNER_PAYOUT is deliberately absent. A bank wire completing is the thing
+// several scenarios are testing — withdrawal-happy asserts it must NOT
+// self-complete — so confirming it here would make those assertions vacuous.
+// Scenarios call confirmPartnerPayout themselves, as the webhook does.
+const CALLBACK_DRIVEN = new Set(['CONVERT_FIAT_TO_CRYPTO', 'CUSTODY_TRANSFER']);
+export { CALLBACK_DRIVEN };
+
+/**
+ * Push a settlement forward the way production does: our worker advances what
+ * it can, partners confirm what they owe us, repeat until nothing moves.
+ */
+export async function drive(
+  ctx: ScenarioContext,
+  kind: 'BankDeposit' | 'Withdrawal',
+  id: string,
+  rounds = 8,
+): Promise<void> {
+  const advance = kind === 'BankDeposit' ? advanceDeposit : advanceWithdrawal;
+  for (let i = 0; i < rounds; i++) {
+    await advance(id).catch(() => undefined);
+    await ctx.settleExternals(kind, id);
+    const legs = await legsFor(kind, id);
+    if (legs.every(l => l.status === 'COMPLETED')) return;
+  }
 }
 
 export interface Scenario {
@@ -46,7 +90,8 @@ export const SCENARIOS: Scenario[] = [
     id: 'deposit-happy',
     title: 'Add funds — $10,000 lands and becomes spendable',
     proves: 'Legs run in order, the conversion is not paid out before it happens, and the balance moves only after a finalized signature.',
-    async run({ makeUser, expect, note, scope }) {
+    async run(ctx) {
+      const { makeUser, expect, note, scope } = ctx;
       const userId = await makeUser();
       const result = await addFunds({
         userId, amount: AMOUNT, rail: 'sim-bank', railReference: `ref_${randomBytes(4).toString('hex')}`,
@@ -54,8 +99,9 @@ export const SCENARIOS: Scenario[] = [
       const depositId = (result.value as { depositId: string }).depositId;
       scope.depositIds.push(depositId);
 
-      // Drive to completion the way the worker would.
-      for (let i = 0; i < 6; i++) await advanceDeposit(depositId).catch(() => undefined);
+      // Drive to completion the way production does: our worker advances what
+      // it can, partners confirm what they owe us.
+      await drive(ctx, 'BankDeposit', depositId);
 
       const deposit = await prisma.bankDeposit.findUniqueOrThrow({ where: { id: depositId } });
       const legs = await legsFor('BankDeposit', depositId);
@@ -76,7 +122,8 @@ export const SCENARIOS: Scenario[] = [
     id: 'deposit-ordering',
     title: 'The conversion is never paid out before it settles',
     proves: 'The sequencing bug this engine was built to fix stays fixed: no USDT payout is requested until the fiat conversion is confirmed.',
-    async run({ makeUser, expect, world, scope }) {
+    async run(ctx) {
+      const { makeUser, expect, world, scope } = ctx;
       const userId = await makeUser();
       const result = await addFunds({
         userId, amount: AMOUNT, rail: 'sim-bank', railReference: `ref_${randomBytes(4).toString('hex')}`,
@@ -97,7 +144,7 @@ export const SCENARIOS: Scenario[] = [
       );
 
       // Finish it so the run leaves clean books.
-      for (let i = 0; i < 6; i++) await advanceDeposit(depositId).catch(() => undefined);
+      await drive(ctx, 'BankDeposit', depositId, 6);
     },
   },
 
@@ -106,8 +153,9 @@ export const SCENARIOS: Scenario[] = [
     id: 'withdrawal-happy',
     title: 'Withdrawal — $5,000 out, suspense clears on confirmation',
     proves: 'Suspense holds the customer\'s money between debit and delivery, and only the partner\'s confirmation closes it.',
-    async run({ makeUser, expect, note, scope }) {
-      const userId = await fundedUser(makeUser, scope);
+    async run(ctx) {
+      const { makeUser, expect, note, scope } = ctx;
+      const userId = await fundedUser(ctx);
 
       const result = await withdraw({
         userId, amount: WITHDRAWAL, providerId: 'sim-partner',
@@ -117,7 +165,7 @@ export const SCENARIOS: Scenario[] = [
       const withdrawalId = (result.value as { withdrawalId: string }).withdrawalId;
       scope.withdrawalIds.push(withdrawalId);
 
-      for (let i = 0; i < 6; i++) await advanceWithdrawal(withdrawalId).catch(() => undefined);
+      await drive(ctx, 'Withdrawal', withdrawalId, 6);
 
       let row = await prisma.withdrawal.findUniqueOrThrow({ where: { id: withdrawalId } });
       note(`before partner confirmation: status=${row.status}`);
@@ -142,8 +190,9 @@ export const SCENARIOS: Scenario[] = [
     id: 'rpc-unreachable',
     title: 'The Solana node is unreachable mid-settlement',
     proves: 'An unreachable node is NOT treated as a failed settlement. The leg holds, and completes once the node returns.',
-    async run({ makeUser, expect, note, world, scope }) {
-      const userId = await fundedUser(makeUser, scope);
+    async run(ctx) {
+      const { makeUser, expect, note, world, scope } = ctx;
+      const userId = await fundedUser(ctx);
 
       world.faults.chainUnreachable = true;
 
@@ -155,7 +204,7 @@ export const SCENARIOS: Scenario[] = [
       const withdrawalId = (result.value as { withdrawalId: string }).withdrawalId;
       scope.withdrawalIds.push(withdrawalId);
 
-      for (let i = 0; i < 3; i++) await advanceWithdrawal(withdrawalId).catch(() => undefined);
+      await drive(ctx, 'Withdrawal', withdrawalId, 3);
 
       let legs = await legsFor('Withdrawal', withdrawalId);
       const settleLeg = legs.find(l => l.kind === 'ONCHAIN_SETTLE');
@@ -168,7 +217,7 @@ export const SCENARIOS: Scenario[] = [
 
       // Node comes back.
       world.faults.chainUnreachable = false;
-      for (let i = 0; i < 6; i++) await advanceWithdrawal(withdrawalId).catch(() => undefined);
+      await drive(ctx, 'Withdrawal', withdrawalId, 6);
 
       legs = await legsFor('Withdrawal', withdrawalId);
       const recovered = legs.find(l => l.kind === 'ONCHAIN_SETTLE');
@@ -183,8 +232,9 @@ export const SCENARIOS: Scenario[] = [
     id: 'onchain-failure',
     title: 'The transaction lands on chain and fails to execute',
     proves: 'A failed on-chain transaction is a failed settlement — distinct from an unreachable node, and never completed.',
-    async run({ makeUser, expect, note, world, scope }) {
-      const userId = await fundedUser(makeUser, scope);
+    async run(ctx) {
+      const { makeUser, expect, note, world, scope } = ctx;
+      const userId = await fundedUser(ctx);
 
       world.faults.chainExecutionError = true;
 
@@ -196,7 +246,7 @@ export const SCENARIOS: Scenario[] = [
       const withdrawalId = (result.value as { withdrawalId: string }).withdrawalId;
       scope.withdrawalIds.push(withdrawalId);
 
-      for (let i = 0; i < 3; i++) await advanceWithdrawal(withdrawalId).catch(() => undefined);
+      await drive(ctx, 'Withdrawal', withdrawalId, 3);
 
       const row = await prisma.withdrawal.findUniqueOrThrow({ where: { id: withdrawalId } });
       const legs = await legsFor('Withdrawal', withdrawalId);
@@ -222,8 +272,9 @@ export const SCENARIOS: Scenario[] = [
     id: 'amount-drift',
     title: 'The chain moved a different amount than we intended',
     proves: 'A finalized signature is not accepted as proof unless the mint and amount match. A hash we copied from an API is not evidence.',
-    async run({ makeUser, expect, note, world, scope }) {
-      const userId = await fundedUser(makeUser, scope);
+    async run(ctx) {
+      const { makeUser, expect, note, world, scope } = ctx;
+      const userId = await fundedUser(ctx);
 
       world.faults.chainAmountDrift = -100; // 100 USDT short
 
@@ -235,7 +286,7 @@ export const SCENARIOS: Scenario[] = [
       const withdrawalId = (result.value as { withdrawalId: string }).withdrawalId;
       scope.withdrawalIds.push(withdrawalId);
 
-      for (let i = 0; i < 3; i++) await advanceWithdrawal(withdrawalId).catch(() => undefined);
+      await drive(ctx, 'Withdrawal', withdrawalId, 3);
 
       const legs = await legsFor('Withdrawal', withdrawalId);
       const settleLeg = legs.find(l => l.kind === 'ONCHAIN_SETTLE');
@@ -259,8 +310,9 @@ export const SCENARIOS: Scenario[] = [
     id: 'duplicate-request',
     title: 'The same withdrawal is submitted twice',
     proves: 'One idempotency key pays once. The replay returns the original result rather than creating a second payment.',
-    async run({ makeUser, expect, note, world, scope }) {
-      const userId = await fundedUser(makeUser, scope);
+    async run(ctx) {
+      const { makeUser, expect, note, world, scope } = ctx;
+      const userId = await fundedUser(ctx);
       const key = `wd_${randomBytes(6).toString('hex')}`;
       const params = {
         userId, amount: WITHDRAWAL, providerId: 'sim-partner',
@@ -286,7 +338,7 @@ export const SCENARIOS: Scenario[] = [
       const account = await prisma.account.findUnique({ where: { userId_currency: { userId, currency: 'USD' } } });
       expect('the customer was debited once', Number(account?.balance ?? -1) === AMOUNT - WITHDRAWAL, `balance=${account?.balance}`);
 
-      for (let i = 0; i < 6; i++) await advanceWithdrawal(id1).catch(() => undefined);
+      await drive(ctx, 'Withdrawal', id1, 6);
       await confirmPartnerPayout(id1, 'partner-ref-dupe');
     },
   },
@@ -296,8 +348,9 @@ export const SCENARIOS: Scenario[] = [
     id: 'concurrent-duplicate',
     title: 'Two identical requests race each other',
     proves: 'Idempotency is arbitrated by a unique constraint, not a read-then-write check. Concurrency is where the old check failed.',
-    async run({ makeUser, expect, note, scope }) {
-      const userId = await fundedUser(makeUser, scope);
+    async run(ctx) {
+      const { makeUser, expect, note, scope } = ctx;
+      const userId = await fundedUser(ctx);
       const key = `wd_${randomBytes(6).toString('hex')}`;
       const params = {
         userId, amount: WITHDRAWAL, providerId: 'sim-partner',
@@ -322,7 +375,7 @@ export const SCENARIOS: Scenario[] = [
       const row = await prisma.withdrawal.findFirst({ where: { userId } });
       if (row) {
         scope.withdrawalIds.push(row.id);
-        for (let i = 0; i < 6; i++) await advanceWithdrawal(row.id).catch(() => undefined);
+        await drive(ctx, 'Withdrawal', row.id, 6);
         await confirmPartnerPayout(row.id, 'partner-ref-race');
       }
     },
@@ -333,8 +386,9 @@ export const SCENARIOS: Scenario[] = [
     id: 'crash-resume',
     title: 'The process dies mid-settlement',
     proves: 'A settlement abandoned between the debit and the payout is picked up and finished by the resume worker, with no duplicate calls to the partner.',
-    async run({ makeUser, expect, note, world, scope }) {
-      const userId = await fundedUser(makeUser, scope);
+    async run(ctx) {
+      const { makeUser, expect, note, world, scope } = ctx;
+      const userId = await fundedUser(ctx);
 
       const result = await withdraw({
         userId, amount: WITHDRAWAL, providerId: 'sim-partner',
@@ -351,7 +405,14 @@ export const SCENARIOS: Scenario[] = [
 
       // Nothing but the worker from here — as if the process had restarted.
       const custodyCallsBefore = world.callsTo('custody', 'createTransfer').length;
-      for (let i = 0; i < 5; i++) await tick();
+      // Only the worker drives — but a restarted process still receives the
+      // partner callbacks it was waiting on, so those keep arriving. Without
+      // them every leg parks at AWAITING_CONFIRMATION and the worker can never
+      // reach the payout, which would make this scenario prove nothing.
+      for (let i = 0; i < 5; i++) {
+        await tick();
+        await ctx.settleExternals('Withdrawal', withdrawalId);
+      }
       const custodyCallsAfter = world.callsTo('custody', 'createTransfer').length;
 
       const legs = await legsFor('Withdrawal', withdrawalId);
@@ -379,8 +440,9 @@ export const SCENARIOS: Scenario[] = [
     id: 'insufficient-balance',
     title: 'A withdrawal larger than the balance',
     proves: 'The balance check and the debit happen in one transaction, so an overdraw is refused rather than half-applied.',
-    async run({ makeUser, expect, scope }) {
-      const userId = await fundedUser(makeUser, scope);
+    async run(ctx) {
+      const { makeUser, expect, scope } = ctx;
+      const userId = await fundedUser(ctx);
 
       let refused = false;
       let code = '';
@@ -410,13 +472,14 @@ export const SCENARIOS: Scenario[] = [
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 /** A user with a settled $10,000 deposit, so withdrawal scenarios have funds. */
-async function fundedUser(makeUser: ScenarioContext['makeUser'], scope: Scope): Promise<string> {
-  const userId = await makeUser();
+async function fundedUser(ctx: ScenarioContext): Promise<string> {
+  const { scope } = ctx;
+  const userId = await ctx.makeUser();
   const result = await addFunds({
     userId, amount: AMOUNT, rail: 'sim-bank', railReference: `ref_${randomBytes(4).toString('hex')}`,
   });
   const depositId = (result.value as { depositId: string }).depositId;
   scope.depositIds.push(depositId);
-  for (let i = 0; i < 6; i++) await advanceDeposit(depositId).catch(() => undefined);
+  await drive(ctx, 'BankDeposit', depositId);
   return userId;
 }
