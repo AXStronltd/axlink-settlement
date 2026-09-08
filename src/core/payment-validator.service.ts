@@ -1,8 +1,8 @@
 /**
- * FinCruse Payment Validator
+ * AxLink Payment Validator
  *
- * Subscribes to `fincruise.payment.validation.requested` and publishes
- * `fincruise.payment.validation.result`. Runs before any ledger write.
+ * Subscribes to `axlink.payment.validation.requested` and publishes
+ * `axlink.payment.validation.result`. Runs before any ledger write.
  *
  * Rules:
  *  - User(s) must exist and be KYC_APPROVED

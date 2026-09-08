@@ -18,3 +18,9 @@ coverage/
 
 # Temp scripts
 *.mjs
+
+# Claude Code — machine-specific overrides
+.claude/settings.local.json
+
+# merged schema fragments
+prisma/.tmp/

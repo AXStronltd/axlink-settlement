@@ -2,14 +2,15 @@ import { Router, Request, Response } from 'express';
 import { verifyWebhookSignature } from '../providers/live/choicebank';
 import { prisma, credit } from '../core/ledger.service';
 import { handleFiatArrived } from '../core/orchestrator.service';
+import { confirmWithdrawalFromPartner, reverseWithdrawalFromPartner } from '../core/settlement/payout-confirmation.service';
 
 // ── Choice Bank Nigeria Webhook Handlers ──────────────────────────────────────
 // Choice Bank fires these events on inbound and outbound transfer updates.
 //
 // Inbound events (fiat deposited to user's Choice Bank virtual account):
-//   transfer.credit  → trigger full deposit flow into FinCruse
+//   transfer.credit  → trigger full deposit flow into AxLink
 //
-// Outbound events (FinCruse payout to user's bank):
+// Outbound events (AxLink payout to user's bank):
 //   transfer.success → mark withdrawal COMPLETED
 //   transfer.failed  → reverse ledger debit, mark REVERSED
 
@@ -86,11 +87,13 @@ router.post('/choicebank', async (req: Request, res: Response) => {
     });
 
     if (byRef) {
-      await prisma.withdrawal.update({
-        where: { id: byRef.id },
-        data: { status: 'COMPLETED' },
+      // Through the settlement engine: confirms the PARTNER_PAYOUT leg and
+      // clears suspense. A direct status write would leave the books unbalanced.
+      await confirmWithdrawalFromPartner({
+        withdrawalId:     byRef.id,
+        partnerReference: data.id,
+        providerId:       'choicebank',
       });
-      console.log(`[ChoiceBank] Withdrawal ${byRef.trackingId} confirmed — transfer ${data.id}`);
     } else {
       console.warn(`[ChoiceBank] No withdrawal matched transferId=${data.id} ref=${data.reference}`);
     }
@@ -110,16 +113,13 @@ router.post('/choicebank', async (req: Request, res: Response) => {
     });
 
     if (withdrawal) {
-      await prisma.$transaction(async (tx: Parameters<typeof credit>[0]) => {
-        await credit(tx, withdrawal.userId, withdrawal.currency, Number(withdrawal.amount));
+      // Through the settlement engine, so the journal is reversed alongside
+      // the balance projection rather than drifting from it.
+      await reverseWithdrawalFromPartner({
+        withdrawalId: withdrawal.id,
+        reason:       data.failureReason ?? 'transfer failed',
+        providerId:   'choicebank',
       });
-      await prisma.withdrawal.update({
-        where: { id: withdrawal.id },
-        data: { status: 'REVERSED' },
-      });
-      console.warn(
-        `[ChoiceBank] Withdrawal ${withdrawal.trackingId} reversed — ${data.failureReason ?? 'unknown'}`,
-      );
     } else {
       console.warn(`[ChoiceBank] No PENDING_PAYOUT withdrawal matched for failure event — transferId=${data.id}`);
     }

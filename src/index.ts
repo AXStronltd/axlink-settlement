@@ -1,5 +1,14 @@
+// MUST be the first import. ES module imports are hoisted and evaluated in
+// order, so every module below initialises before any statement in this file
+// runs. Modules that read process.env at module scope — orchestrator.service
+// (TREASURY_VAULT), transfer.service (CALLBACK_URL), treasury.service — were
+// therefore capturing undefined while a later dotenv.config() made the values
+// appear present to everything that checked afterwards. The side-effect import
+// loads .env during module resolution, before those constants are evaluated.
+import 'dotenv/config';
+
 import express, { Request, Response, NextFunction } from 'express';
-import dotenv from 'dotenv';
+import path from 'path';
 import transferRoutes    from './routes/transfer.routes';
 import quoteRoutes       from './routes/quote.routes';
 import simulateRoutes    from './routes/simulate.routes';
@@ -11,8 +20,8 @@ import choicebankRoutes  from './routes/choicebank.routes';
 import networkRoutes     from './routes/network.routes';
 import treasuryRoutes   from './routes/treasury.routes';
 import depositRoutes    from './routes/deposit.routes';
+import settlementRoutes from './routes/settlement.routes';
 
-dotenv.config();
 
 // Register liquidity providers (B2BinPay, Brainrock FX, AxLink internal)
 import('./bootstrap/lp.bootstrap');
@@ -24,6 +33,22 @@ import('./bootstrap/baas.bootstrap');
 import('./core/payment-validator.service').then(m => m.startPaymentValidator()).catch(err =>
   console.error('[startup] Payment validator failed to start:', err)
 );
+
+// Settlement resume worker — drives stalled settlement legs forward after a
+// crash or a partner outage. Without it, a settlement that stops between the
+// customer debit and the partner payout stays stopped until a human notices.
+if (process.env.SETTLEMENT_WORKER_ENABLED !== 'false') {
+  import('./core/settlement/resume.worker').then(m => m.startResumeWorker()).catch(err =>
+    console.error('[startup] Settlement resume worker failed to start:', err)
+  );
+}
+
+// Outbox worker — at-least-once delivery of member-bank webhooks.
+if (process.env.OUTBOX_WORKER_ENABLED !== 'false') {
+  import('./core/outbox.service').then(m => m.startOutboxWorker()).catch(err =>
+    console.error('[startup] Outbox worker failed to start:', err)
+  );
+}
 
 
 // Fail fast on missing required env vars
@@ -57,7 +82,7 @@ app.use(express.json({
 app.get(['/health', '/api/health'], (_req, res) => {
   res.json({
     status: 'ok',
-    service: 'fincruise-settlement',
+    service: 'axlink-settlement',
     timestamp: new Date().toISOString(),
     sandbox: process.env.B2BINPAY_SANDBOX === 'true',
     callbackBase: process.env.API_BASE_URL,
@@ -67,7 +92,7 @@ app.get(['/health', '/api/health'], (_req, res) => {
 app.get(['/', '/api'], (_req, res) => {
   const base = process.env.API_BASE_URL ?? `http://localhost:${PORT}/api`;
   res.json({
-    service: 'FinCruse Settlement API — AxLink Network',
+    service: 'AxLink Settlement API',
     version: '2.0.0',
     settlement: 'USDT (Fireblocks / Solana) — internal, users see local fiat only',
     callbackUrls: {
@@ -97,6 +122,38 @@ app.use('/api/network', networkRoutes);
 // Internal treasury ops (OPS_API_KEY — never expose to banks or users)
 app.use('/api/ops', treasuryRoutes);
 
+// Settlement harness — runs real settlements against stubbed rails.
+// Mounted ONLY when explicitly enabled: it writes to the database and replaces
+// the payment providers, so an environment holding customer funds must not
+// expose it. Also gated by OPS_API_KEY behind this check.
+if (process.env.SIMULATOR_ENABLED === 'true' && process.env.NODE_ENV !== 'production') {
+  console.warn('[startup] Settlement harness ENABLED at /api/settlement/harness — payment rails are stubbable in this process');
+  import('./routes/harness.routes')
+    .then(m => app.use('/api/settlement/harness', m.default))
+    .catch(err => console.error('[startup] Harness routes failed to mount:', err));
+
+  // The operator console. Static HTML — it authenticates by passing
+  // ?key=<OPS_API_KEY> through to the harness API, so the page itself carries
+  // no secret and serving it reveals nothing.
+  app.get('/console', (_req, res) => {
+    res.sendFile(path.join(__dirname, '..', 'public', 'console.html'));
+  });
+}
+
+// Demo endpoints for the Live Demo UI. Hands out KYC-approved accounts, so it
+// is mounted only on an explicit opt-in and never in production.
+if (process.env.DEMO_ENABLED === 'true' && process.env.NODE_ENV !== 'production') {
+  console.warn('[startup] Demo API ENABLED at /api/demo — issues KYC-approved accounts');
+  import('./routes/demo.routes')
+    .then(m => app.use('/api/demo', m.default))
+    .catch(err => console.error('[startup] Demo routes failed to mount:', err));
+}
+
+// Settlement ops: books, legs, reconciliation, provider health.
+// /settlement/proof/* is intentionally public — a proof only we can read is
+// not a proof. Everything else requires OPS_API_KEY.
+app.use('/api/settlement', settlementRoutes);
+
 // Webhooks — inbound callbacks from rails and custody
 app.use('/api/webhooks', webhookRoutes);
 app.use('/api/webhooks', brainrockRoutes);
@@ -123,6 +180,13 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
   const BANK_ERR_CODES = new Set([
     'DAILY_LIMIT_EXCEEDED', 'CORRIDOR_LIMIT_EXCEEDED', 'UNKNOWN_RECEIVER_BANK',
     'RECEIVER_BANK_SUSPENDED', 'SELF_TRANSFER', 'DUPLICATE_REFERENCE',
+    // Settlement engine
+    'IDEMPOTENCY_CONFLICT', 'REQUEST_IN_FLIGHT', 'NO_FUNDING_ROUTE',
+    'INSUFFICIENT_BALANCE', 'INVALID_AMOUNT', 'VAULT_NOT_PROVISIONED',
+    'PROVIDER_CIRCUIT_OPEN', 'ALL_PROVIDERS_UNAVAILABLE',
+    // An unbalanced posting is a 500, but a named one: it means a caller built
+    // a posting that does not balance, and the refusal is the correct outcome.
+    'UNBALANCED_POSTING', 'SETTLEMENT_PROOF_MISMATCH', 'SETTLEMENT_NOT_FINAL',
   ]);
   if (err && typeof err === 'object') {
     const e = err as Record<string, unknown>;
@@ -143,6 +207,6 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`FinCruse Settlement running on http://localhost:${PORT}`);
+  console.log(`AxLink Settlement running on http://localhost:${PORT}`);
   console.log(`AxLink network · B2BinPay mode: ${process.env.B2BINPAY_SANDBOX === 'true' ? 'SANDBOX' : 'PRODUCTION'}`);
 });

@@ -5,8 +5,8 @@ import type { PaymentDestination } from '../../core/baas.interface';
 // Provides per-user virtual IBANs and outbound fiat payments.
 // Compatible pattern: swap BASE_URL + field names for Square, Railsr, ClearBank.
 //
-// Inbound:  User bank → user's virtual IBAN → Brainrock webhook → FinCruse
-// Outbound: FinCruse treasury account → user's bank / M-Pesa / SEPA
+// Inbound:  User bank → user's virtual IBAN → Brainrock webhook → AxLink
+// Outbound: AxLink treasury account → user's bank / M-Pesa / SEPA
 
 const BASE_URL = process.env.BRAINROCK_SANDBOX === 'true'
   ? 'https://sandbox.api.brainrock.io/v1'
@@ -70,7 +70,7 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
 // ── Virtual Accounts ──────────────────────────────────────────────────────────
 
 // Call on user signup — each user gets a unique IBAN for receiving deposits.
-// No KYC needed here; Brainrock just assigns an IBAN mapped to FinCruse's master account.
+// No KYC needed here; Brainrock just assigns an IBAN mapped to AxLink's master account.
 export async function createVirtualAccount(params: {
   userId: string;
   currency: string;   // ISO: GBP, EUR, USD, CAD
@@ -94,16 +94,41 @@ export async function getVirtualAccount(accountId: string): Promise<VirtualAccou
 
 // ── Outbound Payments ────────────────────────────────────────────────────────
 
-// Send fiat from FinCruse treasury → user's bank/mobile.
-// fromAccountId = BRAINROCK_TREASURY_ACCOUNT_ID (FinCruse's own Brainrock account).
+// Send fiat from AxLink treasury → user's bank/mobile.
+// fromAccountId = BRAINROCK_TREASURY_ACCOUNT_ID (AxLink's own Brainrock account).
+
+// ── Sandbox stub ─────────────────────────────────────────────────────────────
+// Matches the contract B2BinPay, Fireblocks and Daraja already follow: a real
+// call when credentials are present, a shaped stub when they are not. Without
+// it no corridor ending at this partner could be exercised locally, which is
+// how a broken payout path stays invisible until production.
+const PLACEHOLDER_PREFIXES = ['your_', 'YOUR_', 'sandbox_'];
+function isConfigured(value: string | undefined): boolean {
+  const v = value ?? '';
+  return !!v && !PLACEHOLDER_PREFIXES.some(p => v.startsWith(p));
+}
+function stubRef(prefix: string): string {
+  return `${prefix}_sandbox_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+}
+
 export async function sendPayment(params: {
   fromAccountId: string;
   destination: PaymentDestination;
   amount: number;
   currency: string;
-  reference: string;      // FinCruse tracking ID for reconciliation
+  reference: string;      // AxLink tracking ID for reconciliation
   description?: string;
 }): Promise<OutboundPayment> {
+  if (!isConfigured(process.env.BRAINROCK_API_KEY)) {
+    const id = stubRef('brpay');
+    const where = params.destination.iban ?? params.destination.accountNumber ?? params.destination.mobileNumber ?? '-';
+    console.log(`[Brainrock] SANDBOX — would send ${params.amount} ${params.currency} to ${where} (${id})`);
+    return {
+      id, status: 'processing', amount: params.amount,
+      currency: params.currency, reference: params.reference,
+    };
+  }
+
   const res = await apiFetch<{ data: OutboundPayment }>('/payments/outbound', {
     method: 'POST',
     body: JSON.stringify({
@@ -122,7 +147,7 @@ export async function sendPayment(params: {
       amount:      params.amount,
       currency:    params.currency,
       reference:   params.reference,
-      description: params.description ?? 'FinCruse payout',
+      description: params.description ?? 'AxLink payout',
     }),
   });
   return res.data;
@@ -156,7 +181,7 @@ export function verifyWebhookSignature(rawBody: string, signatureHeader: string)
 
 // ── Card Issuance ─────────────────────────────────────────────────────────────
 // Brainrock (or any card provider) issues a virtual or physical debit card
-// linked to FinCruse's program. Authorization webhooks come back to AxLink.
+// linked to AxLink's program. Authorization webhooks come back to AxLink.
 
 export interface CardDetails {
   id:       string;    // store as Card.providerCardId
@@ -280,7 +305,7 @@ interface BrainrockSessionResponse {
 
 // Creates a Brainrock-hosted payment session.
 // User pays via Apple Pay sheet / Google Pay sheet / Open Banking redirect.
-// Fiat lands in FinCruse's Brainrock segregated account.
+// Fiat lands in AxLink's Brainrock segregated account.
 // Brainrock fires payment.received webhook → handleFiatArrived → B2BinPay → USDT → vault.
 export async function createPaymentSession(params: {
   userId:       string;
@@ -309,6 +334,21 @@ export async function createPaymentSession(params: {
     };
   }
 
+  // Where the customer lands after paying. Falling back to a guessed domain
+  // meant an unset APP_URL sent them to a host that may not resolve — after
+  // their money had moved. Refuse to open the session instead: failing before
+  // the payment is recoverable, stranding someone after it is not.
+  const returnUrl = redirectUrl ?? (
+    process.env.APP_URL
+      ? `${process.env.APP_URL}/deposit/confirm`
+      : (() => {
+          throw new Error(
+            'Cannot create a payment session: APP_URL is not set and no redirectUrl was ' +
+            'given, so there is nowhere to send the customer after they pay.',
+          );
+        })()
+  );
+
   const session = await apiFetch<BrainrockSessionResponse>('/payment-sessions', {
     method: 'POST',
     body: JSON.stringify({
@@ -317,9 +357,9 @@ export async function createPaymentSession(params: {
       payment_method: method,
       reference:      trackingId,
       customer_id:    userId,
-      redirect_url:   redirectUrl ?? `${process.env.APP_URL ?? 'https://app.fincruise.com'}/deposit/confirm`,
+      redirect_url:   returnUrl,
       webhook_url:    `${process.env.API_BASE_URL}/webhooks/brainrock`,
-      metadata: { tracking_id: trackingId, source: 'fincruise_add_funds' },
+      metadata: { tracking_id: trackingId, source: 'axlink_add_funds' },
     }),
   });
 

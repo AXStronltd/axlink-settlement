@@ -1,5 +1,5 @@
 {
-  "name": "fincruise-settlement",
+  "name": "axlink-settlement",
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
@@ -9,7 +9,9 @@
     "start": "node dist/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "simulate": "ts-node src/simulator/cli.ts",
+    "dev:console": "./scripts/dev-up.sh"
   },
   "keywords": [],
   "author": "",
@@ -36,5 +38,9 @@
     "playwright": "^1.60.0",
     "ts-node": "^10.9.2",
     "vitest": "^4.1.8"
+  },
+  "allowScripts": {
+    "prisma@7.8.0": true,
+    "@prisma/engines@7.8.0": true
   }
 }

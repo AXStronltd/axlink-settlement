@@ -1,5 +1,5 @@
 /**
- * FinCruse Orchestrator — AxLink Settlement Engine
+ * AxLink Orchestrator — Settlement Engine
  *
  * ══════════════════════════════════════════════════════════════════════
  *  INVARIANT: ALL USDT/SOLANA ACTIVITY IS INTERNAL TO AXLINK.
@@ -16,7 +16,7 @@
  * DEPOSIT flow (FIAT IN → user sees local currency credited):
  *   Local rail delivers fiat to AxLink's corridor account
  *   → AxLink internally: B2BinPay converts fiat → USDT → Fireblocks user vault
- *   → Fireblocks webhook confirms receipt → FinCruse credits user ledger in fiat
+ *   → Fireblocks webhook confirms receipt → AxLink credits user ledger in fiat
  *   External rail sees: "user paid KES 1000 to AxLink till" (pure fiat)
  *
  * WITHDRAWAL flow (ZERO PRE-FUNDED — JIT liquidity):
@@ -121,7 +121,7 @@ export async function handleFiatArrived(event: {
       walletId: user.b2bWalletId ?? B2B_WALLET_ID, // user's own B2BinPay wallet
       trackingId: `b2b_${deposit.trackingId}`,
       callbackUrl: `${CALLBACK}?depositId=${deposit.id}&userId=${userId}`,
-      label: `FinCruse ${currency} deposit via ${rail} → vault ${user.vaultId}`,
+      label: `AxLink ${currency} deposit via ${rail} → vault ${user.vaultId}`,
     });
 
     await audit('BankDeposit', deposit.id, 'B2BINPAY_CONVERTING', {
@@ -216,11 +216,17 @@ export async function handleWithdrawalRequest(params: {
 
   await audit('Withdrawal', withdrawal.id, 'REQUESTED', { destination: destination.type, usdAmount });
 
+  // Whether we have taken the customer's money yet. Everything after the debit
+  // can throw — a missing float account, a partner timeout, a rejected payout —
+  // and the money must go back when it does.
+  let debited = false;
+
   try {
     // ── A: Debit user ledger ──────────────────────────────────────────
     await prisma.$transaction(async (tx: Parameters<typeof debit>[0]) => {
       await debit(tx, userId, currency, amount);
     });
+    debited = true;
 
     await audit('Withdrawal', withdrawal.id, 'LEDGER_DEBITED', { amount, currency });
 
@@ -231,7 +237,7 @@ export async function handleWithdrawalRequest(params: {
       amount: usdtAmount.toString(),
       sourceVaultId: user.vaultId,
       destVaultId: TREASURY_VAULT,
-      note: `FinCruse withdrawal ${trackingId}`,
+      note: `AxLink withdrawal ${trackingId}`,
       externalTxId: trackingId,
     });
 
@@ -251,7 +257,7 @@ export async function handleWithdrawalRequest(params: {
       usdtAmount,
       currency,
       reference:   trackingId,
-      description: `FinCruse withdrawal ${trackingId}`,
+      description: `AxLink withdrawal ${trackingId}`,
     });
 
     await audit('Withdrawal', withdrawal.id, 'PAYOUT_SENT', {
@@ -274,17 +280,48 @@ export async function handleWithdrawalRequest(params: {
       provider:  payout.provider,
       paymentId: payout.paymentId,
     });
-    return done;
+    // Return which partner actually took the payout. The registry picks it per
+    // corridor, so the caller cannot know it, and describing the flow without
+    // it means naming a partner that was never involved.
+    return { ...done, provider: payout.provider, paymentId: payout.paymentId };
 
   } catch (err) {
-    await prisma.withdrawal.update({ where: { id: withdrawal.id }, data: { status: 'FAILED' } });
-    await audit('Withdrawal', withdrawal.id, 'FAILED', { error: String(err) });
+    // Return the money if we took it. Reversal used to exist only on the
+    // partner webhooks (payment.failed), so any failure raised before a partner
+    // was ever contacted left the debit stranded: the withdrawal read FAILED
+    // while the customer's balance stayed short. A missing env var did it.
+    if (debited) {
+      try {
+        await prisma.$transaction(async (tx: Parameters<typeof credit>[0]) => {
+          await credit(tx, userId, currency, amount);
+        });
+        await prisma.withdrawal.update({ where: { id: withdrawal.id }, data: { status: 'REVERSED' } });
+        await audit('Withdrawal', withdrawal.id, 'REVERSED', {
+          amount, currency, reason: 'payout failed before delivery', error: String(err),
+        });
+      } catch (reversalErr) {
+        // The reversal itself failed. The customer is short and no automated
+        // path will fix it, so say so as loudly as possible.
+        await prisma.withdrawal.update({ where: { id: withdrawal.id }, data: { status: 'FAILED' } });
+        await audit('Withdrawal', withdrawal.id, 'REVERSAL_FAILED', {
+          amount, currency, originalError: String(err), reversalError: String(reversalErr),
+        });
+        console.error(
+          `[Orchestrator] REVERSAL FAILED for withdrawal ${trackingId} — ` +
+          `${amount} ${currency} debited from user ${userId} and NOT returned. Manual credit required.`,
+          reversalErr,
+        );
+      }
+    } else {
+      await prisma.withdrawal.update({ where: { id: withdrawal.id }, data: { status: 'FAILED' } });
+      await audit('Withdrawal', withdrawal.id, 'FAILED', { error: String(err) });
+    }
     throw err;
   }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// P2P Transfer (user → user inside FinCruse)
+// P2P Transfer (user → user inside AxLink)
 // Supports same-currency (0 B2BinPay) and cross-currency (2 B2BinPay)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -356,7 +393,7 @@ export async function handleP2PTransfer(params: {
         amount: usdtAmount.toString(),
         sourceVaultId: sender.vaultId,
         destVaultId: receiver.vaultId,
-        note: note ?? `FinCruse P2P ${trackingId}`,
+        note: note ?? `AxLink P2P ${trackingId}`,
         externalTxId: trackingId,
       });
       fbTxId = fbTx?.id as string | undefined;
@@ -382,7 +419,7 @@ export async function handleP2PTransfer(params: {
         usdtAmount,
         currency:    toCurrency,
         reference:   `p2p_${trackingId}`,
-        description: `FinCruse transfer from ${sender.name}`,
+        description: `AxLink transfer from ${sender.name}`,
       });
       await audit('Transfer', transfer.id, 'EXTERNAL_PAYOUT_SENT', {
         provider: payout.provider, paymentId: payout.paymentId,

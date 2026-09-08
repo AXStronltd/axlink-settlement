@@ -30,7 +30,7 @@ router.post('/users', async (req: Request, res: Response) => {
 
   // Provision Fireblocks vault + Brainrock virtual IBAN in parallel
   const [vault, virtualAccount] = await Promise.all([
-    createVaultAccount(`fincruise_${email}`, true),
+    createVaultAccount(`axlink_${email}`, true),
     createVirtualAccount({
       userId: email,
       currency,
@@ -72,7 +72,7 @@ router.get('/users/lookup', async (req: Request, res: Response) => {
     where: { email: { equals: email, mode: 'insensitive' } },
     include: { accounts: { select: { currency: true } } },
   });
-  if (!user) { res.status(404).json({ error: 'User not found on FinCruse' }); return; }
+  if (!user) { res.status(404).json({ error: 'User not found on AxLink' }); return; }
   res.json({
     id: user.id,
     name: user.name,
@@ -231,7 +231,7 @@ router.get('/transfers/:id', async (req: Request, res: Response) => {
   res.json(transfer);
 });
 
-// ── Withdrawals (FinCruse → bank) ─────────────────────────────────────────────
+// ── Withdrawals (AxLink → bank) ─────────────────────────────────────────────
 
 // POST /api/withdrawals
 router.post('/withdrawals', async (req: Request, res: Response) => {
@@ -258,7 +258,7 @@ router.post('/withdrawals', async (req: Request, res: Response) => {
     currency: withdrawal.currency,
     amount: Number(withdrawal.amount),
     usdAmount: Number(withdrawal.usdAmount),
-    flow: '1 B2BinPay off-ramp — fiat exits FinCruse',
+    flow: '1 B2BinPay off-ramp — fiat exits AxLink',
     fireblocksTxId: withdrawal.fbTxId,
     offrampId: withdrawal.offrampId,
   });
@@ -272,7 +272,7 @@ router.get('/withdrawals/:id', async (req: Request, res: Response) => {
   res.json(w);
 });
 
-// ── Bank deposits (external bank → FinCruse) ──────────────────────────────────
+// ── Bank deposits (external bank → AxLink) ──────────────────────────────────
 
 // POST /api/deposits/bank
 router.post('/deposits/bank', async (req: Request, res: Response) => {
@@ -298,7 +298,7 @@ router.post('/deposits/bank', async (req: Request, res: Response) => {
     currency: deposit.currency,
     amount: Number(deposit.amount),
     usdAmount: Number(deposit.usdAmount),
-    flow: '1 B2BinPay on-ramp — fiat enters FinCruse',
+    flow: '1 B2BinPay on-ramp — fiat enters AxLink',
     fireblocksTxId: deposit.fbTxId,
     onrampId: deposit.onrampId,
   });

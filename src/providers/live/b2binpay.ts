@@ -151,7 +151,7 @@ export async function createDeposit(params: {
     data: {
       type: 'deposit',
       attributes: {
-        label: params.label ?? 'FinCruse deposit',
+        label: params.label ?? 'AxLink deposit',
         tracking_id: params.trackingId,
         confirmations_needed: params.confirmationsNeeded ?? 1,
         callback_url: params.callbackUrl,
@@ -234,7 +234,7 @@ export async function createPayout(params: {
         fee_amount: params.feeAmount,
         address: params.address,
         tracking_id: params.trackingId,
-        label: params.label ?? 'FinCruse payout',
+        label: params.label ?? 'AxLink payout',
         callback_url: params.callbackUrl,
         confirmations_needed: params.confirmationsNeeded ?? 1,
       },
@@ -307,11 +307,21 @@ export async function getRates(left: string | string[]): Promise<unknown> {
 // They compete in the RFQ broadcast for any supported pair.
 // If another LP beats their rate, B2BinPay does not execute — no cost.
 
-// Currencies B2BinPay can quote (via USDT bridge)
-const B2B_SUPPORTED = new Set([
-  'KES', 'UGX', 'NGN', 'GHS', 'ZAR', 'TZS',   // African fiat
-  'GBP', 'EUR', 'USD', 'CAD',                    // Major fiat
-  'BTC', 'ETH', 'SOL', 'USDT',                   // Crypto
+// Currencies B2BinPay can actually settle.
+//
+// B2BinPay is a USD/EUR/GBP liquidity partner — it does NOT hold or deliver
+// African local currency. Local currency is the payout partner's job (Daraja
+// for KES/TZS/UGX, Choice Bank for NGN/GHS/ZAR), who applies their own FX.
+//
+// Listing local currencies here made B2BinPay win RFQs it cannot execute:
+// supportsRate() returned true for USDT->KES, and jitFundProvider then asked
+// B2BinPay to pay out KES. That call fails in production.
+//
+// Corridors into local currency now fall through to axlinkInternalLP, which
+// quotes every pair in the AxLink rate table.
+export const B2B_SETTLEMENT_CURRENCIES = new Set([
+  'USD', 'EUR', 'GBP',                           // fiat B2BinPay settles
+  'BTC', 'ETH', 'SOL', 'USDT',                   // crypto
 ]);
 
 export const b2binpayLP: ILiquidityProvider = {
@@ -322,7 +332,7 @@ export const b2binpayLP: ILiquidityProvider = {
     const f = from.toUpperCase();
     const t = to.toUpperCase();
     // Must have at least one USD/USDT anchor side, or both in supported set
-    return B2B_SUPPORTED.has(f) && (t === 'USD' || t === 'USDT' || B2B_SUPPORTED.has(t));
+    return B2B_SETTLEMENT_CURRENCIES.has(f) && (t === 'USD' || t === 'USDT' || B2B_SETTLEMENT_CURRENCIES.has(t));
   },
 
   async getRate(from: string, to: string): Promise<LPRate> {
@@ -376,7 +386,17 @@ export const b2binpayLP: ILiquidityProvider = {
         mid = (b + ask) / 2;
       }
     }
-    const toRate   = SANDBOX_RATES[toN] ?? 1;
+    // Never default a missing rate to 1 — that would quote an unknown currency
+    // at parity with USD and settle real money against it.
+    // NOTE: the destination leg still reads the hardcoded table. Replace with a
+    // live feed before going to production on any non-USD destination.
+    const toRate = SANDBOX_RATES[toN];
+    if (!toRate) {
+      throw new Error(
+        `B2BinPay: no rate available for destination currency ${toN}. ` +
+        `B2BinPay settles ${[...B2B_SETTLEMENT_CURRENCIES].join(', ')} only.`,
+      );
+    }
     const crossMid = mid / toRate;
     const rate     = crossMid * 0.997;
     return {

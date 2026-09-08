@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { verifyWebhookSignature, TRANSFER_STATUS } from '../providers/live/b2binpay';
 import { verifyFireblocksWebhook, TX_STATUS } from '../providers/live/fireblocks';
 import { prisma, credit } from '../core/ledger.service';
+import { legByExternalKey, mergeLegPayload, confirmLeg, isTerminal } from '../core/settlement/leg.service';
 
 const router = Router();
 
@@ -40,6 +41,38 @@ router.post('/b2binpay', async (req: Request, res: Response) => {
   const trackingId  = attrs?.tracking_id ?? '';
 
   console.log(`[B2BinPay] transfer=${transferId} status=${statusCode}(${statusLabel}) txid=${attrs?.txid ?? '-'} amount=${attrs?.amount ?? '-'} tracking=${trackingId || '-'}`);
+
+  // ── Settlement legs ────────────────────────────────────────────────────────
+  //
+  // Every leg hands the partner its `externalKey` as the tracking id, so this
+  // callback identifies the leg that caused it. Two things have to happen here
+  // and neither did before:
+  //
+  //   1. The on-chain hash arrives on this callback and nowhere else.
+  //      ONCHAIN_SETTLE reads it from payload.signature to know what to verify,
+  //      and nothing wrote that field — so the proof leg had nothing to check
+  //      and a deposit could not be settled in production at all.
+  //
+  //   2. A leg parked at AWAITING_CONFIRMATION is waiting for exactly this
+  //      message. Without it the settlement stalls at its first async leg.
+  //
+  // Deliberately does NOT complete the leg on a txid alone. A hash means the
+  // partner broadcast something, not that it settled — that is ONCHAIN_SETTLE's
+  // job, against the chain. Recording the hash and confirming the custody leg
+  // are different claims and this only makes the second one.
+  if (trackingId) {
+    const leg = await legByExternalKey(trackingId);
+    if (leg && !isTerminal(leg.status)) {
+      if (attrs?.txid) {
+        await mergeLegPayload(leg.id, { signature: attrs.txid });
+        console.log(`[B2BinPay] leg ${leg.entityType}:${leg.entityId}#${leg.sequence} carries chain hash ${attrs.txid}`);
+      }
+      if (statusLabel === 'confirmed' && leg.status === 'AWAITING_CONFIRMATION') {
+        await confirmLeg(leg.id, transferId ?? undefined);
+        console.log(`[B2BinPay] leg ${leg.entityType}:${leg.entityId}#${leg.sequence} (${leg.kind}) confirmed`);
+      }
+    }
+  }
 
   // Mirror B2BinPay USDT transfer status onto our deposit/withdrawal record.
   // Final credit/debit is gated on the Fireblocks confirmation webhook — this

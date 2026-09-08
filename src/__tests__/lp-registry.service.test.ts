@@ -4,7 +4,7 @@ import type { ILiquidityProvider, LPRate, LPQuote } from '../core/lp.interface';
 // Kafka mock — broadcastRFQ emits a fallback event; mock prevents real bus init
 vi.mock('../core/kafka.service', () => ({
   getEventBus: vi.fn(async () => ({ publish: vi.fn(), subscribe: vi.fn(), disconnect: vi.fn() })),
-  TOPICS: { PAYMENT_SETTLED: 'fincruise.payment.settled', PAYMENT_FAILED: 'fincruise.payment.failed' },
+  TOPICS: { PAYMENT_SETTLED: 'axlink.payment.settled', PAYMENT_FAILED: 'axlink.payment.failed' },
 }));
 
 function makeLP(id: string, toAmountOverride?: number, delayMs = 0): ILiquidityProvider {

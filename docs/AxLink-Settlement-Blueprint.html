@@ -1,0 +1,2052 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="AxLink settlement network — architecture blueprint. Fiat in, USDT on Solana as transport, fiat out.">
+<style>
+  *,*::before,*::after { box-sizing: border-box; }
+  html { color-scheme: light dark; }
+  body { margin: 0; font: 14px system-ui, sans-serif; }
+  img { max-width: 100%; }
+  [hidden] { display: none !important; }
+</style>
+
+<style>
+@page { size: A4; margin: 16mm 14mm; }
+@media print {
+  :root { --ground: #FFFFFF; --surface: #FFFFFF; }
+  body { background: #FFFFFF; font-size: 10.5pt; }
+  .toc { display: none !important; }
+  .shell { grid-template-columns: 1fr !important; max-width: none; padding: 0; }
+  .masthead { padding-top: 0; }
+  /* A posting split across a page break is unreadable — keep each whole. */
+  figure, .posting, .legs, .note, .invariants li, .phase, .table-wrap { break-inside: avoid; page-break-inside: avoid; }
+  section { break-before: auto; }
+  h2.sec-title, h3 { break-after: avoid; page-break-after: avoid; }
+  figure svg { min-width: 0; }
+  a { text-decoration: none; }
+}
+</style>
+
+<title>AxLink Settlement Blueprint</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:wght@400;500;600&display=swap">
+
+<style>
+  /* ─── Tokens ────────────────────────────────────────────────────────────
+     Ink-and-paper for a ledger. Neutrals carry a slight green bias toward
+     the accent so nothing reads as a default grey. Semantic colours
+     (settled / in flight / break) are separate from the accent. */
+  :root {
+    --ground:      #F3F6F4;
+    --surface:     #FFFFFF;
+    --surface-2:   #E8EDEA;
+    --ink:         #121A17;
+    --ink-2:       #46524E;
+    --ink-3:       #6B7773;
+    --rule:        #D2DAD6;
+    --rule-strong: #B4C0BB;
+
+    --accent:      #0B6E52;
+    --accent-soft: #DBEBE3;
+    --accent-line: #0B6E52;
+
+    --amber:       #8A5A06;
+    --amber-soft:  #F5E8D2;
+    --red:         #9C2E22;
+    --red-soft:    #F3DCD8;
+
+    --shadow: 0 1px 2px rgba(18, 26, 23, .05), 0 8px 24px -16px rgba(18, 26, 23, .25);
+
+    --measure: 68ch;
+    --page: 1120px;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:      #0C110F;
+      --surface:     #131A18;
+      --surface-2:   #1B2421;
+      --ink:         #E5ECE8;
+      --ink-2:       #A1AFAA;
+      --ink-3:       #798682;
+      --rule:        #26312D;
+      --rule-strong: #37443F;
+
+      --accent:      #52C79B;
+      --accent-soft: #103025;
+      --accent-line: #52C79B;
+
+      --amber:       #D8A253;
+      --amber-soft:  #2F2411;
+      --red:         #E08477;
+      --red-soft:    #331813;
+
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px -16px rgba(0,0,0,.8);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground:      #0C110F;
+    --surface:     #131A18;
+    --surface-2:   #1B2421;
+    --ink:         #E5ECE8;
+    --ink-2:       #A1AFAA;
+    --ink-3:       #798682;
+    --rule:        #26312D;
+    --rule-strong: #37443F;
+
+    --accent:      #52C79B;
+    --accent-soft: #103025;
+    --accent-line: #52C79B;
+
+    --amber:       #D8A253;
+    --amber-soft:  #2F2411;
+    --red:         #E08477;
+    --red-soft:    #331813;
+
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px -16px rgba(0,0,0,.8);
+  }
+
+  /* ─── Base ──────────────────────────────────────────────────────────── */
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 16px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::selection { background: var(--accent-soft); color: var(--ink); }
+
+  a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  a:focus-visible, summary:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px;
+  }
+
+  code, .mono { font-family: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace; }
+
+  code {
+    font-size: .86em;
+    background: var(--surface-2);
+    padding: .12em .38em;
+    border-radius: 3px;
+    color: var(--ink);
+  }
+
+  /* ─── Shell ─────────────────────────────────────────────────────────── */
+  .shell {
+    max-width: var(--page);
+    margin: 0 auto;
+    padding: 0 28px 120px;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0 56px;
+  }
+
+  @media (min-width: 1080px) {
+    .shell { grid-template-columns: 216px minmax(0, 1fr); }
+    .masthead { grid-column: 1 / -1; }
+  }
+
+  /* ─── Masthead ──────────────────────────────────────────────────────── */
+  .masthead {
+    padding: 68px 0 40px;
+    border-bottom: 1px solid var(--rule);
+    margin-bottom: 52px;
+  }
+
+  .eyebrow {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11.5px;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 18px;
+    align-items: center;
+    margin-bottom: 22px;
+  }
+
+  .masthead h1 {
+    font-family: "IBM Plex Serif", Georgia, serif;
+    font-weight: 600;
+    font-size: clamp(2.1rem, 5vw, 3.15rem);
+    line-height: 1.08;
+    letter-spacing: -.018em;
+    margin: 0 0 20px;
+    text-wrap: balance;
+    max-width: 20ch;
+  }
+
+  .standfirst {
+    font-size: 1.14rem;
+    line-height: 1.58;
+    color: var(--ink-2);
+    max-width: 62ch;
+    margin: 0;
+  }
+
+  .standfirst strong { color: var(--ink); font-weight: 600; }
+
+  /* ─── Table of contents ─────────────────────────────────────────────── */
+  .toc { display: none; }
+
+  @media (min-width: 1080px) {
+    .toc {
+      display: block;
+      position: sticky;
+      top: 32px;
+      align-self: start;
+      max-height: calc(100vh - 64px);
+      overflow-y: auto;
+      padding-bottom: 32px;
+    }
+  }
+
+  .toc h2 {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10.5px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin: 0 0 14px;
+    font-weight: 500;
+  }
+
+  .toc ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+
+  .toc a {
+    display: block;
+    padding: 4px 0 4px 12px;
+    border-left: 2px solid var(--rule);
+    color: var(--ink-2);
+    text-decoration: none;
+    font-size: 13.4px;
+    line-height: 1.4;
+  }
+
+  .toc a:hover { color: var(--accent); border-left-color: var(--accent); }
+
+  .toc .toc-sub a { padding-left: 24px; font-size: 12.6px; color: var(--ink-3); }
+
+  /* ─── Sections ──────────────────────────────────────────────────────── */
+  main { min-width: 0; }
+
+  section { margin-bottom: 76px; scroll-margin-top: 24px; }
+
+  .sec-head {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    margin-bottom: 8px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .sec-num {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12px;
+    color: var(--accent);
+    font-weight: 500;
+    letter-spacing: .06em;
+    flex: none;
+  }
+
+  h2.sec-title {
+    font-family: "IBM Plex Serif", Georgia, serif;
+    font-size: 1.62rem;
+    font-weight: 600;
+    letter-spacing: -.012em;
+    margin: 0;
+    line-height: 1.2;
+  }
+
+  h3 {
+    font-family: "IBM Plex Sans", sans-serif;
+    font-size: 1.06rem;
+    font-weight: 600;
+    letter-spacing: -.004em;
+    margin: 36px 0 10px;
+    line-height: 1.35;
+  }
+
+  h4 {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11.5px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    font-weight: 500;
+    margin: 26px 0 10px;
+  }
+
+  p, ul, ol { max-width: var(--measure); }
+  p { margin: 0 0 16px; }
+  section > p:first-of-type { margin-top: 20px; }
+
+  ul, ol { margin: 0 0 18px; padding-left: 20px; }
+  li { margin-bottom: 7px; }
+  li::marker { color: var(--ink-3); }
+
+  .lede { font-size: 1.04rem; color: var(--ink-2); }
+
+  /* ─── Callout ───────────────────────────────────────────────────────── */
+  .note {
+    max-width: var(--measure);
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--accent-line);
+    padding: 16px 20px;
+    margin: 24px 0;
+    font-size: .95rem;
+    color: var(--ink-2);
+  }
+
+  .note strong { color: var(--ink); }
+  .note p:last-child { margin-bottom: 0; }
+  .note.warn { border-left-color: var(--amber); }
+  .note.stop { border-left-color: var(--red); }
+
+  .note-label {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10.5px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--accent);
+    display: block;
+    margin-bottom: 6px;
+    font-weight: 500;
+  }
+  .note.warn .note-label { color: var(--amber); }
+  .note.stop .note-label { color: var(--red); }
+
+  /* ─── Figures ───────────────────────────────────────────────────────── */
+  figure {
+    margin: 32px 0;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    padding: 24px 24px 18px;
+    overflow-x: auto;
+  }
+
+  figure svg { display: block; max-width: 100%; height: auto; color: var(--ink-2); min-width: 560px; }
+
+  figcaption {
+    margin-top: 16px;
+    padding-top: 14px;
+    border-top: 1px solid var(--rule);
+    font-size: .875rem;
+    color: var(--ink-3);
+    line-height: 1.5;
+    max-width: 76ch;
+  }
+
+  figcaption strong { color: var(--ink-2); font-weight: 600; }
+
+  /* ─── Tables ────────────────────────────────────────────────────────── */
+  .table-wrap { overflow-x: auto; margin: 22px 0; border: 1px solid var(--rule); border-radius: 4px; background: var(--surface); }
+
+  table { border-collapse: collapse; width: 100%; font-size: .875rem; min-width: 540px; }
+
+  th {
+    text-align: left;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    font-weight: 500;
+    padding: 11px 16px;
+    border-bottom: 1px solid var(--rule-strong);
+    white-space: nowrap;
+  }
+
+  td { padding: 10px 16px; border-bottom: 1px solid var(--rule); vertical-align: top; color: var(--ink-2); }
+  tbody tr:last-child td { border-bottom: none; }
+  td:first-child { color: var(--ink); }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; font-family: "IBM Plex Mono", monospace; white-space: nowrap; }
+
+  /* ─── Ledger posting block ──────────────────────────────────────────── */
+  .posting {
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    background: var(--surface);
+    margin: 20px 0;
+    overflow: hidden;
+  }
+
+  .posting-head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 14px;
+    align-items: baseline;
+    padding: 12px 16px;
+    background: var(--surface-2);
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .posting-key {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12px;
+    color: var(--accent);
+    font-weight: 500;
+  }
+
+  .posting-desc { font-size: 12.5px; color: var(--ink-3); }
+
+  .posting-body { overflow-x: auto; }
+
+  .posting table { min-width: 480px; font-size: 13px; }
+  .posting td { padding: 8px 16px; font-family: "IBM Plex Mono", monospace; }
+  .posting td.acct { color: var(--ink); }
+  .posting td.dr, .posting td.cr { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .posting td.dr { color: var(--ink); }
+  .posting td.cr { color: var(--ink-2); }
+  .posting th { padding: 9px 16px; }
+
+  .posting tfoot td {
+    border-top: 1px solid var(--rule-strong);
+    border-bottom: none;
+    background: var(--surface-2);
+    color: var(--accent);
+    font-size: 12px;
+  }
+
+  /* ─── Leg strip ─────────────────────────────────────────────────────── */
+  .legs {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: stretch;
+    gap: 0;
+    margin: 22px 0;
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    background: var(--surface);
+    overflow: hidden;
+  }
+
+  .leg {
+    flex: 1 1 150px;
+    min-width: 150px;
+    padding: 13px 15px;
+    border-right: 1px solid var(--rule);
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .leg:last-child { border-right: none; }
+
+  .leg-n {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10px;
+    letter-spacing: .1em;
+    color: var(--ink-3);
+  }
+
+  .leg-kind {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11.5px;
+    font-weight: 500;
+    color: var(--ink);
+    line-height: 1.35;
+    word-break: break-word;
+  }
+
+  .leg-end {
+    font-size: 11px;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    color: var(--ink-3);
+    margin-top: auto;
+    padding-top: 4px;
+  }
+
+  .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+  .dot.done { background: var(--accent); }
+  .dot.wait { background: var(--amber); }
+  .dot.fail { background: var(--red); }
+
+  /* ─── Primitive cards ───────────────────────────────────────────────── */
+  .prims { display: grid; gap: 1px; background: var(--rule); border: 1px solid var(--rule); border-radius: 4px; overflow: hidden; margin: 24px 0; grid-template-columns: repeat(auto-fit, minmax(268px, 1fr)); }
+
+  .prim { background: var(--surface); padding: 18px 20px; display: flex; flex-direction: column; gap: 7px; }
+
+  .prim-name { font-family: "IBM Plex Mono", monospace; font-size: 12.5px; font-weight: 600; color: var(--accent); }
+  .prim-role { font-size: 12px; color: var(--ink-3); font-style: italic; }
+  .prim p { font-size: .875rem; margin: 0; color: var(--ink-2); max-width: none; }
+
+  /* ─── Scenario ──────────────────────────────────────────────────────── */
+  .scenario { margin: 52px 0; padding-top: 4px; scroll-margin-top: 24px; }
+
+  .scenario-head { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: baseline; margin-bottom: 6px; }
+
+  .scenario-head h3 { margin: 0; font-size: 1.2rem; font-family: "IBM Plex Serif", Georgia, serif; font-weight: 600; }
+
+  .tag {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10px;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    padding: 3px 8px;
+    border-radius: 3px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  .tag.warn { background: var(--amber-soft); color: var(--amber); }
+  .tag.stop { background: var(--red-soft); color: var(--red); }
+  .tag.plain { background: var(--surface-2); color: var(--ink-3); }
+
+  /* ─── Definition rows ───────────────────────────────────────────────── */
+  .defs { border-top: 1px solid var(--rule); margin: 20px 0; max-width: var(--measure); }
+  .def { display: grid; grid-template-columns: 130px 1fr; gap: 4px 18px; padding: 11px 0; border-bottom: 1px solid var(--rule); }
+  @media (max-width: 620px) { .def { grid-template-columns: 1fr; } }
+  .def dt { font-family: "IBM Plex Mono", monospace; font-size: 11px; letter-spacing: .07em; text-transform: uppercase; color: var(--ink-3); padding-top: 2px; }
+  .def dd { margin: 0; font-size: .9rem; color: var(--ink-2); }
+  .def dd strong { color: var(--ink); font-weight: 600; }
+
+  /* ─── Invariant list ────────────────────────────────────────────────── */
+  .invariants { list-style: none; padding: 0; margin: 24px 0; max-width: var(--measure); display: flex; flex-direction: column; gap: 1px; background: var(--rule); border: 1px solid var(--rule); border-radius: 4px; overflow: hidden; }
+  .invariants li { background: var(--surface); margin: 0; padding: 15px 18px; display: grid; grid-template-columns: auto 1fr; gap: 14px; align-items: start; }
+  .inv-id { font-family: "IBM Plex Mono", monospace; font-size: 11px; color: var(--accent); font-weight: 600; padding-top: 3px; letter-spacing: .04em; }
+  .inv-body { font-size: .9rem; color: var(--ink-2); }
+  .inv-body strong { color: var(--ink); font-weight: 600; display: block; margin-bottom: 3px; }
+
+  /* ─── Phases ────────────────────────────────────────────────────────── */
+  .phase { border-left: 2px solid var(--rule); padding: 0 0 26px 22px; margin-left: 8px; position: relative; max-width: var(--measure); }
+  .phase:last-child { padding-bottom: 0; }
+  .phase::before { content: ""; position: absolute; left: -6px; top: 6px; width: 10px; height: 10px; border-radius: 50%; background: var(--ground); border: 2px solid var(--accent); }
+  .phase h3 { margin: 0 0 4px; font-size: 1.02rem; }
+  .phase .phase-meta { font-family: "IBM Plex Mono", monospace; font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-3); margin-bottom: 8px; }
+  .phase p, .phase ul { font-size: .9rem; color: var(--ink-2); }
+
+  /* ─── Code block ────────────────────────────────────────────────────── */
+  pre {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    padding: 16px 18px;
+    overflow-x: auto;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12.6px;
+    line-height: 1.62;
+    color: var(--ink-2);
+    margin: 20px 0;
+  }
+  pre code { background: none; padding: 0; font-size: inherit; color: inherit; }
+  pre .k { color: var(--accent); }
+  pre .c { color: var(--ink-3); font-style: italic; }
+
+  /* ─── Footer ────────────────────────────────────────────────────────── */
+  footer {
+    border-top: 1px solid var(--rule);
+    padding-top: 24px;
+    margin-top: 20px;
+    font-size: .85rem;
+    color: var(--ink-3);
+    max-width: var(--measure);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+  }
+</style>
+
+<div class="shell">
+
+  <header class="masthead">
+    <div class="eyebrow">
+      <span>AxStron Group</span>
+      <span>·</span>
+      <span>axlink-settlement</span>
+      <span>·</span>
+      <span>branch settlement-engine</span>
+      <span>·</span>
+      <span>v1 — USD corridor</span>
+    </div>
+    <h1>AxLink Settlement Blueprint</h1>
+    <p class="standfirst">
+      How value moves through the network, account by account and leg by leg. The customer deposits their own
+      currency and withdraws their own currency; USD is the unit of account and USDT on Solana is the
+      transport, and <strong>neither is ever shown to them</strong>. Every settlement is provable against a
+      chain we do not control. This is the architecture as built on the <code>settlement-engine</code> branch,
+      written so it can be implemented exactly.
+    </p>
+  </header>
+
+  <nav class="toc" aria-label="Contents">
+    <h2>Contents</h2>
+    <ol>
+      <li><a href="#thesis">1 · What we are replacing</a></li>
+      <li><a href="#planes">2 · The four planes</a></li>
+      <li><a href="#currency">3 · The currency model</a></li>
+      <li><a href="#accounts">4 · Chart of accounts</a></li>
+      <li><a href="#primitives">5 · Six primitives</a></li>
+      <li><a href="#routing">6 · How a partner gets funded</a></li>
+      <li><a href="#legs">7 · The leg state machine</a></li>
+      <li><a href="#scenarios">8 · Scenarios</a></li>
+      <li class="toc-sub"><a href="#s-deposit">Add funds, $10,000</a></li>
+      <li class="toc-sub"><a href="#s-withdraw">Withdrawal, JIT wire</a></li>
+      <li class="toc-sub"><a href="#s-float">Withdrawal, pre-funded</a></li>
+      <li class="toc-sub"><a href="#s-rpc">RPC unreachable</a></li>
+      <li class="toc-sub"><a href="#s-fail">Partner payout fails</a></li>
+      <li class="toc-sub"><a href="#s-dupe">Duplicate request</a></li>
+      <li class="toc-sub"><a href="#s-kes">KES in, KES out</a></li>
+      <li class="toc-sub"><a href="#s-corridor">New corridor: KES</a></li>
+      <li class="toc-sub"><a href="#s-interbank">Bank to bank</a></li>
+      <li><a href="#invariants">9 · Invariants</a></li>
+      <li><a href="#trust">10 · Trust model</a></li>
+      <li><a href="#rollout">11 · Rollout</a></li>
+      <li><a href="#later">12 · Not yet</a></li>
+      <li><a href="#reference">13 · Reference</a></li>
+    </ol>
+  </nav>
+
+  <main>
+
+    <!-- ═══════════════════════ 1 ═══════════════════════ -->
+    <section id="thesis">
+      <div class="sec-head"><span class="sec-num">01</span><h2 class="sec-title">What we are replacing</h2></div>
+
+      <div class="note">
+        <span class="note-label">First, what this is not</span>
+        <p>
+          <strong>This is back-office settlement infrastructure.</strong> No customer sees it, and none of it
+          is a product feature. A user deposits their own currency and withdraws their own currency; whether
+          the value moved between our books on a correspondent chain or on Solana is invisible to them, and
+          they have no way to tell. Nothing in this document should ever reach a customer-facing screen.
+        </p>
+        <p>
+          That invisibility is deliberate and it is worth something: <strong>because the customer contract
+          never references the rail, the rail can be replaced without touching the product.</strong> A chain
+          outage, a change of settlement asset, a regulator ruling a corridor out — each is an operations
+          decision, not a migration.
+        </p>
+      </div>
+
+      <p class="lede">
+        So the case for this rail is an internal one — cost per transfer, how fast our own books can be
+        trusted, and what we can hand an auditor. Not a story anyone tells a user.
+      </p>
+
+      <p>
+        A cross-border payment on correspondent banking is a chain of bilateral credits between banks that
+        each hold accounts with the next. Nobody in the chain sees the whole path, each hop takes a fee and a
+        cut of the spread, and the sender learns the outcome when it lands — or when it doesn't. Those costs
+        land on <em>us</em>, and we either absorb them or price them into what the customer pays.
+      </p>
+
+      <p>
+        AxLink removes the intermediaries by giving both counterparties a position on one shared settlement
+        asset and moving that asset directly. The proof matters to exactly three audiences, and a retail user
+        is not among them: <strong>a member bank on the other side of a transfer, an auditor, and us</strong>.
+      </p>
+
+      <figure>
+        <svg viewBox="0 0 900 300" role="img" aria-label="Comparison of a four-hop SWIFT correspondent chain against a single AxLink hop between two member banks settled on Solana">
+          <defs>
+            <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/>
+            </marker>
+            <marker id="ar-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--accent)"/>
+            </marker>
+          </defs>
+
+          <text x="30" y="26" font-size="11" font-family="IBM Plex Mono, monospace" letter-spacing="1.4" fill="currentColor" opacity=".65">TODAY — CORRESPONDENT CHAIN</text>
+
+          <rect x="30" y="46" width="160" height="46" rx="3" fill="none" stroke="currentColor" stroke-width="1.2"/>
+          <text x="110" y="74" font-size="12.5" text-anchor="middle" fill="currentColor">Sender bank</text>
+
+          <rect x="250" y="46" width="160" height="46" rx="3" fill="none" stroke="currentColor" stroke-width="1.2"/>
+          <text x="330" y="74" font-size="12.5" text-anchor="middle" fill="currentColor">Correspondent</text>
+
+          <rect x="470" y="46" width="160" height="46" rx="3" fill="none" stroke="currentColor" stroke-width="1.2"/>
+          <text x="550" y="74" font-size="12.5" text-anchor="middle" fill="currentColor">Correspondent</text>
+
+          <rect x="690" y="46" width="160" height="46" rx="3" fill="none" stroke="currentColor" stroke-width="1.2"/>
+          <text x="770" y="74" font-size="12.5" text-anchor="middle" fill="currentColor">Beneficiary bank</text>
+
+          <line x1="192" y1="69" x2="246" y2="69" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar)"/>
+          <line x1="412" y1="69" x2="466" y2="69" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar)"/>
+          <line x1="632" y1="69" x2="686" y2="69" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar)"/>
+
+          <text x="219" y="40" font-size="10" text-anchor="middle" fill="currentColor" opacity=".7">fee</text>
+          <text x="439" y="40" font-size="10" text-anchor="middle" fill="currentColor" opacity=".7">fee</text>
+          <text x="659" y="40" font-size="10" text-anchor="middle" fill="currentColor" opacity=".7">fee</text>
+
+          <text x="30" y="118" font-size="11.5" fill="currentColor" opacity=".75">1–5 business days · a fee and an FX cut at every hop · status opaque until it lands or bounces</text>
+
+          <line x1="30" y1="146" x2="870" y2="146" stroke="currentColor" stroke-width="1" opacity=".25" stroke-dasharray="3 4"/>
+
+          <text x="30" y="182" font-size="11" font-family="IBM Plex Mono, monospace" letter-spacing="1.4" fill="var(--accent)">AXLINK</text>
+
+          <rect x="30" y="202" width="160" height="46" rx="3" fill="none" stroke="currentColor" stroke-width="1.2"/>
+          <text x="110" y="230" font-size="12.5" text-anchor="middle" fill="currentColor">Member bank A</text>
+
+          <rect x="250" y="202" width="380" height="46" rx="3" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.4"/>
+          <text x="440" y="225" font-size="12.5" text-anchor="middle" fill="var(--accent)" font-weight="600">AxLink — USDT on Solana</text>
+          <text x="440" y="240" font-size="10.5" text-anchor="middle" fill="var(--accent)" opacity=".85">one hop · one signature</text>
+
+          <rect x="690" y="202" width="160" height="46" rx="3" fill="none" stroke="currentColor" stroke-width="1.2"/>
+          <text x="770" y="230" font-size="12.5" text-anchor="middle" fill="currentColor">Member bank B</text>
+
+          <line x1="192" y1="225" x2="246" y2="225" stroke="var(--accent)" stroke-width="1.4" marker-end="url(#ar-a)"/>
+          <line x1="632" y1="225" x2="686" y2="225" stroke="var(--accent)" stroke-width="1.4" marker-end="url(#ar-a)"/>
+
+          <text x="30" y="274" font-size="11.5" fill="currentColor" opacity=".75">finalized in ~13 seconds · 5,000 lamports · both banks verify the same signature on a node neither controls</text>
+        </svg>
+        <figcaption>
+          <strong>The hops are the cost, and the cost is ours.</strong> Each correspondent adds a fee, an FX
+          cut, a day, and a counterparty to reconcile against. AxLink replaces the chain with one transfer of
+          a shared asset. Solana's economics are what make the residual hop cheap enough to do per-transfer:
+          5,000 lamports is a fraction of a cent, and finality is 32 slots — roughly 13 seconds. A customer
+          would experience either row identically; the difference shows up in our margin and our close.
+        </figcaption>
+      </figure>
+
+      <div class="note">
+        <span class="note-label">Why finality is enforced anyway</span>
+        <p>
+          None of this reaches a customer, so the discipline has to be justified internally — and it is.
+          <strong>No transfer completes on a custodian's acknowledgement</strong>, only on a finalized
+          signature. Not because a user asked, but because it is the difference between books we can prove
+          and books we merely believe: a settlement marked complete on an API response is a number nobody
+          can check, including us, until the day someone has to.
+        </p>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════ 2 ═══════════════════════ -->
+    <section id="planes">
+      <div class="sec-head"><span class="sec-num">02</span><h2 class="sec-title">The four planes</h2></div>
+
+      <p class="lede">
+        The system separates into four layers that fail independently and must never be confused with one
+        another. Most of the bugs the current codebase carries come from collapsing two of them — treating a
+        custody acknowledgement as settlement, or a balance update as an accounting entry.
+      </p>
+
+      <figure>
+        <svg viewBox="0 0 900 350" role="img" aria-label="Four stacked planes — instruction, ledger, transport, delivery — inside AxLink, with a compliance boundary on the right that only fiat instructions cross">
+          <defs>
+            <marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--accent)"/>
+            </marker>
+          </defs>
+
+          <text x="30" y="26" font-size="11" font-family="IBM Plex Mono, monospace" letter-spacing="1.4" fill="currentColor" opacity=".65">INSIDE AXLINK</text>
+          <text x="668" y="26" font-size="11" font-family="IBM Plex Mono, monospace" letter-spacing="1.4" fill="currentColor" opacity=".65">OUTSIDE</text>
+
+          <rect x="30" y="42" width="570" height="54" rx="3" fill="none" stroke="currentColor" stroke-width="1.2"/>
+          <text x="46" y="64" font-size="12.5" fill="currentColor" font-weight="600">1 · Instruction</text>
+          <text x="46" y="82" font-size="11" fill="currentColor" opacity=".7">API request, idempotency key, capability check, funding plan</text>
+
+          <rect x="30" y="110" width="570" height="54" rx="3" fill="none" stroke="currentColor" stroke-width="1.2"/>
+          <text x="46" y="132" font-size="12.5" fill="currentColor" font-weight="600">2 · Ledger</text>
+          <text x="46" y="150" font-size="11" fill="currentColor" opacity=".7">Double-entry journal — who owes whom, in what currency</text>
+
+          <rect x="30" y="178" width="570" height="54" rx="3" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.4"/>
+          <text x="46" y="200" font-size="12.5" fill="var(--accent)" font-weight="600">3 · Transport</text>
+          <text x="46" y="218" font-size="11" fill="var(--accent)" opacity=".9">USDT on Solana — custody signs, the chain proves</text>
+
+          <rect x="30" y="246" width="570" height="54" rx="3" fill="none" stroke="currentColor" stroke-width="1.2"/>
+          <text x="46" y="268" font-size="12.5" fill="currentColor" font-weight="600">4 · Delivery</text>
+          <text x="46" y="286" font-size="11" fill="currentColor" opacity=".7">Fiat instruction to a payout partner — "send X to Y"</text>
+
+          <line x1="640" y1="34" x2="640" y2="322" stroke="currentColor" stroke-width="1.2" stroke-dasharray="4 4" opacity=".55"/>
+          <text x="646" y="318" font-size="10" font-family="IBM Plex Mono, monospace" fill="currentColor" opacity=".6">compliance boundary</text>
+
+          <rect x="668" y="246" width="202" height="54" rx="3" fill="none" stroke="currentColor" stroke-width="1.2"/>
+          <text x="769" y="268" font-size="12.5" text-anchor="middle" fill="currentColor">Payout partner</text>
+          <text x="769" y="285" font-size="10.5" text-anchor="middle" fill="currentColor" opacity=".7">MSB licensed · not a VASP</text>
+
+          <line x1="604" y1="273" x2="664" y2="273" stroke="var(--accent)" stroke-width="1.4" marker-end="url(#ar2)"/>
+          <text x="634" y="264" font-size="10" text-anchor="middle" fill="var(--accent)">fiat only</text>
+
+          <line x1="604" y1="205" x2="628" y2="205" stroke="currentColor" stroke-width="1.2" opacity=".55"/>
+          <line x1="622" y1="199" x2="634" y2="211" stroke="var(--red)" stroke-width="1.8"/>
+          <line x1="634" y1="199" x2="622" y2="211" stroke="var(--red)" stroke-width="1.8"/>
+          <text x="668" y="197" font-size="10.5" fill="var(--red)">USDT never crosses</text>
+          <text x="668" y="212" font-size="10.5" fill="var(--red)" opacity=".8">partner holds no VASP licence</text>
+        </svg>
+        <figcaption>
+          <strong>Only plane 4 crosses the boundary.</strong> A payout partner receives an instruction to send
+          fiat to a beneficiary and nothing else — no address, no token amount, no reference to a chain.
+          The system enforces this in code: <code>resolveFundingPlan</code> refuses to construct a USDT plan
+          for any partner not explicitly flagged <code>cryptoLicensed</code>.
+        </figcaption>
+      </figure>
+
+      <h3>Why the separation is load-bearing</h3>
+      <ul>
+        <li><strong>Ledger ≠ transport.</strong> The journal records an obligation; the chain records that
+          value moved. They are reconciled against each other daily, and a disagreement is a finding.</li>
+        <li><strong>Transport ≠ custody.</strong> Fireblocks signs. Solana settles. A Fireblocks transaction
+          id proves a request was accepted, not that anything happened.</li>
+        <li><strong>Delivery ≠ settlement.</strong> A wire submitted to a converter is not a wire received by
+          a partner. The leg stays <code>AWAITING_CONFIRMATION</code> until the partner says otherwise.</li>
+      </ul>
+    </section>
+
+
+    <!-- ═══════════════════════ 3 ═══════════════════════ -->
+    <section id="currency">
+      <div class="sec-head"><span class="sec-num">03</span><h2 class="sec-title">The currency model</h2></div>
+
+      <p class="lede">
+        Three currencies are in play at once and they are constantly confused. Naming them separately is what
+        makes the rest of the system tractable.
+      </p>
+
+      <dl class="defs">
+        <div class="def"><dt>Presentation</dt><dd><strong>The customer's own currency.</strong> A Kenyan user deposits KES, sees a KES balance, withdraws KES. This is the only currency they ever encounter.</dd></div>
+        <div class="def"><dt>Unit of account</dt><dd><strong>USD.</strong> Every internal position, limit and report is measured here. It is the pivot every corridor passes through.</dd></div>
+        <div class="def"><dt>Settlement asset</dt><dd><strong>USDT on Solana.</strong> What actually backs the balances and moves between counterparties. Never shown, never sent to a partner.</dd></div>
+      </dl>
+
+      <div class="note warn">
+        <span class="note-label">Which entity holds the asset</span>
+        <p>
+          The group is licensed differently in each market: FinCEN MSB in the USA, FINTRAC MSB in Canada, the
+          UK entity, and a digital-asset regime in El Salvador. <strong>Those are not interchangeable balance
+          sheets.</strong> A money-services licence permits moving fiat; it does not by itself permit holding
+          a stablecoin position, and holding one in the wrong entity is a licensing problem rather than an
+          accounting one.
+        </p>
+        <p>
+          So the USDT position belongs on the balance sheet of the entity licensed to hold digital assets,
+          and the MSB entities hold a <em>fiat receivable from that entity</em> — never the token. Customers
+          are unaffected either way; they see their own currency and never learn which entity settled behind
+          it. But the books have to say it, and today they do not: <code>CUSTODY:*</code> accounts carry no
+          entity dimension. See the gap noted below.
+        </p>
+        <p>
+          The settlement asset itself is one constant — <code>SETTLEMENT_ASSET</code> plus a mint address in a
+          single table. Switching assets, or running a different one per region, stays a config change.
+          <strong>Cheap now, expensive once balances exist.</strong>
+        </p>
+      </div>
+
+      <p>
+        The converter settles <strong>USD, GBP and EUR</strong> and nothing else. That single fact determines
+        the shape of every corridor: those three are native, and everything else has to reach USD somehow.
+        Which side needs the bridge is what separates an easy corridor from a hard one.
+      </p>
+
+      <h3>Corridor classes</h3>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Class</th><th>Example</th><th>Bridge needed</th><th>Status</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><strong>A — native</strong></td>
+              <td>USD in → USD out<br>GBP in → EUR out</td>
+              <td>None. The converter handles both ends.</td>
+              <td><span class="tag">built</span></td>
+            </tr>
+            <tr>
+              <td><strong>B — local out</strong></td>
+              <td>USD in → KES out</td>
+              <td>Payout side only. We wire USD; the partner applies its own FX and delivers KES.</td>
+              <td><span class="tag">built</span></td>
+            </tr>
+            <tr>
+              <td><strong>C — local in</strong></td>
+              <td>KES in → KES out</td>
+              <td><strong>Collection side.</strong> Something must convert KES to USD and move it out of Kenya before the converter can see it.</td>
+              <td><span class="tag stop">unsolved</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note stop">
+        <span class="note-label">The asymmetry — and it is not a code problem</span>
+        <p>
+          Paying <em>out</em> in a local currency is easy: the partner already holds that currency and does the
+          FX for us. Taking money <em>in</em> is the hard direction. The customer's shillings land in a Kenyan
+          collection account, and the converter cannot accept shillings — so a
+          <strong>local FX and repatriation partner</strong> has to convert KES to USD and wire it out. That is a
+          banking relationship and a capital-controls question in each market, not something the settlement
+          engine can solve. Kenya is workable; Nigeria is materially harder.
+        </p>
+        <p>
+          <strong>Name that partner per market before promising local deposits.</strong> Until it exists, Class C
+          corridors cannot run end to end no matter how correct the code is.
+        </p>
+      </div>
+
+      <h3>Who carries the FX position</h3>
+
+      <p>
+        If the customer's balance is denominated in KES and the backing is USDT, <strong>we are short KES against
+        the customer and long USD</strong> — a currency position nobody chose to take. It is small per customer
+        and unbounded in aggregate, and it grows quietly with deposits.
+      </p>
+
+      <p>
+        Concretely: a user deposits KES 130,000 and is credited KES 128,700. We hold roughly 995 USDT. If the
+        shilling strengthens from 130 to 120 against the dollar, that USDT is worth KES 119,362 against a
+        KES 128,700 liability — <strong>short KES 9,338 on a single customer</strong>, with no trade ever placed.
+      </p>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Option</th><th>Who bears the risk</th><th>Cost</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Matched local float</strong><br>hold KES against KES liabilities</td><td>Nobody — the position is flat</td><td>Working capital per market. Abandons the zero-pre-funding model.</td></tr>
+            <tr><td><strong>Priced spread</strong><br>widen the deposit/withdrawal spread</td><td>Us, buffered by the margin</td><td>Uncompetitive pricing in volatile markets; the buffer fails exactly when it is needed.</td></tr>
+            <tr><td><strong>USD-denominated balance</strong><br>display local at today's rate</td><td>The customer</td><td>Zero FX risk to us. The customer's local balance visibly moves day to day.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note warn">
+        <span class="note-label">Make this a decision, not a discovery</span>
+        <p>
+          Whichever option you pick, the position has to be <em>measured</em>. Per-currency liability against
+          USD-equivalent backing, reported daily. The journal already carries the data —
+          <code>USER:*:KES</code> summed against custody, both in USD terms — but a report nobody reads is
+          the same as no report. An FX book found during an audit is worse than one that was chosen.
+        </p>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════ 4 ═══════════════════════ -->
+    <section id="accounts">
+      <div class="sec-head"><span class="sec-num">04</span><h2 class="sec-title">Chart of accounts</h2></div>
+
+      <p class="lede">
+        Every movement has two sides. Before this existed, a withdrawal debited a customer and the money
+        simply left the books — fees, FX spread, partner float and custody had no accounts to land in, so they
+        were visible only as the arithmetic difference between a debit and a payout.
+      </p>
+
+      <p>
+        Codes are structured strings, built only through <code>AccountCode.*</code>. A free-form code would
+        open a brand-new account and silently absorb money; an unrecognised prefix raises instead.
+      </p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Code pattern</th><th>Type</th><th>Holds</th></tr>
+          </thead>
+          <tbody>
+            <tr><td class="mono">USER:&lt;userId&gt;:&lt;CCY&gt;</td><td>Liability</td><td>What we owe a customer. Their app balance.</td></tr>
+            <tr><td class="mono">BANK:&lt;bankId&gt;:&lt;CCY&gt;</td><td>Liability</td><td>A member bank's position on the network.</td></tr>
+            <tr><td class="mono">TREASURY:&lt;CCY&gt;</td><td>Asset</td><td>Our own funds.</td></tr>
+            <tr><td class="mono">CUSTODY:&lt;vaultId&gt;:&lt;ASSET&gt;</td><td>Asset</td><td>USDT/USDT held in a named Fireblocks vault.</td></tr>
+            <tr><td class="mono">COLLECTION:&lt;rail&gt;:&lt;CCY&gt;</td><td>Asset <span class="tag plain">transient</span></td><td>Local currency collected at a rail, not yet repatriated. Class C corridors only.</td></tr>
+            <tr><td class="mono">CONVERTER:&lt;id&gt;:&lt;CCY&gt;</td><td>Asset <span class="tag plain">transient</span></td><td>In transit at B2BinPay. Should not persist across a close.</td></tr>
+            <tr><td class="mono">FLOAT:&lt;partner&gt;:&lt;CCY&gt;</td><td>Asset</td><td>Pre-funded balance sitting at a payout partner.</td></tr>
+            <tr><td class="mono">FEE_INCOME:&lt;CCY&gt;</td><td>Income</td><td>Our revenue.</td></tr>
+            <tr><td class="mono">FX_PNL:&lt;CCY&gt;</td><td>Income</td><td>Conversion clearing. Its net position <em>is</em> the spread.</td></tr>
+            <tr><td class="mono">SUSPENSE:&lt;CCY&gt;</td><td>Liability <span class="tag plain">transient</span></td><td>Debited from a customer, not yet delivered.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note stop">
+        <span class="note-label">Gap — accounts carry no entity</span>
+        <p>
+          Every code above is group-wide. In a multi-entity licensed group that is not enough: an auditor
+          asks which <em>entity</em> holds a position, and a regulator asks whether that entity is permitted
+          to. The fix is a fourth segment — <code>CUSTODY:sv:treasury:USDT</code>,
+          <code>USER:us:&lt;id&gt;:USD</code> — plus <code>INTERCO:&lt;from&gt;:&lt;to&gt;:&lt;CCY&gt;</code>
+          so positions between group entities are visible instead of netted invisibly into one balance sheet.
+        </p>
+        <p>
+          <strong>Do this before there are balances.</strong> Adding an entity dimension to a populated
+          journal means restating history and deciding retroactively which entity held what — the kind of
+          exercise that is straightforward on day one and a project on day two hundred.
+        </p>
+      </div>
+
+      <div class="note">
+        <span class="note-label">Sign convention</span>
+        <p>
+          <strong>Positive is a debit, negative is a credit</strong>, in the line's own currency. Every
+          posting sums to zero <em>per currency</em> — not in USD. A cross-currency posting that only balances
+          after conversion is hiding an FX position, so conversions must name <code>FX_PNL</code> explicitly.
+          That is what makes the converter's spread a number on a report instead of an unexplained shortfall.
+        </p>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════ 4 ═══════════════════════ -->
+    <section id="primitives">
+      <div class="sec-head"><span class="sec-num">05</span><h2 class="sec-title">Six primitives</h2></div>
+
+      <p class="lede">Everything below is composed from these. Learn them once and every scenario reads the same way.</p>
+
+      <div class="prims">
+        <div class="prim">
+          <span class="prim-name">ProviderCapability</span>
+          <span class="prim-role">what a partner can actually do</span>
+          <p>Declares <code>settlementCurrencies</code> and <code>payoutCurrencies</code> <em>separately</em>,
+          plus methods, countries, limits, and two flags that decide everything else:
+          <code>cryptoLicensed</code> and <code>prefundedFloat</code>.</p>
+        </div>
+        <div class="prim">
+          <span class="prim-name">FundingPlan</span>
+          <span class="prim-role">how this payout gets funded</span>
+          <p>Resolved before any value moves. Names the settlement currency, the amount, who bears the FX, and
+          — critically — <code>payoutPrecedesFunding</code>, which says whether the beneficiary waits for us.</p>
+        </div>
+        <div class="prim">
+          <span class="prim-name">SettlementLeg</span>
+          <span class="prim-role">one step, written before it is taken</span>
+          <p>The full plan is persisted in the same transaction as the domain record. Each leg carries a
+          deterministic <code>externalKey</code> handed to the external system as its idempotency key, so a
+          resumed leg reuses the same request instead of creating a second payment.</p>
+        </div>
+        <div class="prim">
+          <span class="prim-name">JournalEntry</span>
+          <span class="prim-role">the books, append-only</span>
+          <p>Balanced lines, asserted before write, keyed by a deterministic <code>postingKey</code>.
+          Re-posting is a no-op — which is what makes the resume worker safe to run repeatedly. A correction
+          is a reversing entry, never an edit.</p>
+        </div>
+        <div class="prim">
+          <span class="prim-name">SettlementProof</span>
+          <span class="prim-role">evidence, not assertion</span>
+          <p>Signature, slot, block time, mint, amount and fee actually paid — recorded only after an RPC node
+          reports <code>finalized</code> <em>and</em> the on-chain movement matches what we intended.</p>
+        </div>
+        <div class="prim">
+          <span class="prim-name">IdempotencyKey</span>
+          <span class="prim-role">pay once</span>
+          <p>Arbitrated by a unique constraint, not a read-then-write check — two concurrent requests both
+          pass a read-then-write check. Same key with a different body is rejected, never served the cached
+          response.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════ 5 ═══════════════════════ -->
+    <section id="routing">
+      <div class="sec-head"><span class="sec-num">06</span><h2 class="sec-title">How a partner gets funded</h2></div>
+
+      <p class="lede">
+        This is the decision that makes corridors pluggable. It runs <em>before</em> any value moves, so a
+        corridor with no viable route fails while the money is still ours — rather than after USDT has been
+        moved to a converter that cannot produce the payout currency.
+      </p>
+
+      <figure>
+        <svg viewBox="0 0 880 430" role="img" aria-label="Decision tree resolving a funding plan: crypto licensed gives ATOMIC_USDT, pre-funded float gives PREFUNDED_FLOAT, converter can produce the payout currency gives DIRECT_FIAT, a bridge currency gives PARTNER_FX, otherwise the payout is refused">
+          <defs>
+            <marker id="ar3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/>
+            </marker>
+            <marker id="ar3a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--accent)"/>
+            </marker>
+          </defs>
+
+          <rect x="30" y="20" width="300" height="40" rx="3" fill="var(--surface-2)" stroke="currentColor" stroke-width="1.2"/>
+          <text x="180" y="45" font-size="12" text-anchor="middle" fill="currentColor" font-family="IBM Plex Mono, monospace">payout: amount · currency · partner</text>
+
+          <line x1="180" y1="60" x2="180" y2="88" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar3)"/>
+
+          <rect x="30" y="90" width="300" height="38" rx="3" fill="none" stroke="currentColor" stroke-width="1.2"/>
+          <text x="180" y="114" font-size="12" text-anchor="middle" fill="currentColor">cryptoLicensed?</text>
+          <line x1="330" y1="109" x2="518" y2="109" stroke="var(--accent)" stroke-width="1.3" marker-end="url(#ar3a)"/>
+          <text x="424" y="101" font-size="10" text-anchor="middle" fill="var(--accent)">yes</text>
+          <rect x="522" y="90" width="326" height="38" rx="3" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.3"/>
+          <text x="540" y="114" font-size="12" fill="var(--accent)" font-family="IBM Plex Mono, monospace" font-weight="600">ATOMIC_USDT</text>
+          <text x="700" y="114" font-size="10.5" fill="var(--accent)" opacity=".85">partner converts and delivers</text>
+
+          <line x1="180" y1="128" x2="180" y2="156" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar3)"/>
+          <text x="192" y="146" font-size="10" fill="currentColor" opacity=".6">no</text>
+
+          <rect x="30" y="158" width="300" height="38" rx="3" fill="none" stroke="currentColor" stroke-width="1.2"/>
+          <text x="180" y="182" font-size="12" text-anchor="middle" fill="currentColor">prefundedFloat?</text>
+          <line x1="330" y1="177" x2="518" y2="177" stroke="var(--accent)" stroke-width="1.3" marker-end="url(#ar3a)"/>
+          <text x="424" y="169" font-size="10" text-anchor="middle" fill="var(--accent)">yes</text>
+          <rect x="522" y="158" width="326" height="38" rx="3" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.3"/>
+          <text x="540" y="182" font-size="12" fill="var(--accent)" font-family="IBM Plex Mono, monospace" font-weight="600">PREFUNDED_FLOAT</text>
+          <text x="716" y="182" font-size="10.5" fill="var(--accent)" opacity=".85">pays first, we replenish</text>
+
+          <line x1="180" y1="196" x2="180" y2="224" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar3)"/>
+          <text x="192" y="214" font-size="10" fill="currentColor" opacity=".6">no</text>
+
+          <rect x="30" y="226" width="300" height="38" rx="3" fill="none" stroke="currentColor" stroke-width="1.2"/>
+          <text x="180" y="250" font-size="12" text-anchor="middle" fill="currentColor">converter makes payout ccy?</text>
+          <line x1="330" y1="245" x2="518" y2="245" stroke="currentColor" stroke-width="1.3" marker-end="url(#ar3)"/>
+          <text x="424" y="237" font-size="10" text-anchor="middle" fill="currentColor" opacity=".7">yes</text>
+          <rect x="522" y="226" width="326" height="38" rx="3" fill="none" stroke="currentColor" stroke-width="1.2"/>
+          <text x="540" y="250" font-size="12" fill="currentColor" font-family="IBM Plex Mono, monospace" font-weight="600">DIRECT_FIAT</text>
+          <text x="678" y="250" font-size="10.5" fill="currentColor" opacity=".7">no FX at the partner</text>
+
+          <line x1="180" y1="264" x2="180" y2="292" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar3)"/>
+          <text x="192" y="282" font-size="10" fill="currentColor" opacity=".6">no</text>
+
+          <rect x="30" y="294" width="300" height="38" rx="3" fill="none" stroke="currentColor" stroke-width="1.2"/>
+          <text x="180" y="318" font-size="12" text-anchor="middle" fill="currentColor">bridge ccy both accept?</text>
+          <line x1="330" y1="313" x2="518" y2="313" stroke="currentColor" stroke-width="1.3" marker-end="url(#ar3)"/>
+          <text x="424" y="305" font-size="10" text-anchor="middle" fill="currentColor" opacity=".7">yes</text>
+          <rect x="522" y="294" width="326" height="38" rx="3" fill="none" stroke="currentColor" stroke-width="1.2"/>
+          <text x="540" y="318" font-size="12" fill="currentColor" font-family="IBM Plex Mono, monospace" font-weight="600">PARTNER_FX</text>
+          <text x="678" y="318" font-size="10.5" fill="currentColor" opacity=".7">partner applies its own rate</text>
+
+          <line x1="180" y1="332" x2="180" y2="360" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar3)"/>
+          <text x="192" y="350" font-size="10" fill="currentColor" opacity=".6">no</text>
+
+          <rect x="30" y="362" width="300" height="46" rx="3" fill="var(--red-soft)" stroke="var(--red)" stroke-width="1.3"/>
+          <text x="180" y="382" font-size="12" text-anchor="middle" fill="var(--red)" font-family="IBM Plex Mono, monospace" font-weight="600">NO_FUNDING_ROUTE</text>
+          <text x="180" y="398" font-size="10.5" text-anchor="middle" fill="var(--red)" opacity=".9">refused before value moves</text>
+        </svg>
+        <figcaption>
+          <strong>Order matters.</strong> Cheapest and least ambiguous first. The <code>cryptoLicensed</code>
+          gate is not a preference — a partner whose capability lists USDT without the flag causes a hard
+          refusal with an explanation, because a misconfiguration there is a regulatory exposure, not a
+          routing inefficiency.
+        </figcaption>
+      </figure>
+
+      <h3>Which mode a corridor lands in</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Mode</th><th>Partner funded in</th><th>Beneficiary waits for our wire?</th><th>Capital cost</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">ATOMIC_USDT</td><td>USDT</td><td>No</td><td>None</td></tr>
+            <tr><td class="mono">PREFUNDED_FLOAT</td><td>USD (replenishment)</td><td><strong>No</strong> — paid from float</td><td>Float size, per corridor</td></tr>
+            <tr><td class="mono">DIRECT_FIAT</td><td>Payout currency</td><td>Yes</td><td>None</td></tr>
+            <tr><td class="mono">PARTNER_FX</td><td>USD / EUR / GBP</td><td>Yes</td><td>None</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note warn">
+        <span class="note-label">The trade you have to make</span>
+        <p>
+          Our payout partners cannot hold crypto, which rules out <code>ATOMIC_USDT</code>. That leaves the
+          two goals written throughout this system in direct tension: <strong>zero pre-funded corridors</strong>
+          and <strong>real-time execution</strong>. You can have either, not both. Without float, the
+          beneficiary cannot be paid until our fiat wire lands at the partner — banking rails, banking hours.
+          <code>PREFUNDED_FLOAT</code> buys real-time for the recipient at the cost of working capital parked
+          in each corridor, bounded by the float size. Both are implemented; it is a per-partner config flag,
+          not a code change.
+        </p>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════ 6 ═══════════════════════ -->
+    <section id="legs">
+      <div class="sec-head"><span class="sec-num">07</span><h2 class="sec-title">The leg state machine</h2></div>
+
+      <p class="lede">
+        A settlement is a sequence of legs, each of which either happened or did not. Persisting the plan
+        before executing it is what makes a crash between the customer debit and the partner payout
+        recoverable instead of permanent.
+      </p>
+
+      <figure>
+        <svg viewBox="0 0 900 300" role="img" aria-label="Leg state machine: pending to in flight to awaiting confirmation to completed, with failed looping back to in flight on retry and terminating in compensated or abandoned when retries are exhausted">
+          <defs>
+            <marker id="ar4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/>
+            </marker>
+            <marker id="ar4a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--accent)"/>
+            </marker>
+            <marker id="ar4r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--red)"/>
+            </marker>
+          </defs>
+
+          <rect x="24" y="52" width="140" height="42" rx="3" fill="none" stroke="currentColor" stroke-width="1.2"/>
+          <text x="94" y="78" font-size="11.5" text-anchor="middle" fill="currentColor" font-family="IBM Plex Mono, monospace">PENDING</text>
+
+          <rect x="228" y="52" width="140" height="42" rx="3" fill="none" stroke="currentColor" stroke-width="1.2"/>
+          <text x="298" y="78" font-size="11.5" text-anchor="middle" fill="currentColor" font-family="IBM Plex Mono, monospace">IN_FLIGHT</text>
+
+          <rect x="432" y="52" width="180" height="42" rx="3" fill="var(--amber-soft)" stroke="var(--amber)" stroke-width="1.2"/>
+          <text x="522" y="78" font-size="11" text-anchor="middle" fill="var(--amber)" font-family="IBM Plex Mono, monospace">AWAITING_CONFIRMATION</text>
+
+          <rect x="676" y="52" width="140" height="42" rx="3" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.4"/>
+          <text x="746" y="78" font-size="11.5" text-anchor="middle" fill="var(--accent)" font-family="IBM Plex Mono, monospace" font-weight="600">COMPLETED</text>
+
+          <line x1="166" y1="73" x2="224" y2="73" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar4)"/>
+          <line x1="370" y1="73" x2="428" y2="73" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar4)"/>
+          <line x1="614" y1="73" x2="672" y2="73" stroke="var(--accent)" stroke-width="1.4" marker-end="url(#ar4a)"/>
+          <text x="643" y="65" font-size="10" text-anchor="middle" fill="var(--accent)">proof</text>
+
+          <path d="M 368 66 C 500 20, 640 20, 700 46" fill="none" stroke="var(--accent)" stroke-width="1.2" marker-end="url(#ar4a)" stroke-dasharray="4 3"/>
+          <text x="534" y="26" font-size="10" text-anchor="middle" fill="var(--accent)">synchronous step</text>
+
+          <rect x="228" y="196" width="140" height="42" rx="3" fill="var(--red-soft)" stroke="var(--red)" stroke-width="1.2"/>
+          <text x="298" y="222" font-size="11.5" text-anchor="middle" fill="var(--red)" font-family="IBM Plex Mono, monospace">FAILED</text>
+
+          <line x1="286" y1="96" x2="286" y2="192" stroke="var(--red)" stroke-width="1.2" marker-end="url(#ar4r)"/>
+          <text x="242" y="150" font-size="10" text-anchor="end" fill="var(--red)">error</text>
+
+          <path d="M 320 194 L 320 98" fill="none" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar4)" stroke-dasharray="4 3"/>
+          <text x="330" y="150" font-size="10" fill="currentColor" opacity=".7">retry, backoff + jitter</text>
+
+          <path d="M 522 96 C 522 150, 420 190, 372 208" fill="none" stroke="var(--red)" stroke-width="1.2" marker-end="url(#ar4r)"/>
+          <text x="470" y="176" font-size="10" fill="var(--red)" opacity=".85">rejected</text>
+
+          <rect x="486" y="196" width="150" height="42" rx="3" fill="none" stroke="currentColor" stroke-width="1.2"/>
+          <text x="561" y="222" font-size="11.5" text-anchor="middle" fill="currentColor" font-family="IBM Plex Mono, monospace">COMPENSATED</text>
+
+          <rect x="676" y="196" width="140" height="42" rx="3" fill="none" stroke="currentColor" stroke-width="1.2"/>
+          <text x="746" y="222" font-size="11.5" text-anchor="middle" fill="currentColor" font-family="IBM Plex Mono, monospace">ABANDONED</text>
+
+          <line x1="370" y1="217" x2="482" y2="217" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar4)"/>
+          <line x1="638" y1="217" x2="672" y2="217" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar4)"/>
+
+          <text x="24" y="272" font-size="10.5" fill="currentColor" opacity=".7">Terminal: COMPLETED · COMPENSATED · ABANDONED. Transitions are enforced, not documented — COMPLETED → IN_FLIGHT is how a system pays twice.</text>
+        </svg>
+        <figcaption>
+          <strong>Retries are bounded and then they stop.</strong> A leg that exhausts <code>maxAttempts</code>
+          stops retrying and appears in <code>GET /api/settlement/stuck</code>. That queue must be empty at the
+          start of each day: every row in it is customer money in an indeterminate state, and no amount of
+          retrying will resolve it.
+        </figcaption>
+      </figure>
+    </section>
+
+    <!-- ═══════════════════════ 7 ═══════════════════════ -->
+    <section id="scenarios">
+      <div class="sec-head"><span class="sec-num">08</span><h2 class="sec-title">Scenarios</h2></div>
+
+      <p class="lede">
+        Worked end to end, with the actual postings. Figures are illustrative but internally consistent —
+        the books balance in every one, and you can check them.
+      </p>
+
+      <!-- ── Deposit ── -->
+      <div class="scenario" id="s-deposit">
+        <div class="scenario-head">
+          <h3>Add funds — $10,000 into an Appra account</h3>
+          <span class="tag">happy path</span>
+        </div>
+
+        <p>
+          A customer sends $10,000 by bank transfer. Our deposit fee is 25 bp ($25). B2BinPay's conversion
+          spread costs 15 bp ($15), embedded in the USDT we receive: we get 9,985 USDT for $10,000.
+        </p>
+
+        <div class="legs">
+          <div class="leg"><span class="leg-n">LEG 0</span><span class="leg-kind">CONVERT_FIAT_TO_CRYPTO</span><span class="leg-end"><span class="dot wait"></span>awaits converter</span></div>
+          <div class="leg"><span class="leg-n">LEG 1</span><span class="leg-kind">CUSTODY_TRANSFER</span><span class="leg-end"><span class="dot wait"></span>awaits broadcast</span></div>
+          <div class="leg"><span class="leg-n">LEG 2</span><span class="leg-kind">ONCHAIN_SETTLE</span><span class="leg-end"><span class="dot done"></span>finalized</span></div>
+          <div class="leg"><span class="leg-n">LEG 3</span><span class="leg-kind">LEDGER_CREDIT</span><span class="leg-end"><span class="dot done"></span>spendable</span></div>
+        </div>
+
+        <div class="note stop">
+          <span class="note-label">This is what was broken</span>
+          <p>
+            The previous implementation called <code>createDeposit</code> and then, in the same function,
+            immediately requested a USDT payout to the user's vault — <strong>paying out USDT that had not
+            been minted yet</strong>, because the conversion had not happened. Leg 1 does not start until
+            leg 0 is confirmed. That ordering is the entire reason legs exist.
+          </p>
+        </div>
+
+        <div class="posting">
+          <div class="posting-head">
+            <span class="posting-key">BankDeposit:&lt;id&gt;:fiat-received</span>
+            <span class="posting-desc">on rail confirmation — the customer's claim exists from here</span>
+          </div>
+          <div class="posting-body">
+            <table>
+              <thead><tr><th>Account</th><th class="num">Debit</th><th class="num">Credit</th><th>Ccy</th></tr></thead>
+              <tbody>
+                <tr><td class="acct">CONVERTER:b2binpay:USD</td><td class="dr">10,000.00</td><td class="cr">—</td><td>USD</td></tr>
+                <tr><td class="acct">USER:u_812:USD</td><td class="dr">—</td><td class="cr">9,975.00</td><td>USD</td></tr>
+                <tr><td class="acct">FEE_INCOME:USD</td><td class="dr">—</td><td class="cr">25.00</td><td>USD</td></tr>
+              </tbody>
+              <tfoot><tr><td>USD residual</td><td class="dr">10,000.00</td><td class="cr">10,000.00</td><td>0.00 ✓</td></tr></tfoot>
+            </table>
+          </div>
+        </div>
+
+        <div class="posting">
+          <div class="posting-head">
+            <span class="posting-key">BankDeposit:&lt;id&gt;:conversion</span>
+            <span class="posting-desc">after the signature is finalized — FX_PNL clears both currency legs</span>
+          </div>
+          <div class="posting-body">
+            <table>
+              <thead><tr><th>Account</th><th class="num">Debit</th><th class="num">Credit</th><th>Ccy</th></tr></thead>
+              <tbody>
+                <tr><td class="acct">CONVERTER:b2binpay:USD</td><td class="dr">—</td><td class="cr">10,000.00</td><td>USD</td></tr>
+                <tr><td class="acct">FX_PNL:USD</td><td class="dr">10,000.00</td><td class="cr">—</td><td>USD</td></tr>
+                <tr><td class="acct">CUSTODY:vault_812:USDT</td><td class="dr">9,985.00</td><td class="cr">—</td><td>USDT</td></tr>
+                <tr><td class="acct">FX_PNL:USDT</td><td class="dr">—</td><td class="cr">9,985.00</td><td>USDT</td></tr>
+              </tbody>
+              <tfoot><tr><td>Per-currency residual</td><td class="dr">USD 0.00 ✓</td><td class="cr">USDT 0.00 ✓</td><td>balanced</td></tr></tfoot>
+            </table>
+          </div>
+        </div>
+
+        <h4>Check the books</h4>
+        <p>
+          Assets 9,985.00 USDT. Liabilities 9,975.00 to the customer. Income: +25.00 fee, −15.00 FX loss
+          (the converter's spread, now sitting visibly in <code>FX_PNL</code>) = +10.00. Assets minus
+          liabilities equals retained earnings: 9,985 − 9,975 = 10. <strong>The customer's balance is
+          over-collateralised by $10, and you can see exactly why.</strong> Under the old single-entry
+          ledger this $15 spread had nowhere to land and would have appeared as an unexplained shortfall.
+        </p>
+
+        <dl class="defs">
+          <div class="def"><dt>Customer sees</dt><dd>Deposit pending → <strong>$9,975.00 available</strong> once leg 3 posts. Fee shown at $25.00.</dd></div>
+          <div class="def"><dt>Elapsed</dt><dd>Bank rail: hours to a day. Conversion: minutes. On-chain leg: <strong>~13s</strong>.</dd></div>
+          <div class="def"><dt>Idempotency</dt><dd><code>deposit</code> scope, key <code>&lt;rail&gt;:&lt;railReference&gt;</code> — the same bank credit can never be booked twice.</dd></div>
+        </dl>
+      </div>
+
+      <!-- ── Withdrawal JIT ── -->
+      <div class="scenario" id="s-withdraw">
+        <div class="scenario-head">
+          <h3>Withdrawal — $5,000, JIT wire to the partner</h3>
+          <span class="tag warn">not real-time for the recipient</span>
+        </div>
+
+        <p>
+          Customer withdraws $5,000. Our fee is 50 bp ($25), so the beneficiary is owed $4,975. Converting back
+          costs 15 bp, so we move 4,982.50 USDT to produce $4,975.
+        </p>
+
+        <div class="legs">
+          <div class="leg"><span class="leg-n">LEG 0</span><span class="leg-kind">CUSTODY_TRANSFER</span><span class="leg-end"><span class="dot wait"></span>vault → treasury</span></div>
+          <div class="leg"><span class="leg-n">LEG 1</span><span class="leg-kind">ONCHAIN_SETTLE</span><span class="leg-end"><span class="dot done"></span>finalized</span></div>
+          <div class="leg"><span class="leg-n">LEG 2</span><span class="leg-kind">CONVERT_CRYPTO_TO_FIAT</span><span class="leg-end"><span class="dot done"></span>USD at converter</span></div>
+          <div class="leg"><span class="leg-n">LEG 3</span><span class="leg-kind">PARTNER_PAYOUT</span><span class="leg-end"><span class="dot wait"></span>awaits partner</span></div>
+        </div>
+
+        <div class="posting">
+          <div class="posting-head">
+            <span class="posting-key">Withdrawal:&lt;id&gt;:debit</span>
+            <span class="posting-desc">balance check and debit in one transaction — checking outside it lets two concurrent withdrawals both pass</span>
+          </div>
+          <div class="posting-body">
+            <table>
+              <thead><tr><th>Account</th><th class="num">Debit</th><th class="num">Credit</th><th>Ccy</th></tr></thead>
+              <tbody>
+                <tr><td class="acct">USER:u_812:USD</td><td class="dr">5,000.00</td><td class="cr">—</td><td>USD</td></tr>
+                <tr><td class="acct">SUSPENSE:USD</td><td class="dr">—</td><td class="cr">4,975.00</td><td>USD</td></tr>
+                <tr><td class="acct">FEE_INCOME:USD</td><td class="dr">—</td><td class="cr">25.00</td><td>USD</td></tr>
+              </tbody>
+              <tfoot><tr><td>USD residual</td><td class="dr">5,000.00</td><td class="cr">5,000.00</td><td>0.00 ✓</td></tr></tfoot>
+            </table>
+          </div>
+        </div>
+
+        <div class="posting">
+          <div class="posting-head">
+            <span class="posting-key">Withdrawal:&lt;id&gt;:custody</span>
+            <span class="posting-desc">leg 0 — USDT collected into treasury, proven by leg 1 before anything else runs</span>
+          </div>
+          <div class="posting-body">
+            <table>
+              <thead><tr><th>Account</th><th class="num">Debit</th><th class="num">Credit</th><th>Ccy</th></tr></thead>
+              <tbody>
+                <tr><td class="acct">CUSTODY:treasury:USDT</td><td class="dr">4,982.50</td><td class="cr">—</td><td>USDT</td></tr>
+                <tr><td class="acct">CUSTODY:vault_812:USDT</td><td class="dr">—</td><td class="cr">4,982.50</td><td>USDT</td></tr>
+              </tbody>
+              <tfoot><tr><td>USDT residual</td><td class="dr">4,982.50</td><td class="cr">4,982.50</td><td>0.00 ✓</td></tr></tfoot>
+            </table>
+          </div>
+        </div>
+
+        <div class="posting">
+          <div class="posting-head">
+            <span class="posting-key">Withdrawal:&lt;id&gt;:conversion</span>
+            <span class="posting-desc">leg 2 — USDT out, USD at the converter, spread visible in FX_PNL</span>
+          </div>
+          <div class="posting-body">
+            <table>
+              <thead><tr><th>Account</th><th class="num">Debit</th><th class="num">Credit</th><th>Ccy</th></tr></thead>
+              <tbody>
+                <tr><td class="acct">CUSTODY:treasury:USDT</td><td class="dr">—</td><td class="cr">4,982.50</td><td>USDT</td></tr>
+                <tr><td class="acct">FX_PNL:USDT</td><td class="dr">4,982.50</td><td class="cr">—</td><td>USDT</td></tr>
+                <tr><td class="acct">CONVERTER:b2binpay:USD</td><td class="dr">4,975.00</td><td class="cr">—</td><td>USD</td></tr>
+                <tr><td class="acct">FX_PNL:USD</td><td class="dr">—</td><td class="cr">4,975.00</td><td>USD</td></tr>
+              </tbody>
+              <tfoot><tr><td>Per-currency residual</td><td class="dr">USD 0.00 ✓</td><td class="cr">USDT 0.00 ✓</td><td>balanced</td></tr></tfoot>
+            </table>
+          </div>
+        </div>
+
+        <div class="posting">
+          <div class="posting-head">
+            <span class="posting-key">Withdrawal:&lt;id&gt;:delivered</span>
+            <span class="posting-desc">only on the partner's confirmation — suspense returns to zero</span>
+          </div>
+          <div class="posting-body">
+            <table>
+              <thead><tr><th>Account</th><th class="num">Debit</th><th class="num">Credit</th><th>Ccy</th></tr></thead>
+              <tbody>
+                <tr><td class="acct">SUSPENSE:USD</td><td class="dr">4,975.00</td><td class="cr">—</td><td>USD</td></tr>
+                <tr><td class="acct">CONVERTER:b2binpay:USD</td><td class="dr">—</td><td class="cr">4,975.00</td><td>USD</td></tr>
+              </tbody>
+              <tfoot><tr><td>USD residual · SUSPENSE now 0.00</td><td class="dr">4,975.00</td><td class="cr">4,975.00</td><td>0.00 ✓</td></tr></tfoot>
+            </table>
+          </div>
+        </div>
+
+        <div class="note warn">
+          <span class="note-label">Where "real-time" stops</span>
+          <p>
+            Legs 0–2 complete in seconds. Leg 3 is a bank wire: B2BinPay debits our wallet immediately, but
+            the money reaches the partner on banking rails, in banking hours. It sits in
+            <code>AWAITING_CONFIRMATION</code> — <strong>never <code>COMPLETED</code> on submission</strong>.
+            A system that marks it complete when the API returns 200 is a system that reports settled payments
+            still sitting in a correspondent's queue.
+          </p>
+        </div>
+      </div>
+
+      <!-- ── Prefunded ── -->
+      <div class="scenario" id="s-float">
+        <div class="scenario-head">
+          <h3>Withdrawal — $5,000 against a pre-funded float</h3>
+          <span class="tag">real-time for the recipient</span>
+        </div>
+
+        <p>
+          Same customer, same amount, one flag different: <code>capability.prefundedFloat = true</code>.
+          The partner already holds our money, so they pay the beneficiary now and our wire replenishes them
+          afterwards. The leg order inverts — payout first, funding second.
+        </p>
+
+        <div class="legs">
+          <div class="leg"><span class="leg-n">LEG 0</span><span class="leg-kind">PARTNER_PAYOUT</span><span class="leg-end"><span class="dot done"></span>paid from float</span></div>
+          <div class="leg"><span class="leg-n">LEG 1</span><span class="leg-kind">CUSTODY_TRANSFER</span><span class="leg-end"><span class="dot done"></span>replenishment</span></div>
+          <div class="leg"><span class="leg-n">LEG 2</span><span class="leg-kind">ONCHAIN_SETTLE</span><span class="leg-end"><span class="dot done"></span>finalized</span></div>
+          <div class="leg"><span class="leg-n">LEG 3</span><span class="leg-kind">CONVERT_CRYPTO_TO_FIAT</span><span class="leg-end"><span class="dot wait"></span>wire to float</span></div>
+        </div>
+
+        <div class="posting">
+          <div class="posting-head">
+            <span class="posting-key">Withdrawal:&lt;id&gt;:debit</span>
+            <span class="posting-desc">the beneficiary is paid out of FLOAT, so our asset at the partner falls immediately</span>
+          </div>
+          <div class="posting-body">
+            <table>
+              <thead><tr><th>Account</th><th class="num">Debit</th><th class="num">Credit</th><th>Ccy</th></tr></thead>
+              <tbody>
+                <tr><td class="acct">USER:u_812:USD</td><td class="dr">5,000.00</td><td class="cr">—</td><td>USD</td></tr>
+                <tr><td class="acct">FLOAT:partner_x:USD</td><td class="dr">—</td><td class="cr">4,975.00</td><td>USD</td></tr>
+                <tr><td class="acct">FEE_INCOME:USD</td><td class="dr">—</td><td class="cr">25.00</td><td>USD</td></tr>
+              </tbody>
+              <tfoot><tr><td>USD residual · no suspense used</td><td class="dr">5,000.00</td><td class="cr">5,000.00</td><td>0.00 ✓</td></tr></tfoot>
+            </table>
+          </div>
+        </div>
+
+        <div class="posting">
+          <div class="posting-head">
+            <span class="posting-key">Withdrawal:&lt;id&gt;:replenish</span>
+            <span class="posting-desc">off the critical path — the customer is already paid</span>
+          </div>
+          <div class="posting-body">
+            <table>
+              <thead><tr><th>Account</th><th class="num">Debit</th><th class="num">Credit</th><th>Ccy</th></tr></thead>
+              <tbody>
+                <tr><td class="acct">FLOAT:partner_x:USD</td><td class="dr">4,975.00</td><td class="cr">—</td><td>USD</td></tr>
+                <tr><td class="acct">CONVERTER:b2binpay:USD</td><td class="dr">—</td><td class="cr">4,975.00</td><td>USD</td></tr>
+              </tbody>
+              <tfoot><tr><td>USD residual · float restored</td><td class="dr">4,975.00</td><td class="cr">4,975.00</td><td>0.00 ✓</td></tr></tfoot>
+            </table>
+          </div>
+        </div>
+
+        <dl class="defs">
+          <div class="def"><dt>Recipient</dt><dd><strong>Seconds.</strong> This is the only configuration where "real-time" describes the beneficiary's experience rather than our internal transport.</dd></div>
+          <div class="def"><dt>Capital at risk</dt><dd>The float balance, and nothing more. Size it to expected daily volume, not to peak.</dd></div>
+          <div class="def"><dt>If replenishment fails</dt><dd>The customer's payout is <strong>not</strong> failed — they already have the money. The error is logged loudly and the float is short until it clears. Monitor <code>FLOAT:*</code> balances, not just the payout queue.</dd></div>
+        </dl>
+      </div>
+
+      <!-- ── RPC ── -->
+      <div class="scenario" id="s-rpc">
+        <div class="scenario-head">
+          <h3>The RPC node is unreachable mid-settlement</h3>
+          <span class="tag stop">failure</span>
+        </div>
+
+        <p>
+          USDT has been moved at the custodian. We go to verify the signature and the Solana node times out.
+          <strong>Three outcomes must stay distinct here, and conflating them loses money.</strong>
+        </p>
+
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>What we observe</th><th>What it means</th><th>What the system does</th></tr></thead>
+            <tbody>
+              <tr><td>Signature finalized, no error</td><td>Settled</td><td>Record <code>SettlementProof</code>, leg → <code>COMPLETED</code></td></tr>
+              <tr><td>Signature landed, on-chain error</td><td><strong>Did not settle</strong></td><td><code>SettlementNotFinalError</code>, proof row records the failure, leg → <code>FAILED</code></td></tr>
+              <tr><td>Cannot reach any node</td><td><strong>Nothing at all</strong></td><td><code>PROOF_UNAVAILABLE</code>, <code>retryable</code>, leg stays <code>AWAITING_CONFIRMATION</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="note stop">
+          <span class="note-label">Never treat a timeout as a failure</span>
+          <p>
+            A timeout says the call did not <em>answer</em> in time, not that it did not <em>happen</em>.
+            Reversing a transfer because an RPC node was slow reverses a transfer that may well have settled.
+            The leg holds, the resume worker polls, and if it never resolves it surfaces in
+            <code>/api/settlement/stuck</code> for a person.
+          </p>
+        </div>
+
+        <p>
+          The practical version of this failure is mundane: <code>SOLANA_RPC_URL</code> left pointing at the
+          public mainnet endpoint. It rate-limits under load, verification starts failing, and because the
+          engine correctly refuses to complete unproven transfers, the visible symptom is settlements piling
+          up. Use a dedicated node.
+        </p>
+      </div>
+
+      <!-- ── Payout fail ── -->
+      <div class="scenario" id="s-fail">
+        <div class="scenario-head">
+          <h3>The partner rejects the payout</h3>
+          <span class="tag stop">failure</span>
+        </div>
+
+        <p>
+          Beneficiary account closed. The partner returns the funds. The customer was debited $5,000 and
+          $4,975 is sitting in suspense; the fee has already been recognised.
+        </p>
+
+        <div class="posting">
+          <div class="posting-head">
+            <span class="posting-key">Withdrawal:&lt;id&gt;:debit:reversal</span>
+            <span class="posting-desc">the journal is append-only — a correction is a new, linked entry, never an edit</span>
+          </div>
+          <div class="posting-body">
+            <table>
+              <thead><tr><th>Account</th><th class="num">Debit</th><th class="num">Credit</th><th>Ccy</th></tr></thead>
+              <tbody>
+                <tr><td class="acct">USER:u_812:USD</td><td class="dr">—</td><td class="cr">5,000.00</td><td>USD</td></tr>
+                <tr><td class="acct">SUSPENSE:USD</td><td class="dr">4,975.00</td><td class="cr">—</td><td>USD</td></tr>
+                <tr><td class="acct">FEE_INCOME:USD</td><td class="dr">25.00</td><td class="cr">—</td><td>USD</td></tr>
+              </tbody>
+              <tfoot><tr><td>USD residual · suspense clears, fee un-earned</td><td class="dr">5,000.00</td><td class="cr">5,000.00</td><td>0.00 ✓</td></tr></tfoot>
+            </table>
+          </div>
+        </div>
+
+        <p>
+          Both entries stay on the customer's statement, linked by <code>reversesId</code> — the debit and the
+          reversal, not a vanished transaction. The USDT already converted to USD remains at the converter as
+          treasury; the round-trip conversion cost is a real loss and lands in <code>FX_PNL</code> rather than
+          being quietly netted out of the customer's balance.
+        </p>
+
+        <div class="note">
+          <span class="note-label">What the old code did</span>
+          <p>
+            Credited the gross amount back and moved on. The custody leg was never reversed, the fee was
+            silently retained with no entry, and the conversion cost had nowhere to land — three separate
+            holes in the books from one failed payout.
+          </p>
+        </div>
+      </div>
+
+      <!-- ── Duplicate ── -->
+      <div class="scenario" id="s-dupe">
+        <div class="scenario-head">
+          <h3>The client retries and sends the request twice</h3>
+          <span class="tag stop">failure</span>
+        </div>
+
+        <p>
+          A mobile client times out and resubmits. Two identical withdrawal requests arrive concurrently,
+          milliseconds apart, on two application instances.
+        </p>
+
+        <pre><code><span class="c">// Both callers race a unique constraint. Exactly one wins the insert.</span>
+prisma.idempotencyKey.<span class="k">create</span>({ data: { scope: <span class="k">'withdrawal'</span>, key, requestHash, status: <span class="k">'IN_FLIGHT'</span> } })
+
+<span class="c">// Winner  → runs the work, stores the response, returns EXECUTED</span>
+<span class="c">// Loser   → P2002 violation → routed to the replay path</span>
+<span class="c">//   same requestHash + COMPLETED  → REPLAYED, returns the stored response</span>
+<span class="c">//   same requestHash + IN_FLIGHT  → 409 REQUEST_IN_FLIGHT</span>
+<span class="c">//   different requestHash         → 409 IDEMPOTENCY_CONFLICT — never the cached response</span></code></pre>
+
+        <dl class="defs">
+          <div class="def"><dt>Why not a check</dt><dd>The old <code>checkIdempotency</code> read for an existing row and then wrote. Two concurrent callers both read nothing, both passed, and <strong>both settled</strong> — and there was no unique constraint behind it to catch them.</dd></div>
+          <div class="def"><dt>Stale in-flight</dt><dd>A row held longer than 5 minutes means the process holding it is gone. A retry takes it over. Five minutes comfortably exceeds every partner timeout we set.</dd></div>
+          <div class="def"><dt>Changed body</dt><dd>Rejected outright. Reusing a reference with different parameters is a client bug, and serving the first payment's response to the second request would hide it.</dd></div>
+        </dl>
+      </div>
+
+      <!-- ── KES round trip ── -->
+      <div class="scenario" id="s-kes">
+        <div class="scenario-head">
+          <h3>KES in, KES out — what the customer never sees</h3>
+          <span class="tag stop">deposit leg not built</span>
+        </div>
+
+        <p>
+          A Nairobi customer pays KES 130,000 into M-Pesa and later withdraws KES 100,000 to a different
+          number. They see shillings at both ends and nothing else. Underneath, the value crosses two FX
+          boundaries and one chain.
+        </p>
+
+        <div class="note stop">
+          <span class="note-label">Designed here, not yet implemented</span>
+          <p>
+            The withdrawal half runs on the code as built. The deposit half needs the
+            <strong>KES → USD repatriation partner</strong> from the currency model — the converter cannot
+            accept shillings, so something has to convert and wire them out. <code>addFunds</code> is
+            currently USD-only and rejects anything else rather than pretending.
+          </p>
+        </div>
+
+        <h4>Deposit — KES 130,000</h4>
+
+        <div class="legs">
+          <div class="leg"><span class="leg-n">LEG 0</span><span class="leg-kind">COLLECT_LOCAL</span><span class="leg-end"><span class="dot done"></span>M-Pesa confirms</span></div>
+          <div class="leg"><span class="leg-n">LEG 1</span><span class="leg-kind">REPATRIATE_FX</span><span class="leg-end"><span class="dot fail"></span>partner needed</span></div>
+          <div class="leg"><span class="leg-n">LEG 2</span><span class="leg-kind">CONVERT_FIAT_TO_CRYPTO</span><span class="leg-end"><span class="dot wait"></span>USD → USDT</span></div>
+          <div class="leg"><span class="leg-n">LEG 3</span><span class="leg-kind">ONCHAIN_SETTLE</span><span class="leg-end"><span class="dot done"></span>finalized</span></div>
+          <div class="leg"><span class="leg-n">LEG 4</span><span class="leg-kind">LEDGER_CREDIT</span><span class="leg-end"><span class="dot done"></span>spendable</span></div>
+        </div>
+
+        <div class="posting">
+          <div class="posting-head">
+            <span class="posting-key">BankDeposit:&lt;id&gt;:fiat-received</span>
+            <span class="posting-desc">M-Pesa confirms · 1% deposit fee, charged in the customer's own currency</span>
+          </div>
+          <div class="posting-body">
+            <table>
+              <thead><tr><th>Account</th><th class="num">Debit</th><th class="num">Credit</th><th>Ccy</th></tr></thead>
+              <tbody>
+                <tr><td class="acct">COLLECTION:daraja:KES</td><td class="dr">130,000.00</td><td class="cr">—</td><td>KES</td></tr>
+                <tr><td class="acct">USER:u_441:KES</td><td class="dr">—</td><td class="cr">128,700.00</td><td>KES</td></tr>
+                <tr><td class="acct">FEE_INCOME:KES</td><td class="dr">—</td><td class="cr">1,300.00</td><td>KES</td></tr>
+              </tbody>
+              <tfoot><tr><td>KES residual</td><td class="dr">130,000.00</td><td class="cr">130,000.00</td><td>0.00 ✓</td></tr></tfoot>
+            </table>
+          </div>
+        </div>
+
+        <div class="posting">
+          <div class="posting-head">
+            <span class="posting-key">BankDeposit:&lt;id&gt;:repatriation</span>
+            <span class="posting-desc">the missing leg — local partner converts at 130.5 and wires USD out of Kenya</span>
+          </div>
+          <div class="posting-body">
+            <table>
+              <thead><tr><th>Account</th><th class="num">Debit</th><th class="num">Credit</th><th>Ccy</th></tr></thead>
+              <tbody>
+                <tr><td class="acct">COLLECTION:daraja:KES</td><td class="dr">—</td><td class="cr">130,000.00</td><td>KES</td></tr>
+                <tr><td class="acct">FX_PNL:KES</td><td class="dr">130,000.00</td><td class="cr">—</td><td>KES</td></tr>
+                <tr><td class="acct">CONVERTER:b2binpay:USD</td><td class="dr">996.17</td><td class="cr">—</td><td>USD</td></tr>
+                <tr><td class="acct">FX_PNL:USD</td><td class="dr">—</td><td class="cr">996.17</td><td>USD</td></tr>
+              </tbody>
+              <tfoot><tr><td>Per-currency residual</td><td class="dr">KES 0.00 ✓</td><td class="cr">USD 0.00 ✓</td><td>balanced</td></tr></tfoot>
+            </table>
+          </div>
+        </div>
+
+        <div class="posting">
+          <div class="posting-head">
+            <span class="posting-key">BankDeposit:&lt;id&gt;:conversion</span>
+            <span class="posting-desc">USD → USDT at 15 bp · the customer's shillings are now on a chain</span>
+          </div>
+          <div class="posting-body">
+            <table>
+              <thead><tr><th>Account</th><th class="num">Debit</th><th class="num">Credit</th><th>Ccy</th></tr></thead>
+              <tbody>
+                <tr><td class="acct">CONVERTER:b2binpay:USD</td><td class="dr">—</td><td class="cr">996.17</td><td>USD</td></tr>
+                <tr><td class="acct">FX_PNL:USD</td><td class="dr">996.17</td><td class="cr">—</td><td>USD</td></tr>
+                <tr><td class="acct">CUSTODY:vault_441:USDT</td><td class="dr">994.68</td><td class="cr">—</td><td>USDT</td></tr>
+                <tr><td class="acct">FX_PNL:USDT</td><td class="dr">—</td><td class="cr">994.68</td><td>USDT</td></tr>
+              </tbody>
+              <tfoot><tr><td>Per-currency residual</td><td class="dr">USD 0.00 ✓</td><td class="cr">USDT 0.00 ✓</td><td>balanced</td></tr></tfoot>
+            </table>
+          </div>
+        </div>
+
+        <div class="note warn">
+          <span class="note-label">The position this opens</span>
+          <p>
+            We now owe the customer <strong>KES 128,700</strong> and hold <strong>994.68 USDT</strong>. At 130
+            that backing is KES 129,308 — covered by 608 shillings. At 120 it is KES 119,362, and we are short
+            KES 9,338. The customer is unaffected either way; the exposure is entirely ours, and it is the
+            reason the currency-model decision cannot be deferred.
+          </p>
+        </div>
+
+        <h4>Withdrawal — KES 100,000</h4>
+
+        <p>
+          This half runs today. The partner is funded in USD and applies its own rate — <code>PARTNER_FX</code>,
+          <code>fxBearer: 'PARTNER'</code> — so the delivered figure is confirmed by them, not promised by us.
+        </p>
+
+        <div class="posting">
+          <div class="posting-head">
+            <span class="posting-key">Withdrawal:&lt;id&gt;:debit</span>
+            <span class="posting-desc">1% fee · suspense opens in KES, the currency we owe</span>
+          </div>
+          <div class="posting-body">
+            <table>
+              <thead><tr><th>Account</th><th class="num">Debit</th><th class="num">Credit</th><th>Ccy</th></tr></thead>
+              <tbody>
+                <tr><td class="acct">USER:u_441:KES</td><td class="dr">100,000.00</td><td class="cr">—</td><td>KES</td></tr>
+                <tr><td class="acct">SUSPENSE:KES</td><td class="dr">—</td><td class="cr">99,000.00</td><td>KES</td></tr>
+                <tr><td class="acct">FEE_INCOME:KES</td><td class="dr">—</td><td class="cr">1,000.00</td><td>KES</td></tr>
+              </tbody>
+              <tfoot><tr><td>KES residual</td><td class="dr">100,000.00</td><td class="cr">100,000.00</td><td>0.00 ✓</td></tr></tfoot>
+            </table>
+          </div>
+        </div>
+
+        <div class="posting">
+          <div class="posting-head">
+            <span class="posting-key">Withdrawal:&lt;id&gt;:conversion</span>
+            <span class="posting-desc">765.63 USDT → USD 764.48 · sized from the partner's indicative 129.5</span>
+          </div>
+          <div class="posting-body">
+            <table>
+              <thead><tr><th>Account</th><th class="num">Debit</th><th class="num">Credit</th><th>Ccy</th></tr></thead>
+              <tbody>
+                <tr><td class="acct">CUSTODY:treasury:USDT</td><td class="dr">—</td><td class="cr">765.63</td><td>USDT</td></tr>
+                <tr><td class="acct">FX_PNL:USDT</td><td class="dr">765.63</td><td class="cr">—</td><td>USDT</td></tr>
+                <tr><td class="acct">CONVERTER:b2binpay:USD</td><td class="dr">764.48</td><td class="cr">—</td><td>USD</td></tr>
+                <tr><td class="acct">FX_PNL:USD</td><td class="dr">—</td><td class="cr">764.48</td><td>USD</td></tr>
+              </tbody>
+              <tfoot><tr><td>Per-currency residual</td><td class="dr">USD 0.00 ✓</td><td class="cr">USDT 0.00 ✓</td><td>balanced</td></tr></tfoot>
+            </table>
+          </div>
+        </div>
+
+        <div class="posting">
+          <div class="posting-head">
+            <span class="posting-key">Withdrawal:&lt;id&gt;:delivered</span>
+            <span class="posting-desc">partner confirms KES 99,000 paid to the beneficiary — suspense clears, FX_PNL bridges the two currencies</span>
+          </div>
+          <div class="posting-body">
+            <table>
+              <thead><tr><th>Account</th><th class="num">Debit</th><th class="num">Credit</th><th>Ccy</th></tr></thead>
+              <tbody>
+                <tr><td class="acct">SUSPENSE:KES</td><td class="dr">99,000.00</td><td class="cr">—</td><td>KES</td></tr>
+                <tr><td class="acct">FX_PNL:KES</td><td class="dr">—</td><td class="cr">99,000.00</td><td>KES</td></tr>
+                <tr><td class="acct">FX_PNL:USD</td><td class="dr">764.48</td><td class="cr">—</td><td>USD</td></tr>
+                <tr><td class="acct">CONVERTER:b2binpay:USD</td><td class="dr">—</td><td class="cr">764.48</td><td>USD</td></tr>
+              </tbody>
+              <tfoot><tr><td>Per-currency residual · SUSPENSE:KES now 0.00</td><td class="dr">KES 0.00 ✓</td><td class="cr">USD 0.00 ✓</td><td>balanced</td></tr></tfoot>
+            </table>
+          </div>
+        </div>
+
+        <dl class="defs">
+          <div class="def"><dt>Customer sees</dt><dd>Paid KES 130,000 by M-Pesa, balance KES 128,700, withdrew KES 100,000, beneficiary received KES 99,000. <strong>No dollars, no token, no chain.</strong></dd></div>
+          <div class="def"><dt>Crossed underneath</dt><dd>KES → USD → USDT → Solana → USD → KES. Two FX boundaries, one signature.</dd></div>
+          <div class="def"><dt>Where margin lands</dt><dd><code>FEE_INCOME:KES</code> is our revenue. <code>FX_PNL</code> accumulates every spread we paid — repatriation, both conversions, and the partner's rate. Read per corridor: this is where a bad partner rate becomes visible rather than absorbed.</dd></div>
+        </dl>
+      </div>
+
+      <!-- ── New corridor ── -->
+      <div class="scenario" id="s-corridor">
+        <div class="scenario-head">
+          <h3>Adding KES via M-Pesa — no core changes</h3>
+          <span class="tag plain">extension</span>
+        </div>
+
+        <p>
+          The scenario above shows the money moving. This shows the code that makes it possible. Safaricom is
+          an MNO with a mobile-money licence, not a VASP: it cannot receive crypto, and the converter cannot
+          produce KES. Under the old <code>atomicJit: boolean</code> this corridor had no representation at
+          all and threw — <strong>which is why the entire Africa book did not work</strong>.
+        </p>
+
+        <pre><code><span class="c">// The whole integration. No changes to the orchestrator, the ledger, or the engine.</span>
+readonly capability = {
+  settlementCurrencies: [<span class="k">'USD'</span>],           <span class="c">// fund us in dollars</span>
+  payoutCurrencies:     [<span class="k">'KES'</span>, <span class="k">'TZS'</span>, <span class="k">'UGX'</span>],
+  methods:              [<span class="k">'mobile_money'</span>],
+  countries:            [<span class="k">'KE'</span>, <span class="k">'TZ'</span>, <span class="k">'UG'</span>],
+  partnerAppliesFx:     <span class="k">true</span>,              <span class="c">// they convert USD → KES at their rate</span>
+  cryptoLicensed:       <span class="k">false</span>,             <span class="c">// hard block on any USDT plan</span>
+  prefundedFloat:       <span class="k">false</span>,             <span class="c">// flip to true when a float is funded</span>
+};</code></pre>
+
+        <p>
+          The resolver reaches step 4 and returns <code>PARTNER_FX</code>: fund in USD, size the wire from an
+          indicative USD/KES rate, and mark <code>fxBearer: 'PARTNER'</code> so the delivered amount is
+          understood to be confirmed by Safaricom rather than promised by us.
+        </p>
+
+        <div class="note">
+          <span class="note-label">The point of the abstraction</span>
+          <p>
+            A new corridor is a capability declaration and a provider class. It touches no shared code path,
+            so it cannot break USD. That is the test of whether "plug in any payout partner" is real or just
+            an interface with the word <code>interface</code> in front of it.
+          </p>
+        </div>
+      </div>
+
+      <!-- ── Interbank ── -->
+      <div class="scenario" id="s-interbank">
+        <div class="scenario-head">
+          <h3>Bank to bank — the MT103 replacement</h3>
+          <span class="tag plain">network</span>
+        </div>
+
+        <p>
+          Two member banks, each with a vault and a position on the network. Bank A instructs a transfer to
+          Bank B against its own reference, which is the idempotency key.
+        </p>
+
+        <div class="posting">
+          <div class="posting-head">
+            <span class="posting-key">InterbankTransfer:&lt;id&gt;:settle</span>
+            <span class="posting-desc">USD 250,000 — positions move, then the chain proves it</span>
+          </div>
+          <div class="posting-body">
+            <table>
+              <thead><tr><th>Account</th><th class="num">Debit</th><th class="num">Credit</th><th>Ccy</th></tr></thead>
+              <tbody>
+                <tr><td class="acct">BANK:axlk_ke_001:USD</td><td class="dr">250,000.00</td><td class="cr">—</td><td>USD</td></tr>
+                <tr><td class="acct">BANK:axlk_gb_004:USD</td><td class="dr">—</td><td class="cr">249,875.00</td><td>USD</td></tr>
+                <tr><td class="acct">FEE_INCOME:USD</td><td class="dr">—</td><td class="cr">125.00</td><td>USD</td></tr>
+              </tbody>
+              <tfoot><tr><td>USD residual · 5 bp network fee</td><td class="dr">250,000.00</td><td class="cr">250,000.00</td><td>0.00 ✓</td></tr></tfoot>
+            </table>
+          </div>
+        </div>
+
+        <dl class="defs">
+          <div class="def"><dt>Proof</dt><dd>Both banks fetch <code>GET /api/settlement/proof/InterbankTransfer/&lt;id&gt;</code>. It is <strong>unauthenticated on purpose</strong> — a proof only we can read proves nothing. The response carries the signature, slot and an explorer link they can check on a node neither of us runs.</dd></div>
+          <div class="def"><dt>Notification</dt><dd>Written to the outbox in the same transaction as the settlement, HMAC-signed, delivered at-least-once with backoff. Receivers dedupe on <code>trackingId</code>. Previously this was a floating <code>.then()</code> — a partner returning 500 lost the notification permanently, on a network where the webhook <em>is</em> how the receiving bank learns it has money.</dd></div>
+          <div class="def"><dt>Limits</dt><dd>Daily cap per bank and per-corridor caps, checked before the transfer is created.</dd></div>
+        </dl>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════ 8 ═══════════════════════ -->
+    <section id="invariants">
+      <div class="sec-head"><span class="sec-num">09</span><h2 class="sec-title">Invariants</h2></div>
+
+      <p class="lede">
+        These are the properties the system is built to preserve. Each one has a check that enforces it and a
+        place it surfaces when it breaks. An invariant with no check is a wish.
+      </p>
+
+      <ul class="invariants">
+        <li><span class="inv-id">I-1</span><span class="inv-body"><strong>Every posting balances to zero, per currency.</strong> Asserted in <code>assertBalanced</code> before write. A break in the daily trial balance means a write bypassed the journal — reported CRITICAL, because it invalidates every other number.</span></li>
+        <li><span class="inv-id">I-2</span><span class="inv-body"><strong>No transfer completes without a finalized signature.</strong> Reconciliation flags any <code>COMPLETED</code> withdrawal with no <code>SettlementProof</code>. Proving against a stub custody id is refused outright.</span></li>
+        <li><span class="inv-id">I-3</span><span class="inv-body"><strong>Suspense is zero at close of day.</strong> A non-zero balance is a customer debited and not delivered. This is an incident, not a reconciling item.</span></li>
+        <li><span class="inv-id">I-4</span><span class="inv-body"><strong><code>Account.balance</code> equals the journal.</strong> Both written in one transaction. The projection-drift check is the tripwire for a legacy <code>debit</code>/<code>credit</code> call that skipped the journal.</span></li>
+        <li><span class="inv-id">I-5</span><span class="inv-body"><strong>One idempotency key pays once.</strong> Enforced by a unique constraint, not application logic.</span></li>
+        <li><span class="inv-id">I-6</span><span class="inv-body"><strong>No crypto reaches an unlicensed partner.</strong> Enforced in the funding resolver, which fails closed when <code>cryptoLicensed</code> is merely unset rather than assuming.</span></li>
+        <li><span class="inv-id">I-7</span><span class="inv-body"><strong>Our books agree with custody, and custody agrees with the chain.</strong> Two separate checks — that is what tells you whether a discrepancy is ours or the custodian's.</span></li>
+        <li><span class="inv-id">I-8</span><span class="inv-body"><strong><code>/settlement/stuck</code> is empty each morning.</strong> Every row is money in an indeterminate state that retrying will not fix.</span></li>
+        <li><span class="inv-id">I-9</span><span class="inv-body"><strong>The FX position is measured daily, per currency.</strong> Local-currency liabilities against USD-equivalent backing. A position that is small today and unmeasured is an FX book found during an audit rather than one that was chosen.</span></li>
+      </ul>
+    </section>
+
+    <!-- ═══════════════════════ 9 ═══════════════════════ -->
+    <section id="trust">
+      <div class="sec-head"><span class="sec-num">10</span><h2 class="sec-title">Trust model</h2></div>
+
+      <p class="lede">
+        Worth being explicit about, because "trustless" is usually overclaimed. Here is what each party must
+        actually take on faith, and what they can check for themselves.
+      </p>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Party</th><th>Must trust</th><th>Can verify independently</th></tr></thead>
+          <tbody>
+            <tr><td>Customer</td><td>That we hold their balance and will honour it</td><td>Their statement, in their own currency. <strong>They see no rail, no asset and no proof</strong> — and would not know if the rail changed.</td></tr>
+            <tr><td>Member bank</td><td>Our FX rate and fee at quote time</td><td><strong>That settlement happened</strong> — signature, slot, amount, on any node</td></tr>
+            <tr><td>Payout partner</td><td>That our wire will arrive</td><td>Their own statement against our <code>ProviderAttempt</code> log</td></tr>
+            <tr><td>Regulator</td><td>Nothing structural</td><td>Trial balance, journal, proofs, reconciliation history</td></tr>
+            <tr><td>Us</td><td>Custodian signs what we asked; converter honours its rate</td><td>Both — against the chain, and against the journal</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        The honest summary: <strong>settlement is verifiable, custody is not</strong>. We still trust
+        Fireblocks to sign correctly and B2BinPay to convert at the quoted rate. What we no longer do is trust
+        either of them about whether value actually moved — that question is answered by a chain, and the
+        answer is recorded whether it agrees with them or not.
+      </p>
+    </section>
+
+    <!-- ═══════════════════════ 10 ═══════════════════════ -->
+    <section id="rollout">
+      <div class="sec-head"><span class="sec-num">11</span><h2 class="sec-title">Rollout</h2></div>
+
+      <p class="lede">Genuinely sequential — each phase depends on the one before it being true in production, not merely deployed.</p>
+
+      <div class="phase">
+        <div class="phase-meta">Phase 1 · before any live money</div>
+        <h3>Baseline the schema and prove the books</h3>
+        <ul>
+          <li>Run <code>scripts/create-baseline-migration.sh</code> and commit <code>prisma/migrations/</code>. Until this exists, <code>prisma migrate deploy</code> silently does nothing and a deploy succeeds against an unmigrated database.</li>
+          <li>Point <code>SOLANA_RPC_URL</code> at a dedicated node.</li>
+          <li>Run a full reconciliation on an empty database. It must come back CLEAN.</li>
+          <li><strong>Decide the entity dimension now.</strong> Which entity holds the USDT position, and which hold fiat receivables against it. Retrofitting this onto a populated journal means restating history.</li>
+        </ul>
+      </div>
+
+      <div class="phase">
+        <div class="phase-meta">Phase 2 · sandbox, no customer funds</div>
+        <h3>Walk the USD corridor end to end</h3>
+        <ul>
+          <li>Deposit, then withdrawal, against sandbox credentials. Check the trial balance after each.</li>
+          <li>Kill the process mid-settlement and confirm the resume worker completes it.</li>
+          <li>Submit a duplicate withdrawal and confirm exactly one payout.</li>
+          <li>Point at a bad RPC URL and confirm settlements hold rather than fail.</li>
+        </ul>
+      </div>
+
+      <div class="phase">
+        <div class="phase-meta">Phase 3 · live, capped</div>
+        <h3>USD only, one partner, low limits</h3>
+        <ul>
+          <li>JIT wire mode. Not real-time for the recipient, and the product copy must say so.</li>
+          <li>Daily reconciliation, reviewed by a person. Suspense checked at close.</li>
+          <li>Cap per transaction and per day until a month of clean reconciliations.</li>
+        </ul>
+      </div>
+
+      <div class="phase">
+        <div class="phase-meta">Phase 4 · the real-time decision</div>
+        <h3>Fund a float, if the working capital case holds</h3>
+        <ul>
+          <li>Size the float to expected daily volume. Flip <code>prefundedFloat</code> on that partner alone.</li>
+          <li>Monitor <code>FLOAT:*</code> as a first-class balance — a failed replenishment is now a treasury exposure, not a customer-facing failure.</li>
+        </ul>
+      </div>
+
+      <div class="phase">
+        <div class="phase-meta">Phase 5 · expansion</div>
+        <h3>KES, then NGN</h3>
+        <ul>
+          <li><strong>Withdrawals first.</strong> Paying out in local currency is Class B and works today — a capability declaration plus a provider class, no core changes. If a corridor needs a core change, the abstraction is wrong and should be fixed rather than worked around.</li>
+          <li><strong>Local deposits are gated on a repatriation partner.</strong> Class C cannot run until someone is contracted to convert KES to USD and wire it out. Name them, and settle the capital-controls question, before the feature is promised.</li>
+          <li>Settle the currency-model decision before the first local deposit lands, not after. Once local-denominated balances exist, the FX position exists.</li>
+          <li>Watch <code>FX_PNL</code> per corridor: under <code>PARTNER_FX</code> the partner sets the rate, so this is where a bad partner rate becomes visible instead of absorbed.</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════ 11 ═══════════════════════ -->
+    <section id="later">
+      <div class="sec-head"><span class="sec-num">12</span><h2 class="sec-title">Not yet</h2></div>
+
+      <p class="lede">Deliberately out of v1, recorded so they are decisions rather than oversights.</p>
+
+      <h3>Netting</h3>
+      <p>
+        Every transfer currently settles gross — one on-chain hop per payment. At 5,000 lamports that is
+        survivable, but it forfeits the main structural advantage of running your own network: a thousand
+        transfers between two member banks in a window should net to <strong>one</strong> settlement leg, and
+        per-transfer confirmation latency should come off the critical path. The schema was drafted and then
+        removed rather than shipping unused tables. It becomes worthwhile at the point where two member banks
+        have real bilateral volume, which is a Phase 5 conversation.
+      </p>
+
+      <h3>Migrating the legacy ledger helpers</h3>
+      <p>
+        <code>debit</code> and <code>credit</code> in <code>ledger.service.ts</code> still mutate balances
+        without posting. The USD corridor does not use them; older services do. The projection-drift check
+        catches any that remain, which is the safe order — detect first, migrate second.
+      </p>
+
+      <h3>Decimal handling in the older services</h3>
+      <p>
+        <code>Decimal(20,8)</code> columns are still read into JavaScript <code>number</code> across the
+        pre-existing code, reintroducing exactly the float error the column type was chosen to avoid. The
+        settlement engine uses <code>Prisma.Decimal</code> throughout and never converts.
+      </p>
+    </section>
+
+    <!-- ═══════════════════════ 12 ═══════════════════════ -->
+    <section id="reference">
+      <div class="sec-head"><span class="sec-num">13</span><h2 class="sec-title">Reference</h2></div>
+
+      <h3>Operations surface</h3>
+      <p>
+        All under <code>/api/settlement</code>, gated by <code>OPS_API_KEY</code> — with one deliberate
+        exception.
+      </p>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Endpoint</th><th>Answers</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">GET /proof/:type/:id</td><td><strong>Public.</strong> Signature, slot, explorer link.</td></tr>
+            <tr><td class="mono">GET /books/trial-balance</td><td>Do the books balance, per currency?</td></tr>
+            <tr><td class="mono">GET /books/account/:code</td><td>Statement for one account.</td></tr>
+            <tr><td class="mono">GET /legs/:type/:id</td><td>Where is this settlement, leg by leg?</td></tr>
+            <tr><td class="mono">GET /stuck</td><td>What needs a human? Must be empty each morning.</td></tr>
+            <tr><td class="mono">POST /advance/:type/:id</td><td>Nudge one settlement forward by hand.</td></tr>
+            <tr><td class="mono">POST /withdrawals/:id/confirm</td><td>Partner confirmed the wire. The only path that closes a withdrawal.</td></tr>
+            <tr><td class="mono">POST /reconcile</td><td>Run reconciliation. Daily.</td></tr>
+            <tr><td class="mono">GET /providers/health</td><td>Circuit state and payout success rate — over payouts, not quotes.</td></tr>
+            <tr><td class="mono">GET /outbox</td><td>Undelivered webhooks.</td></tr>
+            <tr><td class="mono">GET /infra</td><td>Can we reach a Solana node? Warns if the RPC is the public endpoint.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Where each piece lives</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Concern</th><th>Module</th></tr></thead>
+          <tbody>
+            <tr><td>Chart of accounts</td><td class="mono">core/settlement/accounts.ts</td></tr>
+            <tr><td>Journal, trial balance</td><td class="mono">core/settlement/journal.service.ts</td></tr>
+            <tr><td>Leg state machine</td><td class="mono">core/settlement/leg.service.ts</td></tr>
+            <tr><td>USD deposit and withdrawal</td><td class="mono">core/settlement/usd-corridor.service.ts</td></tr>
+            <tr><td>Crash recovery</td><td class="mono">core/settlement/resume.worker.ts</td></tr>
+            <tr><td>On-chain proof</td><td class="mono">core/settlement/proof.service.ts</td></tr>
+            <tr><td>Solana RPC</td><td class="mono">providers/live/solana.ts</td></tr>
+            <tr><td>Reconciliation</td><td class="mono">core/settlement/reconciliation.service.ts</td></tr>
+            <tr><td>Capability and funding plan</td><td class="mono">core/provider/capability.ts</td></tr>
+            <tr><td>Circuit breaker, attempt log</td><td class="mono">core/provider/</td></tr>
+            <tr><td>Idempotency</td><td class="mono">core/idempotency.service.ts</td></tr>
+            <tr><td>Outbox</td><td class="mono">core/outbox.service.ts</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <footer>
+        <p>
+          Architecture as implemented on the <code>settlement-engine</code> branch of
+          <code>AXStronltd/axlink-settlement</code>. Figures in the scenarios are illustrative and
+          internally consistent; fee and spread assumptions are ours to set. Solana timing and fee figures are
+          typical mainnet values, not guarantees. Companion documents in the repo:
+          <code>docs/GAP_ANALYSIS.md</code> for what was wrong and why, <code>docs/DEPLOY.md</code> for
+          getting it running.
+        </p>
+      </footer>
+    </section>
+
+  </main>
+</div>
+
+</body>
+</html>

@@ -1,5 +1,5 @@
 /**
- * FinCruse Event Bus
+ * AxLink Event Bus
  *
  * Real Kafka (KafkaJS) when KAFKA_BROKERS is set.
  * In-process EventEmitter fallback for sandbox/dev — same interface, no broker needed.
@@ -41,10 +41,10 @@ export interface ValidationResultEvent {
 }
 
 export const TOPICS = {
-  VALIDATION_REQUESTED: 'fincruise.payment.validation.requested',
-  VALIDATION_RESULT:    'fincruise.payment.validation.result',
-  PAYMENT_SETTLED:      'fincruise.payment.settled',
-  PAYMENT_FAILED:       'fincruise.payment.failed',
+  VALIDATION_REQUESTED: 'axlink.payment.validation.requested',
+  VALIDATION_RESULT:    'axlink.payment.validation.result',
+  PAYMENT_SETTLED:      'axlink.payment.settled',
+  PAYMENT_FAILED:       'axlink.payment.failed',
 } as const;
 
 // ── Producer / Consumer interface ─────────────────────────────────────────────
@@ -85,7 +85,7 @@ class LocalEventBus implements EventBus {
 async function buildKafkaBus(brokers: string[]): Promise<EventBus> {
   const { Kafka } = await import('kafkajs');
   const kafka = new Kafka({
-    clientId: 'fincruise-settlement',
+    clientId: 'axlink-settlement',
     brokers,
     retry: { retries: 3 },
   });
@@ -104,7 +104,7 @@ async function buildKafkaBus(brokers: string[]): Promise<EventBus> {
     },
 
     async subscribe(topic: string, handler: (event: unknown) => Promise<void>): Promise<void> {
-      const consumer = kafka.consumer({ groupId: `fincruise-${topic}-group` });
+      const consumer = kafka.consumer({ groupId: `axlink-${topic}-group` });
       await consumer.connect();
       await consumer.subscribe({ topic, fromBeginning: false });
       await consumer.run({

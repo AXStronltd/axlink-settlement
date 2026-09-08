@@ -8,7 +8,7 @@
  * ══════════════════════════════════════════════════════════════════════
  *  JIT LIQUIDITY MODEL (zero pre-funded corridors)
  *
- *  FinCruse never pre-funds corridor accounts.  Instead, for each
+ *  AxLink never pre-funds corridor accounts.  Instead, for each
  *  withdrawal the registry triggers a real-time USDT→fiat conversion
  *  (via B2BinPay or the winning LP) and immediately delivers fiat.
  *
@@ -142,6 +142,18 @@ export interface IBaaSProvider {
   readonly id:                   string;
   readonly name:                 string;
   readonly supportedCurrencies:  string[];
+
+  /**
+   * Structured capability. Strongly preferred over `atomicJit`, which cannot
+   * express the ordinary case of "fund me in USD, I deliver KES" and therefore
+   * made every local-currency corridor unreachable.
+   *
+   * Omit it and one is derived from the legacy fields — see
+   * `provider/capability.ts`. The derived version deliberately does NOT infer
+   * crypto licensing, so a legacy `atomicJit: true` provider fails closed
+   * rather than continuing to receive crypto on an assumption.
+   */
+  readonly capability?: import('./provider/capability').ProviderCapability;
 
   /**
    * If true: provider handles USDT→fiat conversion + delivery atomically.

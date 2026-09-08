@@ -122,7 +122,7 @@ export async function createTransfer(params: TransferParams) {
         source: { type: TransferPeerPathType.VaultAccount, id: params.sourceVaultId },
         destination,
         operation: TransactionOperation.Transfer,
-        note: params.note ?? 'FinCruse settlement',
+        note: params.note ?? 'AxLink settlement',
         feeLevel: FEE_LEVEL_MAP[params.feeLevel ?? 'MEDIUM'],
         ...(params.externalTxId ? { externalTxId: params.externalTxId } : {}),
         treatAsGrossAmount: params.treatAsGrossAmount ?? false,

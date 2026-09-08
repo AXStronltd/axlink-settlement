@@ -10,7 +10,7 @@ import type { PaymentDestination } from '../providers/live/brainrock';
 const router = Router();
 
 // ── Payout Rail Webhook ───────────────────────────────────────────────────────
-// M-Pesa / bank partner POSTs here when fiat arrives at FinCruse's account
+// M-Pesa / bank partner POSTs here when fiat arrives at AxLink's account
 // This triggers the full: on-ramp → Fireblocks → ledger credit flow
 router.post('/payout-rail/fiat-arrived', async (req: Request, res: Response) => {
   const { userId, currency, amount, rail, railReference } = req.body as {
@@ -94,13 +94,17 @@ router.post('/withdraw', async (req: Request, res: Response) => {
     withdrawalId: withdrawal.id,
     trackingId: withdrawal.trackingId,
     status: withdrawal.status,
-    flow: `Ledger debit → Fireblocks vault → B2BinPay off-ramp → Brainrock → ${destination.type}`,
+    provider: withdrawal.provider,
+    // Names the partner the registry actually chose. This used to say
+    // "Brainrock" for every withdrawal, including M-Pesa payouts that went to
+    // Daraja — a response field that quietly misreported where the money went.
+    flow: `Ledger debit → Fireblocks vault → B2BinPay off-ramp → ${withdrawal.provider} → ${destination.type}`,
     message: `Withdrawal of ${amount} ${currency} initiated to ${destination.type}`,
   });
 });
 
 // ── P2P Transfer ──────────────────────────────────────────────────────────────
-// User sends money to another FinCruse user (replaces old /api/transfers)
+// User sends money to another AxLink user (replaces old /api/transfers)
 router.post('/transfer', async (req: Request, res: Response) => {
   const { senderId, receiverId, fromCurrency, toCurrency, amount, quoteId, note } = req.body as {
     senderId: string;

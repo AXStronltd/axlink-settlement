@@ -179,7 +179,7 @@ export async function executeTransfer(params: {
   }
 }
 
-// ── Withdrawal: FinCruse → external bank ─────────────────────────────────────
+// ── Withdrawal: AxLink → external bank ─────────────────────────────────────
 
 export async function executeWithdrawal(params: {
   userId: string;
@@ -216,7 +216,7 @@ export async function executeWithdrawal(params: {
       amount: usdtAmount.toString(),
       sourceVaultId: user.vaultId,
       destAddress: process.env.FIREBLOCKS_SETTLEMENT_ADDRESS ?? bankAccount,
-      note: `FinCruse withdrawal ${trackingId}`,
+      note: `AxLink withdrawal ${trackingId}`,
       externalTxId: trackingId,
     });
 
@@ -237,7 +237,7 @@ export async function executeWithdrawal(params: {
       trackingId: `offramp_wdr_${trackingId}`,
       callbackUrl: CALLBACK_URL,
       idempotencyKey: randomUUID(),
-      label: `FinCruse withdrawal ${trackingId}`,
+      label: `AxLink withdrawal ${trackingId}`,
     });
 
     const done = await prisma.withdrawal.update({
@@ -255,7 +255,7 @@ export async function executeWithdrawal(params: {
   }
 }
 
-// ── Bank deposit: external bank → FinCruse ────────────────────────────────────
+// ── Bank deposit: external bank → AxLink ────────────────────────────────────
 
 export async function executeBankDeposit(params: {
   userId: string;
@@ -283,7 +283,7 @@ export async function executeBankDeposit(params: {
       walletId: B2B_WALLET_ID,
       trackingId: `onramp_dep_${trackingId}`,
       callbackUrl: CALLBACK_URL,
-      label: `FinCruse bank deposit ${trackingId}`,
+      label: `AxLink bank deposit ${trackingId}`,
     });
 
     // Fireblocks credit vault
@@ -292,7 +292,7 @@ export async function executeBankDeposit(params: {
       amount: usdtAmount.toString(),
       sourceVaultId: process.env.FIREBLOCKS_TREASURY_VAULT ?? '',
       destVaultId: user.vaultId,
-      note: `FinCruse bank deposit ${trackingId}`,
+      note: `AxLink bank deposit ${trackingId}`,
       externalTxId: trackingId,
     });
 
@@ -351,7 +351,7 @@ export async function executeCryptoBuy(params: {
       amount: usdtAmount.toString(),
       sourceVaultId: user.vaultId,
       destVaultId: user.vaultId, // same vault — just tracked differently in ledger
-      note: `FinCruse crypto buy ${trackingId}`,
+      note: `AxLink crypto buy ${trackingId}`,
       externalTxId: trackingId,
     });
 

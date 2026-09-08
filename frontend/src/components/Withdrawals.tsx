@@ -81,7 +81,7 @@ export default function Withdrawals() {
     <div className="p-6 max-w-4xl mx-auto space-y-6">
       <div>
         <h1 className="text-xl font-semibold text-white">Withdrawals</h1>
-        <p className="text-sm text-gray-500 mt-0.5">Send fiat from a user's FinCruse balance to their bank or mobile money</p>
+        <p className="text-sm text-gray-500 mt-0.5">Send fiat from a user's AxLink balance to their bank or mobile money</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -186,7 +186,7 @@ export default function Withdrawals() {
             <div className="space-y-2 text-xs text-gray-400">
               {[
                 'Ledger debit (immediate)',
-                'Fireblocks: user vault → FinCruse treasury (USDT)',
+                'Fireblocks: user vault → AxLink treasury (USDT)',
                 'B2BinPay off-ramp: USDT → fiat to Brainrock treasury',
                 `Brainrock: ${destConfig?.label ?? 'Bank'} to recipient`,
                 'Brainrock webhook → withdrawal COMPLETED',

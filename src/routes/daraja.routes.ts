@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { parseB2CCallback, parseSTKCallback, type B2CCallback, type STKCallbackResult } from '../providers/live/daraja';
 import { prisma, credit } from '../core/ledger.service';
 import { handleFiatArrived } from '../core/orchestrator.service';
+import { confirmWithdrawalFromPartner, reverseWithdrawalFromPartner } from '../core/settlement/payout-confirmation.service';
 
 // ── Daraja Webhook Handlers ───────────────────────────────────────────────────
 // Safaricom fires these callbacks on B2C (payout) and STK Push (deposit) events.
@@ -39,21 +40,21 @@ router.post('/daraja/b2c/result', async (req: Request, res: Response) => {
   }
 
   if (parsed.success) {
-    await prisma.withdrawal.update({
-      where: { id: withdrawal.id },
-      data: { status: 'COMPLETED' },
+    // Through the settlement engine: confirms the PARTNER_PAYOUT leg and clears
+    // suspense. A direct status write here would leave the books unbalanced.
+    await confirmWithdrawalFromPartner({
+      withdrawalId:     withdrawal.id,
+      partnerReference: parsed.transactionId ?? originatorId,
+      providerId:       'daraja',
     });
-    console.log(`[Daraja B2C] Withdrawal ${withdrawal.trackingId} confirmed — M-Pesa TxID: ${parsed.transactionId}`);
   } else {
-    // Reverse: credit user back
-    await prisma.$transaction(async (tx: Parameters<typeof credit>[0]) => {
-      await credit(tx, withdrawal.userId, withdrawal.currency, Number(withdrawal.amount));
+    // Reverse through the settlement engine, so the journal is reversed too
+    // and not only the balance projection.
+    await reverseWithdrawalFromPartner({
+      withdrawalId: withdrawal.id,
+      reason:       parsed.failureReason ?? 'B2C failed',
+      providerId:   'daraja',
     });
-    await prisma.withdrawal.update({
-      where: { id: withdrawal.id },
-      data: { status: 'REVERSED' },
-    });
-    console.warn(`[Daraja B2C] Withdrawal ${withdrawal.trackingId} failed — ${parsed.failureReason}`);
   }
 });
 

@@ -1,8 +1,8 @@
-# FinCruse Settlement Service — Integration Guide
+# AxLink Settlement Service — Integration Guide
 
 ## What this service does
 
-Handles the full crypto-rail settlement for FinCruse. Users see a traditional digital bank — no crypto visible. Behind the scenes:
+Handles the full crypto-rail settlement for AxLink. Users see a traditional digital bank — no crypto visible. Behind the scenes:
 
 - **B2BinPay** (LP) — converts fiat ↔ USDT at institutional rates
 - **Fireblocks** — custody + USDT vault per user on Solana (near-gasless)
@@ -13,24 +13,24 @@ Handles the full crypto-rail settlement for FinCruse. Users see a traditional di
 ```
 Payout Rail (M-Pesa / Bank)
         ↓ webhook
-FinCruse Orchestrator
+AxLink Orchestrator
         ↓
 B2BinPay: fiat → USDT ──→ sends directly to user's Fireblocks vault address
                                     ↓
-                           Fireblocks webhook → FinCruse
+                           Fireblocks webhook → AxLink
                                     ↓
                            Ledger credits user balance
 ```
 
-Revenue model: **FX spread baked into rate** (no visible fee). B2BinPay charges institutional per-transaction fee. FinCruse earns the spread difference. No SWIFT = much higher margins.
+Revenue model: **FX spread baked into rate** (no visible fee). B2BinPay charges institutional per-transaction fee. AxLink earns the spread difference. No SWIFT = much higher margins.
 
 ---
 
 ## Step 1 — Clone & install
 
 ```bash
-git clone https://github.com/AXStronltd/fincruise-settlement.git
-cd fincruise-settlement
+git clone https://github.com/AXStronltd/axlink-settlement.git
+cd axlink-settlement
 npm install
 cp .env.example .env
 ```
@@ -68,14 +68,20 @@ openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:4096 -out fireblocks_sec
 
 # Generate CSR to upload to Fireblocks
 openssl req -new -key fireblocks_secret.key -out fireblocks.csr \
-  -subj "/C=KE/O=FinCruse/CN=fincruise-settlement"
+  -subj "/C=KE/O=AxLink/CN=axlink-settlement"
 ```
+
+> **If Fireblocks was already set up under the previous brand**, these two names exist in
+> their console and must match: the CSR subject of the registered API user,
+> and the treasury vault's name. Either keep the old names or rename them in
+> the Fireblocks console too — the rebrand does not reach across.
+
 
 ### Register with Fireblocks
 
 1. Go to **https://sandbox.fireblocks.io**
 2. **Settings** → **Users & API Keys** → **Add API User**
-3. Name: `fincruise-settlement`, Role: `Editor`
+3. Name: `axlink-settlement`, Role: `Editor`
 4. In the CSR field: paste contents of `fireblocks.csr`
 5. Click **Create** → copy the **API Key** shown
 
@@ -86,10 +92,10 @@ FIREBLOCKS_SANDBOX=true
 FIREBLOCKS_USDT_ASSET=USDT_SOL
 ```
 
-### Create FinCruse treasury vault
+### Create AxLink treasury vault
 
 In Fireblocks sandbox:
-1. **Vaults** → **Add Vault Account** → name it `FinCruse Treasury`
+1. **Vaults** → **Add Vault Account** → name it `AxLink Treasury`
 2. Add USDT_SOL asset → copy the vault ID
 
 ```env
@@ -241,11 +247,11 @@ curl -X POST http://localhost:4000/api/orchestrator/transfer \
 
 ## Revenue model
 
-FinCruse earns via **FX spread** — no visible fee to user:
+AxLink earns via **FX spread** — no visible fee to user:
 - B2BinPay gives institutional rate (close to mid-market)
-- FinCruse applies spread markup (e.g. 1.8% on USD→KES)
+- AxLink applies spread markup (e.g. 1.8% on USD→KES)
 - User sees a clean rate — no fee line
-- B2BinPay charges FinCruse per-transaction at institutional grade
+- B2BinPay charges AxLink per-transaction at institutional grade
 - Solana gas: ~$0.00025 per transaction
 - No SWIFT, no correspondent banks
 

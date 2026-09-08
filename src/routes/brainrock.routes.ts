@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { verifyWebhookSignature, buildAuthDecision } from '../providers/live/brainrock';
 import { prisma, credit, debit, getBalance } from '../core/ledger.service';
 import { handleFiatArrived } from '../core/orchestrator.service';
+import { confirmWithdrawalFromPartner, reverseWithdrawalFromPartner } from '../core/settlement/payout-confirmation.service';
 import { getRate } from '../core/fx.service';
 
 const router = Router();
@@ -94,16 +95,21 @@ router.post('/brainrock', async (req: Request, res: Response) => {
   }
 
   // ── Outbound confirmed: fiat reached user's bank/M-Pesa ─────────────────
+  // Goes through the settlement engine so the PARTNER_PAYOUT leg is confirmed
+  // and suspense is cleared. Writing `status: COMPLETED` here directly would
+  // leave the money in SUSPENSE:USD on the books.
   if (type === 'payment.sent' && data.paymentId) {
     const withdrawal = await prisma.withdrawal.findFirst({
       where: { brainrockPaymentId: data.paymentId },
     });
     if (withdrawal) {
-      await prisma.withdrawal.update({
-        where: { id: withdrawal.id },
-        data: { status: 'COMPLETED' },
+      await confirmWithdrawalFromPartner({
+        withdrawalId:     withdrawal.id,
+        partnerReference: data.paymentId,
+        providerId:       'brainrock',
       });
-      console.log(`[Brainrock] Withdrawal ${withdrawal.trackingId} confirmed — fiat delivered`);
+    } else {
+      console.warn(`[Brainrock] payment.sent — no withdrawal for paymentId=${data.paymentId}`);
     }
   }
 
@@ -113,14 +119,14 @@ router.post('/brainrock', async (req: Request, res: Response) => {
       where: { brainrockPaymentId: data.paymentId, status: 'PENDING_PAYOUT' },
     });
     if (withdrawal) {
-      await prisma.$transaction(async (tx: Parameters<typeof credit>[0]) => {
-        await credit(tx, withdrawal.userId, withdrawal.currency, Number(withdrawal.amount));
+      // Through the settlement engine so the reversal reaches the journal, not
+      // just the balance projection. Crediting the projection alone left the
+      // books holding the money in SUSPENSE while the customer had it back.
+      await reverseWithdrawalFromPartner({
+        withdrawalId: withdrawal.id,
+        reason:       data.failureReason ?? 'unknown reason',
+        providerId:   'brainrock',
       });
-      await prisma.withdrawal.update({
-        where: { id: withdrawal.id },
-        data: { status: 'REVERSED' },
-      });
-      console.log(`[Brainrock] Withdrawal ${withdrawal.trackingId} reversed — ${data.failureReason ?? 'unknown reason'}`);
     }
   }
 
