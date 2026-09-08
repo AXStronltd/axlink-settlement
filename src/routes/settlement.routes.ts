@@ -24,6 +24,14 @@ import { providerHealth, attemptsFor } from '../core/provider/attempt.service';
 import { advanceDeposit, advanceWithdrawal, confirmPartnerPayout } from '../core/settlement/usd-corridor.service';
 import { health as solanaHealth } from '../providers/live/solana';
 
+// Express 5 types route params as `string | string[]`, because a wildcard
+// segment can legitimately repeat. Every route in this file declares
+// single-segment params, so narrow once here rather than casting at each
+// call site — and take the first value rather than silently joining, so a
+// hand-crafted duplicate param cannot smuggle a second id past a lookup.
+const param = (v: string | string[] | undefined): string =>
+  Array.isArray(v) ? (v[0] ?? '') : (v ?? '');
+
 const router = Router();
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
@@ -64,7 +72,8 @@ const wrap =
 router.get(
   '/proof/:entityType/:entityId',
   wrap(async (req, res) => {
-    const { entityType, entityId } = req.params;
+    const entityType = param(req.params.entityType);
+    const entityId   = param(req.params.entityId);
     const proofs = await proofsFor(entityType, entityId);
     res.json({
       entityType,
@@ -101,7 +110,7 @@ router.get(
 router.get(
   '/books/account/:code',
   wrap(async (req, res) => {
-    const code = decodeURIComponent(req.params.code);
+    const code = decodeURIComponent(param(req.params.code));
     res.json(await statement(code, { limit: Number(req.query.limit ?? 200) }));
   }),
 );
@@ -109,7 +118,7 @@ router.get(
 router.get(
   '/books/balance/:code',
   wrap(async (req, res) => {
-    const code = decodeURIComponent(req.params.code);
+    const code = decodeURIComponent(param(req.params.code));
     res.json({ account: code, balance: (await accountBalance(code)).toString() });
   }),
 );
@@ -127,7 +136,7 @@ router.get(
 router.get(
   '/legs/:entityType/:entityId',
   wrap(async (req, res) => {
-    const legs = await legsFor(req.params.entityType, req.params.entityId);
+    const legs = await legsFor(param(req.params.entityType), param(req.params.entityId));
     res.json({
       entity: `${req.params.entityType}:${req.params.entityId}`,
       settled: legs.length > 0 && legs.every(l => l.status === 'COMPLETED'),
@@ -173,7 +182,8 @@ router.get(
 router.post(
   '/advance/:entityType/:entityId',
   wrap(async (req, res) => {
-    const { entityType, entityId } = req.params;
+    const entityType = param(req.params.entityType);
+    const entityId   = param(req.params.entityId);
     if (entityType === 'BankDeposit') await advanceDeposit(entityId);
     else if (entityType === 'Withdrawal') await advanceWithdrawal(entityId);
     else {
@@ -197,7 +207,7 @@ router.post(
       res.status(400).json({ error: 'partnerReference is required — it is the audit link to the partner statement' });
       return;
     }
-    await confirmPartnerPayout(req.params.id, reference);
+    await confirmPartnerPayout(param(req.params.id), reference);
     res.json({ ok: true });
   }),
 );
@@ -235,7 +245,7 @@ router.post(
       res.status(400).json({ error: 'note is required — a break resolved without an explanation is not resolved' });
       return;
     }
-    res.json(await resolveBreak(req.params.id, note));
+    res.json(await resolveBreak(param(req.params.id), note));
   }),
 );
 
@@ -254,14 +264,14 @@ router.get(
 router.post(
   '/providers/:id/reset-circuit',
   wrap(async (req, res) => {
-    resetBreaker(req.params.id);
-    res.json({ ok: true, providerId: req.params.id });
+    resetBreaker(param(req.params.id));
+    res.json({ ok: true, providerId: param(req.params.id) });
   }),
 );
 
 router.get(
   '/providers/attempts/:entityType/:entityId',
-  wrap(async (req, res) => res.json(await attemptsFor(req.params.entityType, req.params.entityId))),
+  wrap(async (req, res) => res.json(await attemptsFor(param(req.params.entityType), param(req.params.entityId)))),
 );
 
 // ── Outbox ────────────────────────────────────────────────────────────────────
@@ -271,7 +281,7 @@ router.get('/outbox', wrap(async (_req, res) => res.json(await outboxStatus())))
 router.post(
   '/outbox/:id/replay',
   wrap(async (req, res) => {
-    await replay(req.params.id);
+    await replay(param(req.params.id));
     res.json({ ok: true });
   }),
 );

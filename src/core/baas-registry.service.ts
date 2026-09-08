@@ -99,16 +99,16 @@ async function getBestProvider(
 
   const candidates = structurallyCapable.filter(p => isAvailable(p.id));
 
-  const skipped = structurallyCapable.filter(p => !isAvailable(p.id));
-  for (const p of skipped) {
+  const circuitOpen = structurallyCapable.filter(p => !isAvailable(p.id));
+  for (const p of circuitOpen) {
     void attempts.record({ providerId: p.id, operation: 'QUOTE', outcome: 'SKIPPED_CIRCUIT_OPEN', currency, amount });
   }
 
-  if (candidates.length === 0 && skipped.length > 0) {
+  if (candidates.length === 0 && circuitOpen.length > 0) {
     throw Object.assign(
       new Error(
         `Every provider able to handle ${currency} is currently circuit-broken: ` +
-        `${skipped.map(p => p.id).join(', ')}. They are failing, not missing — ` +
+        `${circuitOpen.map(p => p.id).join(', ')}. They are failing, not missing — ` +
         `check partner status before changing routing.`,
       ),
       { code: 'ALL_PROVIDERS_UNAVAILABLE', statusCode: 503 },
