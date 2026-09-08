@@ -1,5 +1,13 @@
+// MUST be the first import. ES module imports are hoisted and evaluated in
+// order, so every module below initialises before any statement in this file
+// runs. Modules that read process.env at module scope — orchestrator.service
+// (TREASURY_VAULT), transfer.service (CALLBACK_URL), treasury.service — were
+// therefore capturing undefined while a later dotenv.config() made the values
+// appear present to everything that checked afterwards. The side-effect import
+// loads .env during module resolution, before those constants are evaluated.
+import 'dotenv/config';
+
 import express, { Request, Response, NextFunction } from 'express';
-import dotenv from 'dotenv';
 import transferRoutes    from './routes/transfer.routes';
 import quoteRoutes       from './routes/quote.routes';
 import simulateRoutes    from './routes/simulate.routes';
@@ -13,7 +21,6 @@ import treasuryRoutes   from './routes/treasury.routes';
 import depositRoutes    from './routes/deposit.routes';
 import settlementRoutes from './routes/settlement.routes';
 
-dotenv.config();
 
 // Register liquidity providers (B2BinPay, Brainrock FX, AxLink internal)
 import('./bootstrap/lp.bootstrap');
@@ -123,6 +130,15 @@ if (process.env.SIMULATOR_ENABLED === 'true' && process.env.NODE_ENV !== 'produc
   import('./routes/harness.routes')
     .then(m => app.use('/api/settlement/harness', m.default))
     .catch(err => console.error('[startup] Harness routes failed to mount:', err));
+}
+
+// Demo endpoints for the Live Demo UI. Hands out KYC-approved accounts, so it
+// is mounted only on an explicit opt-in and never in production.
+if (process.env.DEMO_ENABLED === 'true' && process.env.NODE_ENV !== 'production') {
+  console.warn('[startup] Demo API ENABLED at /api/demo — issues KYC-approved accounts');
+  import('./routes/demo.routes')
+    .then(m => app.use('/api/demo', m.default))
+    .catch(err => console.error('[startup] Demo routes failed to mount:', err));
 }
 
 // Settlement ops: books, legs, reconciliation, provider health.

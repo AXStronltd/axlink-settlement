@@ -117,6 +117,22 @@ export interface STKCallbackResult {
 //   'BusinessPayment'     — standard payout (most cases)
 //   'SalaryPayment'       — payroll
 //   'PromotionPayment'    — promotions/cashback
+
+// ── Sandbox stub ─────────────────────────────────────────────────────────────
+// B2BinPay and Fireblocks already return stub responses when their credentials
+// are absent, which is what lets the service boot and quote in sandbox. The
+// payout partners did not, so any withdrawal died at the partner call and no
+// corridor could be exercised locally. Same contract as the other two: real
+// call when configured, shaped stub when not.
+const PLACEHOLDER_PREFIXES = ['your_', 'YOUR_', 'sandbox_'];
+function isConfigured(value: string | undefined): boolean {
+  const v = value ?? '';
+  return !!v && !PLACEHOLDER_PREFIXES.some(p => v.startsWith(p));
+}
+function stubRef(prefix: string): string {
+  return `${prefix}_sandbox_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+}
+
 export async function sendB2C(params: {
   amount: number;
   phoneNumber: string;   // format: 2547XXXXXXXX (no leading +)
@@ -124,6 +140,17 @@ export async function sendB2C(params: {
   occasion?: string;     // short description shown to recipient
   commandId?: 'BusinessPayment' | 'SalaryPayment' | 'PromotionPayment';
 }): Promise<B2CResult> {
+  if (!isConfigured(process.env.DARAJA_CONSUMER_KEY)) {
+    const id = stubRef('daraja');
+    console.log(`[Daraja] SANDBOX — would send ${params.amount} KES to ${normalizeMsisdn(params.phoneNumber)} (${id})`);
+    return {
+      ConversationID: id,
+      OriginatorConversationID: params.reference,
+      ResponseCode: '0',
+      ResponseDescription: 'Accepted for processing (sandbox stub)',
+    };
+  }
+
   const shortcode    = process.env.DARAJA_SHORTCODE ?? '';
   const callbackBase = process.env.API_BASE_URL ?? '';
 

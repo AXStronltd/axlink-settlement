@@ -216,11 +216,17 @@ export async function handleWithdrawalRequest(params: {
 
   await audit('Withdrawal', withdrawal.id, 'REQUESTED', { destination: destination.type, usdAmount });
 
+  // Whether we have taken the customer's money yet. Everything after the debit
+  // can throw — a missing float account, a partner timeout, a rejected payout —
+  // and the money must go back when it does.
+  let debited = false;
+
   try {
     // ── A: Debit user ledger ──────────────────────────────────────────
     await prisma.$transaction(async (tx: Parameters<typeof debit>[0]) => {
       await debit(tx, userId, currency, amount);
     });
+    debited = true;
 
     await audit('Withdrawal', withdrawal.id, 'LEDGER_DEBITED', { amount, currency });
 
@@ -277,8 +283,36 @@ export async function handleWithdrawalRequest(params: {
     return done;
 
   } catch (err) {
-    await prisma.withdrawal.update({ where: { id: withdrawal.id }, data: { status: 'FAILED' } });
-    await audit('Withdrawal', withdrawal.id, 'FAILED', { error: String(err) });
+    // Return the money if we took it. Reversal used to exist only on the
+    // partner webhooks (payment.failed), so any failure raised before a partner
+    // was ever contacted left the debit stranded: the withdrawal read FAILED
+    // while the customer's balance stayed short. A missing env var did it.
+    if (debited) {
+      try {
+        await prisma.$transaction(async (tx: Parameters<typeof credit>[0]) => {
+          await credit(tx, userId, currency, amount);
+        });
+        await prisma.withdrawal.update({ where: { id: withdrawal.id }, data: { status: 'REVERSED' } });
+        await audit('Withdrawal', withdrawal.id, 'REVERSED', {
+          amount, currency, reason: 'payout failed before delivery', error: String(err),
+        });
+      } catch (reversalErr) {
+        // The reversal itself failed. The customer is short and no automated
+        // path will fix it, so say so as loudly as possible.
+        await prisma.withdrawal.update({ where: { id: withdrawal.id }, data: { status: 'FAILED' } });
+        await audit('Withdrawal', withdrawal.id, 'REVERSAL_FAILED', {
+          amount, currency, originalError: String(err), reversalError: String(reversalErr),
+        });
+        console.error(
+          `[Orchestrator] REVERSAL FAILED for withdrawal ${trackingId} — ` +
+          `${amount} ${currency} debited from user ${userId} and NOT returned. Manual credit required.`,
+          reversalErr,
+        );
+      }
+    } else {
+      await prisma.withdrawal.update({ where: { id: withdrawal.id }, data: { status: 'FAILED' } });
+      await audit('Withdrawal', withdrawal.id, 'FAILED', { error: String(err) });
+    }
     throw err;
   }
 }
