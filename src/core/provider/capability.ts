@@ -78,7 +78,13 @@ export type RejectionReason =
 export interface CapabilityRequest {
   operation: ProviderOperation;
   currency: string;
-  amount: number;
+  /**
+   * Omitted when no figure has been named — a virtual IBAN accepts whatever
+   * the customer chooses to send. Limits are then not evaluated, because there
+   * is nothing to compare: treating an absent amount as zero would fail every
+   * provider that declares a minimum.
+   */
+  amount?: number;
   method?: PayoutMethod;
   countryCode?: string;
   environment?: ProviderEnvironment;
@@ -541,8 +547,11 @@ export function evaluateCapability(
     matched.push(`country:${cc}`);
   }
 
+  // Limits are only meaningful against a stated amount. An open-ended
+  // collection has none, and the partner enforces its own bounds when the
+  // money actually arrives.
   const band = capability.limits?.[curr];
-  if (band) {
+  if (band && request.amount !== undefined) {
     if (band.min !== undefined && request.amount < band.min) {
       return no('AMOUNT_BELOW_MIN', `minimum is ${band.min} ${curr}`);
     }

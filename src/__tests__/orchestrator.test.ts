@@ -24,9 +24,10 @@ import {
   setProviderEnabled,
   getRegisteredProviders,
   deliverFiat,
+  collectFunds,
 } from '../core/baas-registry.service';
 import { resetAllBreakers } from '../core/provider/circuit-breaker';
-import { MockProvider, mockKesProvider } from '../providers/mock/mock.baas';
+import { MockProvider, mockKesProvider, mockKesCollector } from '../providers/mock/mock.baas';
 import type { IBaaSProvider, PaymentDestination } from '../core/baas.interface';
 
 /**
@@ -256,5 +257,119 @@ describe('registration', () => {
   it('rejects a duplicate provider id', () => {
     register(mockKesProvider('same-id'));
     expect(() => registerBaaSProvider(mockKesProvider('same-id'))).toThrow(/already registered/);
+  });
+});
+
+// ── Collection: money coming in, routed the same way ─────────────────────────
+
+const collectRequest = (overrides: Record<string, unknown> = {}) => ({
+  currency: 'KES',
+  amount: 5_000,
+  method: 'mobile_money' as const,
+  customerRef: 'user_1',
+  reference: `col_${Math.random().toString(36).slice(2, 8)}`,
+  countryCode: 'KE',
+  ...overrides,
+});
+
+describe('collection', () => {
+  it('routes to a collection provider the core has never heard of', async () => {
+    const partner = mockKesCollector('inbound-partner');
+    register(partner);
+
+    const result = await collectFunds(collectRequest());
+
+    expect(result.providerId).toBe('inbound-partner');
+    expect(result.decision.selectedProviderId).toBe('inbound-partner');
+    expect(partner.collections).toHaveLength(1);
+  });
+
+  // A partner saying "created" is not a customer having paid. The ledger moves
+  // on the webhook and the on-chain proof, never on this call returning.
+  it('never reports money as received', async () => {
+    register(mockKesCollector('inbound'));
+
+    const result = await collectFunds(collectRequest());
+
+    expect(result.status).toBe('AWAITING_PAYMENT');
+  });
+
+  it('returns instructions the caller must handle by kind', async () => {
+    register(mockKesCollector('push-partner'));
+
+    const result = await collectFunds(collectRequest());
+
+    expect(result.instructions.kind).toBe('push');
+    if (result.instructions.kind === 'push') {
+      expect(result.instructions.sentTo).toBe('+254712345678');
+    }
+  });
+
+  // A payout partner must never be handed a collection, however well its
+  // currency and country match.
+  it('will not route a collection to a payout-only provider', async () => {
+    const payoutOnly = mockKesProvider('payout-only');
+    register(payoutOnly);
+
+    const err = await collectFunds(collectRequest()).catch(e => e);
+
+    expect(err.code).toBe('NO_PROVIDER_ROUTE');
+    expect(err.decision.rejected[0].reason).toBe('OPERATION_UNSUPPORTED');
+    expect(payoutOnly.collections).toHaveLength(0);
+  });
+
+  it('fails over to a second collector when the first is disabled', async () => {
+    register(mockKesCollector('collector-a'));
+    register(mockKesCollector('collector-b'));
+
+    expect((await collectFunds(collectRequest())).providerId).toBe('collector-a');
+
+    setProviderEnabled('collector-a', false);
+    const after = await collectFunds(collectRequest());
+
+    expect(after.providerId).toBe('collector-b');
+    expect(after.decision.rejected.map(r => r.reason)).toContain('DISABLED');
+  });
+
+  // A virtual IBAN accepts whatever the customer sends, so an absent amount
+  // must not be read as zero and rejected by a minimum.
+  it('accepts a collection with no fixed amount', async () => {
+    register(mockKesCollector('standing-instrument', {
+      capability: {
+        settlementCurrencies: ['USD'],
+        payoutCurrencies: ['KES'],
+        methods: ['mobile_money'],
+        operations: ['COLLECTION'],
+        limits: { KES: { min: 100 } },
+      },
+      collection: { kind: 'bank_account', accountNumber: 'VA-1', reference: 'ref' },
+    }));
+
+    const result = await collectFunds(collectRequest({ amount: undefined }));
+
+    expect(result.providerId).toBe('standing-instrument');
+  });
+
+  it('registration refuses a provider claiming COLLECTION without collect()', () => {
+    const broken = new MockProvider({
+      id: 'claims-collection',
+      capability: {
+        settlementCurrencies: ['USD'],
+        payoutCurrencies: ['KES'],
+        methods: ['mobile_money'],
+        operations: ['COLLECTION'],
+      },
+    });
+    (broken as { collect?: unknown }).collect = undefined;
+
+    expect(() => registerBaaSProvider(broken)).toThrow(/declares the COLLECTION operation/);
+  });
+
+  it('a partner error surfaces with its code', async () => {
+    register(mockKesCollector('failing', {
+      failCollect: { message: 'partner declined', code: 'COLLECTION_REFUSED' },
+    }));
+
+    await expect(collectFunds(collectRequest())).rejects.toMatchObject({ code: 'COLLECTION_REFUSED' });
   });
 });

@@ -47,6 +47,8 @@ import type {
   BaaSQuote,
   BaaSPayoutParams,
   BaaSPayoutResult,
+  CollectionRequest,
+  CollectionResult,
 } from './baas.interface';
 
 const _providers: IBaaSProvider[] = [];
@@ -131,6 +133,14 @@ export function registerBaaSProvider(provider: IBaaSProvider): void {
       `Provider '${provider.id}' declares the PAYOUT operation but implements no sendPayout(). ` +
       `It would win payout routing and fail after the customer was debited. ` +
       `Either implement sendPayout or remove PAYOUT from capability.operations.`,
+    );
+  }
+
+  if (operations.includes('COLLECTION') && typeof provider.collect !== 'function') {
+    throw new Error(
+      `Provider '${provider.id}' declares the COLLECTION operation but implements no collect(). ` +
+      `It would win collection routing and fail with a customer waiting to fund their account. ` +
+      `Either implement collect or remove COLLECTION from capability.operations.`,
     );
   }
 
@@ -406,6 +416,127 @@ async function getBestProvider(
   console.log(`[BaaSRegistry] ${summarise(decision)}`);
 
   return { provider: winner.provider, quote: winner.quote, decision };
+}
+
+// ── Collection ────────────────────────────────────────────────────────────────
+
+/**
+ * Ask a partner to take money in.
+ *
+ * Selection shares `evaluateCapability` with payouts, but nothing else:
+ * collection has no funding leg — no USDT to move, no float to replenish,
+ * because the money is arriving rather than leaving — and partners expose no
+ * collection quote, so there is no race to run. Reusing the payout path would
+ * mean pretending both.
+ *
+ * Selection is therefore by declared capability and availability alone. Where
+ * more than one partner qualifies, the cheaper declared fee wins; the decision
+ * records the rest.
+ */
+export async function collectFunds(
+  request: CollectionRequest,
+): Promise<CollectionResult & { decision: RoutingDecision }> {
+  const startedAt = Date.now();
+  const correlationId = randomUUID();
+  const curr = request.currency.toUpperCase();
+  const rejected: RejectedProvider[] = [];
+
+  const candidates = _providers.filter(p => {
+    if (!isProviderEnabled(p.id)) {
+      rejected.push({ providerId: p.id, reason: 'DISABLED', detail: 'switched off at runtime' });
+      return false;
+    }
+
+    const verdict = evaluateCapability(deriveCapability(p), {
+      operation: 'COLLECTION',
+      currency: curr,
+      // Passed through undefined, not coerced: a standing instrument names no
+      // figure, and zero would fail every declared minimum.
+      amount: request.amount,
+      countryCode: request.countryCode,
+      environment: environment(),
+    });
+
+    if (!verdict.permitted) {
+      rejected.push({ providerId: p.id, reason: verdict.reason!, detail: verdict.detail });
+      return false;
+    }
+
+    if (!isAvailable(p.id)) {
+      rejected.push({ providerId: p.id, reason: 'CIRCUIT_OPEN', detail: 'failing — breaker open' });
+      return false;
+    }
+
+    return true;
+  });
+
+  const decisionFor = (selected: string | null, matched: string[], basis?: string): RoutingDecision => ({
+    correlationId,
+    operation: 'COLLECTION',
+    currency: curr,
+    amount: request.amount ?? 0,
+    selectedProviderId: selected,
+    matched,
+    ...(basis ? { selectionBasis: basis } : {}),
+    rejected,
+    latencyMs: Date.now() - startedAt,
+    decidedAt: new Date().toISOString(),
+  });
+
+  if (candidates.length === 0) throw noRouteError(decisionFor(null, []));
+
+  // Declared fee, not a quoted one: partners price collection as a published
+  // schedule rather than per request, so asking each one would be a network
+  // round trip for a number already in the capability.
+  const ranked = [...candidates].sort((a, b) => {
+    const fa = deriveCapability(a).fees?.percent ?? deriveCapability(a).fees?.fixedUsd ?? 0;
+    const fb = deriveCapability(b).fees?.percent ?? deriveCapability(b).fees?.fixedUsd ?? 0;
+    return fa - fb;
+  });
+
+  const winner = ranked[0];
+  ranked.slice(1).forEach(p =>
+    rejected.push({ providerId: p.id, reason: 'QUOTE_FAILED', detail: 'higher declared collection fee' }),
+  );
+
+  const verdict = evaluateCapability(deriveCapability(winner), {
+    operation: 'COLLECTION',
+    currency: curr,
+    amount: request.amount,
+    countryCode: request.countryCode,
+    environment: environment(),
+  });
+
+  const decision = decisionFor(
+    winner.id,
+    verdict.matched,
+    ranked.length > 1 ? `lowest declared fee of ${ranked.length}` : 'only capable provider',
+  );
+  console.log(`[BaaSRegistry] ${summarise(decision)}`);
+
+  // Registration guarantees this, so its absence means the registry was
+  // bypassed. Assert rather than assume.
+  const collect = winner.collect?.bind(winner);
+  if (!collect) {
+    throw Object.assign(
+      new Error(`Provider '${winner.id}' was routed a collection but implements no collect()`),
+      { code: 'PROVIDER_CANNOT_COLLECT', statusCode: 500 },
+    );
+  }
+
+  const result = await attempts.timed(
+    {
+      providerId: winner.id,
+      operation: 'QUOTE',
+      reference: request.reference,
+      currency: curr,
+      amount: request.amount,
+      selected: true,
+    },
+    () => withBreaker(winner.id, () => collect({ ...request, currency: curr })),
+  );
+
+  return { ...result, decision };
 }
 
 // ── JIT two-phase funding ─────────────────────────────────────────────────────

@@ -104,6 +104,67 @@ export interface DepositSource {
   reference:        string;    // provider's transaction ID
 }
 
+// ── Collection — asking a partner to take money in ───────────────────────────
+
+export interface CollectionRequest {
+  currency: string;
+  /**
+   * Omitted for a standing instrument such as a virtual IBAN, which accepts
+   * whatever the customer sends. Required for anything that names a figure —
+   * an STK push, a card session.
+   */
+  amount?: number;
+  method: DepositMethod;
+  /** Our user, so the partner can be asked for their standing instrument. */
+  customerRef: string;
+  /** Our tracking id. Echoed back on the webhook that confirms payment. */
+  reference: string;
+  countryCode?: string;
+  /** Where to send a push — the payer's own number, not a beneficiary's. */
+  mobileNumber?: string;
+  /** Where to return the customer after a hosted payment page. */
+  returnUrl?: string;
+}
+
+/**
+ * How the customer is told to pay.
+ *
+ * Three genuinely different shapes, not one with optional fields: a virtual
+ * IBAN is an account that already exists and waits, a hosted page is a link
+ * that expires, and an STK push is a prompt already on someone's phone. A
+ * caller must handle the one it gets, and a shared shape with everything
+ * optional would let it forget.
+ */
+export type CollectionInstructions =
+  | {
+      kind: 'bank_account';
+      accountNumber?: string;
+      iban?: string;
+      bic?: string;
+      bankName?: string;
+      /** The customer must quote this, or the credit cannot be attributed. */
+      reference: string;
+    }
+  | { kind: 'redirect'; url: string; expiresAt?: string }
+  | { kind: 'push'; sentTo: string };
+
+export interface CollectionResult {
+  providerId: string;
+  /** The partner's own id for this collection. */
+  collectionId: string;
+  /**
+   * AWAITING_PAYMENT — the customer has not paid yet.
+   * PROCESSING       — the partner has the money and is clearing it.
+   *
+   * Never COMPLETED from this call. Money is confirmed by the partner's
+   * webhook and proved before the ledger moves; a partner saying "created"
+   * is not a customer having paid.
+   */
+  status: 'AWAITING_PAYMENT' | 'PROCESSING';
+  instructions: CollectionInstructions;
+  expiresAt?: string;
+}
+
 // ── BaaS Quote ────────────────────────────────────────────────────────────────
 
 export interface BaaSQuote {
@@ -195,6 +256,20 @@ export interface IBaaSProvider {
    * gap at payment time.
    */
   sendPayout?(params: BaaSPayoutParams): Promise<BaaSPayoutResult>;
+
+  /**
+   * Take money in from a customer.
+   *
+   * Optional, like `sendPayout`: a payout-only partner has nothing to collect.
+   * Declare `COLLECTION` in `capability.operations` and the registry requires
+   * this at registration rather than discovering it when a customer is waiting
+   * to fund an account.
+   *
+   * Returns instructions, not a credit. The ledger moves when the partner's
+   * webhook confirms and the settlement engine proves it — never on the
+   * strength of this call returning.
+   */
+  collect?(request: CollectionRequest): Promise<CollectionResult>;
 
   /**
    * Is this provider actually reachable?

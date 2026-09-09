@@ -21,6 +21,9 @@ import type {
   BaaSPayoutParams,
   BaaSPayoutResult,
   PayoutMethod,
+  CollectionRequest,
+  CollectionResult,
+  CollectionInstructions,
 } from '../../core/baas.interface';
 import type { ProviderCapability } from '../../core/provider/capability';
 import type { AdapterHealth } from '../../core/provider/health';
@@ -46,6 +49,15 @@ export interface MockProviderConfig {
 
   /** Destination fields required before canHandle() accepts, e.g. ['mobileNumber']. */
   requires?: Array<keyof PaymentDestination>;
+
+  /**
+   * What this provider hands back when asked to collect. Its shape decides
+   * which instruction kind the caller must handle, which is the thing worth
+   * testing — a virtual IBAN and an STK push are not interchangeable.
+   */
+  collection?: CollectionInstructions;
+  /** Fail every collection — for the partner-error case. */
+  failCollect?: { message: string; code?: string };
 }
 
 export class MockProvider implements IBaaSProvider {
@@ -59,6 +71,8 @@ export class MockProvider implements IBaaSProvider {
   readonly payouts: BaaSPayoutParams[] = [];
   /** Every quote request, so a test can prove a provider was never consulted. */
   readonly quoteRequests: Array<{ currency: string; amount: number }> = [];
+  /** Every collection asked of this provider. */
+  readonly collections: CollectionRequest[] = [];
 
   constructor(private readonly config: MockProviderConfig) {
     this.id = config.id;
@@ -115,6 +129,29 @@ export class MockProvider implements IBaaSProvider {
     };
   }
 
+  async collect(request: CollectionRequest): Promise<CollectionResult> {
+    this.collections.push(request);
+
+    if (this.config.failCollect) {
+      throw Object.assign(new Error(this.config.failCollect.message), {
+        code: this.config.failCollect.code ?? 'PROVIDER_ERROR',
+      });
+    }
+
+    return {
+      providerId: this.id,
+      collectionId: `${this.id}_col_${this.collections.length}`,
+      // Never COMPLETED: money is confirmed by webhook and proved on chain,
+      // not by this call returning.
+      status: 'AWAITING_PAYMENT',
+      instructions: this.config.collection ?? {
+        kind: 'bank_account',
+        accountNumber: `ACC-${this.id}`,
+        reference: request.reference,
+      },
+    };
+  }
+
   // Only present when the test configures one. A provider that declares no
   // health check must report UNCONFIGURED rather than be assumed healthy, and
   // that distinction is only testable if this can genuinely be absent.
@@ -142,6 +179,24 @@ export function mockKesProvider(id: string, overrides: Partial<MockProviderConfi
       prefundedFloat: false,
     },
     requires: ['mobileNumber'],
+    ...overrides,
+  });
+}
+
+/** A KES collection partner — takes money in over mobile money. */
+export function mockKesCollector(id: string, overrides: Partial<MockProviderConfig> = {}): MockProvider {
+  return new MockProvider({
+    id,
+    capability: {
+      settlementCurrencies: ['USD'],
+      payoutCurrencies: ['KES'],
+      methods: ['mobile_money'],
+      countries: ['KE'],
+      operations: ['COLLECTION'],
+      partnerAppliesFx: true,
+      cryptoLicensed: false,
+    },
+    collection: { kind: 'push', sentTo: '+254712345678' },
     ...overrides,
   });
 }
