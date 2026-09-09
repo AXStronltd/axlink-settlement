@@ -43,6 +43,7 @@ import { createDeposit, createPayout } from '../providers/live/b2binpay';
 import { createTransfer as fbTransfer } from '../providers/live/fireblocks';
 import { type PaymentDestination } from './baas.interface';
 import { deliverFiat } from './baas-registry.service';
+import { addFunds } from './settlement/usd-corridor.service';
 import { consumeQuote, createQuote } from './quote.service';
 import { requestValidation, type PaymentType } from './kafka.service';
 
@@ -64,6 +65,35 @@ const CALLBACK      = `${process.env.API_BASE_URL}/webhooks/b2binpay`;
 // Called by webhook from M-Pesa / bank partner
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Whether this deposit settles on the engine rather than the legacy path.
+ *
+ * Three conditions, each one a reason a deposit is not yet safe to migrate:
+ *
+ *   opt-in       Off unless SETTLEMENT_ENGINE_DEPOSITS=true. This changes how
+ *                real money is handled, so it is enabled per environment and
+ *                rolled back by an env change rather than a deploy.
+ *
+ *   USD only     usd-corridor posts USD-denominated journal lines. A KES
+ *                deposit routed there would be booked against the wrong
+ *                accounts — the same reason compensateWithdrawal refuses
+ *                non-USD outright. Other currencies migrate when their
+ *                corridor exists.
+ *
+ *   no existing  The Add Funds session flow has already created a BankDeposit
+ *   deposit      row and passes its id. The engine creates its own, which
+ *                would orphan the pending one and leave the customer's session
+ *                waiting on a deposit nothing will ever complete.
+ *
+ * Read per call so the switch can be flipped without a restart.
+ */
+function routeDepositToEngine(currency: string, existingDepositId?: string): boolean {
+  if (process.env.SETTLEMENT_ENGINE_DEPOSITS !== 'true') return false;
+  if (currency.toUpperCase() !== 'USD') return false;
+  if (existingDepositId) return false;
+  return true;
+}
+
 export async function handleFiatArrived(event: {
   userId: string;
   currency: string;       // KES, GBP, NGN, etc.
@@ -75,7 +105,37 @@ export async function handleFiatArrived(event: {
   const { userId, currency, amount, rail, railReference, existingDepositId } = event;
 
   // ── Kafka validation gate — must pass before any DB write ────────────────
+  // Deliberately before the engine handoff: no deposit reaches the ledger
+  // unvalidated, whichever path settles it.
   await validateOrReject('DEPOSIT', { userId, currency, amount, rail });
+
+  // ── Settlement engine handoff ─────────────────────────────────────────────
+  //
+  // The engine plans legs before any external call, proves the USDT on chain
+  // before crediting, and is idempotent by unique constraint. This path does
+  // none of that: it credits on a Fireblocks webhook alone, with no proof and
+  // no recovery if the process dies mid-deposit.
+  //
+  // Migrated one currency at a time rather than wholesale — see
+  // docs/DELIVERY-PLAN.md, phase 2a. A deposit is the safest flow to move
+  // first: if it fails the customer is where they started, and no money has
+  // left the system.
+  if (routeDepositToEngine(currency, existingDepositId)) {
+    const result = await addFunds({
+      userId,
+      amount,
+      rail,
+      railReference,
+      // The rail's own reference is the natural idempotency key: the same bank
+      // credit must not be booked twice, however often the webhook arrives.
+      idempotencyKey: railReference,
+    });
+
+    const { depositId } = result.value as { depositId: string };
+    // Re-read so callers receive the same row shape the legacy path returns.
+    // One query per deposit, and every caller stays unchanged.
+    return prisma.bankDeposit.findUniqueOrThrow({ where: { id: depositId } });
+  }
 
   const user = await getUser(userId);
   const usdAmount = await toUSD(amount, currency);
