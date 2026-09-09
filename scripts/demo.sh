@@ -18,6 +18,10 @@
 set -euo pipefail
 
 API="${API:-http://localhost:4000/api}"
+# The money-moving endpoints require the platform credential. Local default
+# matches the one in .env; override for another environment.
+KEY="${SETTLEMENT_API_KEY:-local_dev_settlement_key}"
+AUTH=(-H "Authorization: Bearer $KEY")
 PSQL_DB="${PSQL_DB:-axlink_settlement}"
 PSQL_USER="${PSQL_USER:-$(whoami)}"
 
@@ -33,9 +37,9 @@ fi
 # ─────────────────────────────────────────────────────────────────────────────
 rule "1. Two customers"
 
-MIKE=$(curl -s -X POST "$API/users" -H 'Content-Type: application/json' \
+MIKE=$(curl -s "${AUTH[@]}" -X POST "$API/users" -H 'Content-Type: application/json' \
   -d '{"email":"mike+'"$RANDOM"'@demo.test","name":"Mike","currency":"USD"}' | jsonf "d['userId']")
-JAMES=$(curl -s -X POST "$API/users" -H 'Content-Type: application/json' \
+JAMES=$(curl -s "${AUTH[@]}" -X POST "$API/users" -H 'Content-Type: application/json' \
   -d '{"email":"james+'"$RANDOM"'@demo.test","name":"James","currency":"KES"}' | jsonf "d['userId']")
 
 money "Mike   (USA, USD)" "$MIKE"
@@ -56,7 +60,7 @@ echo "   [SETUP] KYC approved, USDT vault addresses assigned"
 # ─────────────────────────────────────────────────────────────────────────────
 rule "2. Mike deposits \$1,000 — fiat in"
 
-DEP=$(curl -s -X POST "$API/orchestrator/payout-rail/fiat-arrived" \
+DEP=$(curl -s "${AUTH[@]}" -X POST "$API/orchestrator/payout-rail/fiat-arrived" \
   -H 'Content-Type: application/json' \
   -d "{\"userId\":\"$MIKE\",\"currency\":\"USD\",\"amount\":1000,
        \"rail\":\"bank_transfer\",\"railReference\":\"demo_$RANDOM\"}")
@@ -64,7 +68,7 @@ TRACK=$(echo "$DEP" | jsonf "d['trackingId']")
 money "status" "$(echo "$DEP" | jsonf "d['status']")"
 money "flow" "$(echo "$DEP" | jsonf "d['flow']")"
 
-BAL=$(curl -s "$API/users/$MIKE" | jsonf "d['accounts'][0]['balance']")
+BAL=$(curl -s "${AUTH[@]}" "$API/users/$MIKE" | jsonf "d['accounts'][0]['balance']")
 money "Mike's balance now" "\$$BAL   <- still zero, and that is correct"
 echo "   The money is not his until USDT is confirmed in his vault."
 
@@ -79,7 +83,7 @@ curl -s -X POST "$API/webhooks/fireblocks" -H 'Content-Type: application/json' \
                  \"externalTxId\":\"$TRACK\",
                  \"destination\":{\"id\":\"$MIKE_VAULT\"}}}" >/dev/null
 
-BAL=$(curl -s "$API/users/$MIKE" | jsonf "d['accounts'][0]['balance']")
+BAL=$(curl -s "${AUTH[@]}" "$API/users/$MIKE" | jsonf "d['accounts'][0]['balance']")
 money "Mike's balance now" "\$$BAL"
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -97,7 +101,7 @@ money "revenue on this txn" "$(echo "$Q" | jsonf "d['revenueModel']['axlinkReven
 # ─────────────────────────────────────────────────────────────────────────────
 rule "5. Transfer \$300 Mike -> James"
 
-T=$(curl -s -X POST "$API/orchestrator/transfer" -H 'Content-Type: application/json' \
+T=$(curl -s "${AUTH[@]}" -X POST "$API/orchestrator/transfer" -H 'Content-Type: application/json' \
   -d "{\"senderId\":\"$MIKE\",\"receiverId\":\"$JAMES\",\"fromCurrency\":\"USD\",
        \"toCurrency\":\"KES\",\"amount\":300,\"quoteId\":\"$QID\"}")
 echo "$T" | python3 -c "
@@ -109,13 +113,13 @@ else:
         if k in d: print(f'   {k:<34} {d[k]}')
 " || true
 
-money "Mike's USD"  "$(curl -s "$API/users/$MIKE"  | jsonf "d['accounts']")"
-money "James's KES" "$(curl -s "$API/users/$JAMES" | jsonf "d['accounts']")"
+money "Mike's USD"  "$(curl -s "${AUTH[@]}" "$API/users/$MIKE"  | jsonf "d['accounts']")"
+money "James's KES" "$(curl -s "${AUTH[@]}" "$API/users/$JAMES" | jsonf "d['accounts']")"
 
 # ─────────────────────────────────────────────────────────────────────────────
 rule "6. James withdraws to M-Pesa"
 
-W=$(curl -s -X POST "$API/orchestrator/withdraw" -H 'Content-Type: application/json' \
+W=$(curl -s "${AUTH[@]}" -X POST "$API/orchestrator/withdraw" -H 'Content-Type: application/json' \
   -d "{\"userId\":\"$JAMES\",\"currency\":\"KES\",\"amount\":5000,
        \"recipientName\":\"James Mwangi\",
        \"destination\":{\"type\":\"mpesa\",\"method\":\"mobile_money\",

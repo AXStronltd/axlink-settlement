@@ -8,6 +8,7 @@
 import 'dotenv/config';
 
 import express, { Request, Response, NextFunction } from 'express';
+import { requireServiceAuth, reportAuthPosture } from './middleware/service-auth';
 import path from 'path';
 import transferRoutes    from './routes/transfer.routes';
 import quoteRoutes       from './routes/quote.routes';
@@ -69,6 +70,8 @@ if (placeholders.length) {
   console.warn(`[startup] Sandbox mode — unset credentials: ${placeholders.join(', ')}`);
 }
 
+reportAuthPosture();
+
 const app = express();
 const PORT = process.env.PORT || 4000;
 
@@ -107,14 +110,57 @@ app.get(['/', '/api'], (_req, res) => {
   });
 });
 
-// User-initiated Add Funds — must be before /api (transferRoutes also has /deposits/*)
-app.use('/api/deposits', depositRoutes);
+// ── Platform API ──────────────────────────────────────────────────────────────
+//
+// This service is infrastructure with no end users: its caller is the banking
+// platform that holds the customer relationship. Nothing sits in front of it
+// doing authentication, so every route that moves money or creates an account
+// carries the service credential.
+//
+// `fiat-arrived` in particular is how money enters the ledger. Unauthenticated,
+// anything able to reach the port could credit any account by any amount.
 
-// Core API
-app.use('/api', transferRoutes);
+// ORDER MATTERS. `app.use('/api', …)` matches every path beginning /api, so
+// its guard would also cover anything mounted after it. The open routes are
+// therefore declared first — mounting them below would silently require a
+// credential the platform has no reason to hold when asking for a rate.
+
+// Pricing. Open deliberately: a quote moves no money and holds no customer
+// data, and the platform needs rates before it has a payment to authorise.
 app.use('/api/quote', quoteRoutes);
+
+// Narrated demo flows — no database, no partners, no money.
 app.use('/api/simulate', simulateRoutes);
-app.use('/api/orchestrator', orchestratorRoutes);
+
+// Webhooks — inbound callbacks from rails and custody.
+//
+// Mounted above /api because that mount matches every path beneath it. Below
+// it, partner callbacks would be rejected for lacking a credential a partner
+// has no way to hold — and a rejected callback means a settlement that never
+// completes.
+//
+// These authenticate by partner signature instead: each route verifies an HMAC
+// or RSA signature against that partner's own secret, which is the only
+// credential a third party can present.
+app.use('/api/webhooks', webhookRoutes);
+app.use('/api/webhooks', brainrockRoutes);
+app.use('/api/webhooks', darajaRoutes);
+app.use('/api/webhooks', choicebankRoutes);
+
+// Settlement ops: books, legs, reconciliation, provider health.
+// /settlement/proof/* is intentionally public — a proof only we can read is
+// not a proof. Everything else requires OPS_API_KEY.
+app.use('/api/settlement', settlementRoutes);
+
+// Add Funds — must also precede /api (transferRoutes also serves /deposits/*)
+app.use('/api/deposits', requireServiceAuth, depositRoutes);
+
+// Orchestration: deposits credited, transfers, withdrawals
+app.use('/api/orchestrator', requireServiceAuth, orchestratorRoutes);
+
+// Accounts, transfers, cards. Mounted last of the /api family: its prefix
+// match is the broadest, so anything it must not guard belongs above it.
+app.use('/api', requireServiceAuth, transferRoutes);
 
 // AxLink Bank Network API (bearer-auth for institutional members)
 app.use('/api/network', networkRoutes);
@@ -148,17 +194,6 @@ if (process.env.DEMO_ENABLED === 'true' && process.env.NODE_ENV !== 'production'
     .then(m => app.use('/api/demo', m.default))
     .catch(err => console.error('[startup] Demo routes failed to mount:', err));
 }
-
-// Settlement ops: books, legs, reconciliation, provider health.
-// /settlement/proof/* is intentionally public — a proof only we can read is
-// not a proof. Everything else requires OPS_API_KEY.
-app.use('/api/settlement', settlementRoutes);
-
-// Webhooks — inbound callbacks from rails and custody
-app.use('/api/webhooks', webhookRoutes);
-app.use('/api/webhooks', brainrockRoutes);
-app.use('/api/webhooks', darajaRoutes);
-app.use('/api/webhooks', choicebankRoutes);
 
 // Global error handler
 app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
