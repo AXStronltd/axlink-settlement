@@ -43,6 +43,9 @@ export type MobileProvider =
   | 'tigostar'        // Tigo/Star (Tanzania, Rwanda, Ghana)
   | 'zamtel'          // Zamtel Kwacha (Zambia)
   | 'glo'             // Glo (Nigeria)
+  | 'evc'             // EVC Plus — Hormuud (Somalia). The dominant rail there.
+  | 'zaad'            // ZAAD — Telesom (Somaliland)
+  | 'sahal'           // Sahal — Golis (Puntland)
   | 'wechat'          // WeChat Pay (China)
   | 'alipay';         // Alipay (China)
 
@@ -102,6 +105,34 @@ export interface DepositSource {
   currency:         string;
   amount:           number;
   reference:        string;    // provider's transaction ID
+}
+
+// ── Beneficiary validation ───────────────────────────────────────────────────
+
+export interface BeneficiaryCheck {
+  currency: string;
+  destination: PaymentDestination;
+}
+
+export interface BeneficiaryVerdict {
+  /**
+   * True only when the partner positively confirmed the account. An error, a
+   * timeout or an unsupported rail is not a verification — it is an absence of
+   * one, and must not be read as a pass.
+   */
+  verified: boolean;
+
+  /**
+   * The name the partner holds for the account.
+   *
+   * Worth surfacing to whoever is sending: an account number can be valid and
+   * still belong to the wrong person, and the name is the only signal that
+   * distinguishes the two.
+   */
+  accountName?: string;
+
+  /** The partner's own reason when it refuses. */
+  reason?: string;
 }
 
 // ── Collection — asking a partner to take money in ───────────────────────────
@@ -256,6 +287,20 @@ export interface IBaaSProvider {
    * gap at payment time.
    */
   sendPayout?(params: BaaSPayoutParams): Promise<BaaSPayoutResult>;
+
+  /**
+   * Resolve a beneficiary before paying them.
+   *
+   * Several partners can confirm that an account exists and return the name on
+   * it — GIB verifies a SIPS beneficiary, and Flutterwave and Choice Bank offer
+   * the same. It is the one check that catches a wrong account number *before*
+   * money moves, which is the only point at which it is cheap to catch.
+   *
+   * Optional: a partner that cannot do this is not thereby unusable, it simply
+   * offers no pre-flight. Callers must treat an absent method as "unknown",
+   * never as "verified".
+   */
+  validateBeneficiary?(request: BeneficiaryCheck): Promise<BeneficiaryVerdict>;
 
   /**
    * Take money in from a customer.

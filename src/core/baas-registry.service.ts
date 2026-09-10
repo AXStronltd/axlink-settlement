@@ -49,6 +49,7 @@ import type {
   BaaSPayoutResult,
   CollectionRequest,
   CollectionResult,
+  BeneficiaryVerdict,
 } from './baas.interface';
 
 const _providers: IBaaSProvider[] = [];
@@ -429,6 +430,68 @@ async function getBestProvider(
   console.log(`[BaaSRegistry] ${summarise(decision)}`);
 
   return { provider: winner.provider, quote: winner.quote, decision };
+}
+
+// ── Beneficiary validation ────────────────────────────────────────────────────
+
+/**
+ * Resolve a beneficiary through a partner that can, before any money moves.
+ *
+ * Intended to be called by the platform while the sender is still on screen:
+ * an account number can be perfectly valid and belong to the wrong person, and
+ * the name on it is the only thing that distinguishes those two cases. After
+ * settlement it is a recovery problem; before it, it is a confirm dialog.
+ *
+ * Deliberately not called automatically inside deliverFiat. Validation is a
+ * decision about whether to proceed, which belongs to whoever can ask the
+ * sender — not to the code already committed to paying.
+ *
+ * Never reports `verified: true` on an absent capability or a failed call. A
+ * provider that cannot validate yields "unknown", and unknown must not read as
+ * a pass.
+ */
+export async function validateBeneficiary(
+  currency: string,
+  destination: PaymentDestination,
+): Promise<BeneficiaryVerdict & { providerId: string | null }> {
+  const curr = currency.toUpperCase();
+
+  const capable = _providers.filter(p => {
+    if (!isProviderEnabled(p.id) || typeof p.validateBeneficiary !== 'function') return false;
+    const verdict = evaluateCapability(deriveCapability(p), {
+      operation: 'PAYOUT',
+      currency: curr,
+      method: destination.method,
+      countryCode: destination.countryCode,
+      environment: environment(),
+    });
+    return verdict.permitted && p.canHandle(curr, destination);
+  });
+
+  if (capable.length === 0) {
+    return {
+      providerId: null,
+      verified: false,
+      reason: `No provider able to validate a ${curr} beneficiary on this rail`,
+    };
+  }
+
+  const provider = capable[0];
+  try {
+    const verdict = await withBreaker(provider.id, () =>
+      provider.validateBeneficiary!({ currency: curr, destination }),
+    );
+    return { ...verdict, providerId: provider.id };
+  } catch (err) {
+    // A partner that errored has told us nothing about the account. Reporting
+    // that as unverified is correct; reporting it as verified would be the
+    // single most expensive lie this function could tell.
+    return {
+      providerId: provider.id,
+      verified: false,
+      reason: err instanceof Error ? err.message : String(err),
+    };
+  }
 }
 
 // ── Collection ────────────────────────────────────────────────────────────────

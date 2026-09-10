@@ -24,6 +24,8 @@ import type {
   CollectionRequest,
   CollectionResult,
   CollectionInstructions,
+  BeneficiaryCheck,
+  BeneficiaryVerdict,
 } from '../../core/baas.interface';
 import type { ProviderCapability } from '../../core/provider/capability';
 import type { AdapterHealth } from '../../core/provider/health';
@@ -58,6 +60,12 @@ export interface MockProviderConfig {
   collection?: CollectionInstructions;
   /** Fail every collection — for the partner-error case. */
   failCollect?: { message: string; code?: string };
+
+  /**
+   * What validateBeneficiary reports. Omit and the provider offers no
+   * validation at all, which is the case that must not read as verified.
+   */
+  beneficiary?: BeneficiaryVerdict | { throws: string };
 }
 
 export class MockProvider implements IBaaSProvider {
@@ -75,6 +83,13 @@ export class MockProvider implements IBaaSProvider {
   readonly collections: CollectionRequest[] = [];
 
   constructor(private readonly config: MockProviderConfig) {
+    if (config.beneficiary) {
+      const b = config.beneficiary;
+      this.validateBeneficiary = async () => {
+        if ('throws' in b) throw new Error(b.throws);
+        return b;
+      };
+    }
     this.id = config.id;
     this.name = config.name ?? `Mock ${config.id}`;
     this.capability = config.capability;
@@ -151,6 +166,13 @@ export class MockProvider implements IBaaSProvider {
       },
     };
   }
+
+  /**
+   * Present only when configured, so "this partner cannot validate" is
+   * genuinely testable rather than simulated by a false return.
+   */
+  validateBeneficiary = undefined as unknown as
+    ((r: BeneficiaryCheck) => Promise<BeneficiaryVerdict>) | undefined;
 
   // Only present when the test configures one. A provider that declares no
   // health check must report UNCONFIGURED rather than be assumed healthy, and

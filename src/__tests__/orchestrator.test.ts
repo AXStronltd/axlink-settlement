@@ -25,6 +25,7 @@ import {
   getRegisteredProviders,
   deliverFiat,
   collectFunds,
+  validateBeneficiary,
 } from '../core/baas-registry.service';
 import { resetAllBreakers } from '../core/provider/circuit-breaker';
 import { MockProvider, mockKesProvider, mockKesCollector } from '../providers/mock/mock.baas';
@@ -371,5 +372,95 @@ describe('collection', () => {
     }));
 
     await expect(collectFunds(collectRequest())).rejects.toMatchObject({ code: 'COLLECTION_REFUSED' });
+  });
+});
+
+// ── Beneficiary validation: the check before money moves ─────────────────────
+
+describe('beneficiary validation', () => {
+  it('returns the name the partner holds for the account', async () => {
+    register(mockKesProvider('verifier', {
+      beneficiary: { verified: true, accountName: 'Supplier Limited' },
+    }));
+
+    const verdict = await validateBeneficiary('KES', KES_DEST);
+
+    expect(verdict.verified).toBe(true);
+    expect(verdict.accountName).toBe('Supplier Limited');
+    expect(verdict.providerId).toBe('verifier');
+  });
+
+  it('reports a refusal with the partner reason', async () => {
+    register(mockKesProvider('strict', {
+      beneficiary: { verified: false, reason: 'account closed' },
+    }));
+
+    const verdict = await validateBeneficiary('KES', KES_DEST);
+
+    expect(verdict.verified).toBe(false);
+    expect(verdict.reason).toBe('account closed');
+  });
+
+  // The case the whole design turns on: no capability is not a pass.
+  it('does not report verified when no provider can validate', async () => {
+    register(mockKesProvider('cannot-validate'));   // no beneficiary configured
+
+    const verdict = await validateBeneficiary('KES', KES_DEST);
+
+    expect(verdict.verified).toBe(false);
+    expect(verdict.providerId).toBeNull();
+    expect(verdict.reason).toMatch(/No provider able to validate/);
+  });
+
+  // A partner that errored has told us nothing about the account. Reporting
+  // that as verified would be the most expensive lie available here.
+  it('does not report verified when the partner errors', async () => {
+    register(mockKesProvider('flaky', { beneficiary: { throws: 'upstream 503' } }));
+
+    const verdict = await validateBeneficiary('KES', KES_DEST);
+
+    expect(verdict.verified).toBe(false);
+    expect(verdict.reason).toContain('503');
+    expect(verdict.providerId).toBe('flaky');
+  });
+
+  it('will not validate through a provider that cannot serve the rail', async () => {
+    register(mockKesProvider('kes-only', {
+      beneficiary: { verified: true, accountName: 'Wrong Rail' },
+    }));
+
+    const verdict = await validateBeneficiary('NGN', { ...KES_DEST, countryCode: 'NG' });
+
+    expect(verdict.verified).toBe(false);
+    expect(verdict.providerId).toBeNull();
+  });
+});
+
+// ── EVC: the Somali rail is declarable ───────────────────────────────────────
+
+describe('EVC', () => {
+  it('routes a Somali mobile-money payout', async () => {
+    const gib = mockKesProvider('somalia-partner', {
+      capability: {
+        settlementCurrencies: ['USD'],
+        payoutCurrencies: ['USD'],       // Somalia is a USD economy
+        methods: ['mobile_money'],
+        countries: ['SO'],
+        operations: ['PAYOUT'],
+        partnerAppliesFx: false,          // USD in, USD out — nobody converts
+      },
+    });
+    register(gib);
+
+    const result = await pay(100, {
+      name: 'Beneficiary',
+      method: 'mobile_money',
+      mobileProvider: 'evc',
+      mobileNumber: '+252615001001',
+      countryCode: 'SO',
+    }, 'USD');
+
+    expect(result.provider).toBe('somalia-partner');
+    expect(gib.payouts[0].destination.mobileProvider).toBe('evc');
   });
 });
