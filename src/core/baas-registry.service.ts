@@ -193,6 +193,19 @@ export function isProviderEnabled(providerId: string): boolean {
   return !_disabled.has(providerId);
 }
 
+/**
+ * One registered provider, by id.
+ *
+ * The settlement engine records which partner a withdrawal was routed to when
+ * the legs are planned, then instructs that same partner once it has been
+ * funded — possibly minutes later, possibly after a restart. It needs to
+ * resolve the id it stored, and re-running selection would be wrong: the
+ * cheapest provider now is not necessarily the one already holding the money.
+ */
+export function getProviderById(providerId: string): IBaaSProvider | undefined {
+  return _providers.find(p => p.id === providerId);
+}
+
 /** Health for every registered provider. Concurrent; one bad probe cannot fail the rest. */
 export function providerHealthReports() {
   return checkAll(_providers);

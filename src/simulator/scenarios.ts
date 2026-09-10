@@ -13,10 +13,37 @@
 import { randomBytes } from 'crypto';
 import { prisma } from '../core/ledger.service';
 import { addFunds, withdraw, advanceDeposit, advanceWithdrawal, confirmPartnerPayout } from '../core/settlement/usd-corridor.service';
-import { legsFor } from '../core/settlement/leg.service';
+import { legsFor, confirmLeg } from '../core/settlement/leg.service';
 import { tick } from '../core/settlement/resume.worker';
 import type { StubWorld } from './stubs';
 import type { Scope } from './invariants';
+import { getProviderById, registerBaaSProvider } from '../core/baas-registry.service';
+import { MockProvider } from '../providers/mock/mock.baas';
+
+/**
+ * A KES payout partner, registered once for the instruct scenario.
+ *
+ * Registered rather than stubbed because the engine resolves the partner it
+ * was funded to through the registry — the same lookup production makes.
+ */
+function instructPartner(): MockProvider {
+  const existing = getProviderById('sim-instruct') as MockProvider | undefined;
+  if (existing) return existing;
+
+  const partner = new MockProvider({
+    id: 'sim-instruct',
+    capability: {
+      settlementCurrencies: ['USD'],
+      payoutCurrencies: ['KES'],
+      methods: ['mobile_money'],
+      countries: ['KE'],
+      operations: ['PAYOUT'],
+      partnerAppliesFx: true,
+    },
+  });
+  registerBaaSProvider(partner);
+  return partner;
+}
 
 export interface ScenarioContext {
   world: StubWorld;
@@ -480,6 +507,79 @@ export const SCENARIOS: Scenario[] = [
 
       const count = await prisma.withdrawal.count({ where: { userId } });
       expect('no withdrawal row was left behind', count === 0, `${count} rows`);
+    },
+  },
+  // ────────────────────────────────────────────────────────────────────────────
+  {
+    id: 'partner-instruct',
+    title: 'USD to the partner, KES to the beneficiary',
+    proves: 'A partner that delivers a different currency is told who to pay, and only after it has been funded.',
+    async run(ctx) {
+      const { expect, note, scope } = ctx;
+      const partner = instructPartner();
+      const before = partner.payouts.length;
+      const userId = await fundedUser(ctx);
+
+      const result = await withdraw({
+        userId,
+        amount: WITHDRAWAL,
+        providerId: 'sim-instruct',
+        partnerAccount: 'GB00SIM01234567890',
+        recipientName: 'Simulated Beneficiary',
+        idempotencyKey: `wd_${randomBytes(6).toString('hex')}`,
+        // The corridor that needs the leg: we wire USD, they pay KES.
+        destination: { name: 'Simulated Beneficiary', method: 'mobile_money', mobileNumber: '+254712345678' },
+        payoutCurrency: 'KES',
+      });
+      const withdrawalId = (result.value as { withdrawalId: string }).withdrawalId;
+      scope.withdrawalIds.push(withdrawalId);
+
+      await drive(ctx, 'Withdrawal', withdrawalId, 8);
+
+      // The funding wire is confirmed by the converter's callback, exactly as
+      // in production. Until it lands the instruct leg must not run, which is
+      // the ordering this scenario exists to prove.
+      const funded = (await legsFor('Withdrawal', withdrawalId))
+        .find(l => l.kind === 'PARTNER_PAYOUT');
+      expect(
+        'the partner is not instructed while funding is unconfirmed',
+        (await legsFor('Withdrawal', withdrawalId)).find(l => l.kind === 'PARTNER_INSTRUCT')?.status === 'PENDING',
+        'instruct leg waited',
+      );
+      if (funded) await confirmLeg(funded.id, 'b2b-wire-landed');
+
+      await drive(ctx, 'Withdrawal', withdrawalId, 8);
+
+      const legs = await legsFor('Withdrawal', withdrawalId);
+      const funding = legs.find(l => l.kind === 'PARTNER_PAYOUT');
+      const instruct = legs.find(l => l.kind === 'PARTNER_INSTRUCT');
+      note(`legs: ${legs.map(l => `${l.kind}=${l.status}`).join(', ')}`);
+
+      expect('an instruct leg was planned', Boolean(instruct), instruct ? 'present' : 'MISSING');
+      expect(
+        'the partner was funded before being instructed',
+        funding?.status === 'COMPLETED',
+        `funding=${funding?.status}`,
+      );
+
+      const instructed = partner.payouts.slice(before);
+      expect('the partner was told who to pay', instructed.length === 1, `${instructed.length} instruction(s)`);
+      expect(
+        'in the beneficiary currency, to the beneficiary',
+        instructed[0]?.currency === 'KES' && instructed[0]?.destination.mobileNumber === '+254712345678',
+        `${instructed[0]?.currency} → ${instructed[0]?.destination?.mobileNumber}`,
+      );
+
+      const beforeConfirm = await prisma.withdrawal.findUniqueOrThrow({ where: { id: withdrawalId } });
+      expect(
+        'accepting an instruction is not delivery',
+        beforeConfirm.status !== 'COMPLETED',
+        `status=${beforeConfirm.status} — the beneficiary has not confirmed`,
+      );
+
+      await confirmPartnerPayout(withdrawalId, 'partner-ref-instructed');
+      const after = await prisma.withdrawal.findUniqueOrThrow({ where: { id: withdrawalId } });
+      expect('the partner confirming closes it', after.status === 'COMPLETED', `status=${after.status}`);
     },
   },
 ];

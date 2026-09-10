@@ -37,6 +37,19 @@ export type LegKind =
   | 'CUSTODY_TRANSFER'
   | 'ONCHAIN_SETTLE'
   | 'PARTNER_PAYOUT'
+  /**
+   * Tell the partner who to pay.
+   *
+   * Distinct from PARTNER_PAYOUT, which only moves settlement funds to them.
+   * Wiring USD to Flutterwave and instructing Flutterwave to pay a beneficiary
+   * are two separate facts, and conflating them means a corridor where the
+   * money reaches the partner and the beneficiary is never told about.
+   *
+   * Only planned where the payout currency differs from what we send, or the
+   * partner needs beneficiary details. On a USD-in/USD-out corridor the wire
+   * is the delivery and this leg does not exist.
+   */
+  | 'PARTNER_INSTRUCT'
   | 'COMPENSATE';
 
 export type LegStatus =

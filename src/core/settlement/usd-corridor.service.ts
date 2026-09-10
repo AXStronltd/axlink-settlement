@@ -51,6 +51,8 @@ import { planLegs, executeLeg, confirmLeg, legsFor, nextLeg, compensateLeg, isTe
 import { proveSettlement } from './proof.service';
 import { withIdempotency } from '../idempotency.service';
 import { usdToUsdt } from '../fx.service';
+import type { PaymentDestination } from '../baas.interface';
+import { getProviderById } from '../baas-registry.service';
 import { ports } from '../ports';
 
 const USDT_ASSET = process.env.FIREBLOCKS_USDT_ASSET ?? 'USDT_SOL';
@@ -298,10 +300,26 @@ export interface WithdrawParams {
   partnerAccount: string;
   recipientName: string;
   idempotencyKey: string;
+
+  /**
+   * Where the beneficiary is paid, and in what.
+   *
+   * Present for a corridor where the partner delivers a different currency
+   * than we send — USD wired to Flutterwave, KES paid to a phone. A
+   * PARTNER_INSTRUCT leg is then planned, and the partner is told who to pay
+   * once it has been funded.
+   *
+   * Absent for USD-in/USD-out, where the wire to the partner IS the delivery
+   * and there is nothing further to instruct.
+   */
+  destination?: PaymentDestination;
+  /** The currency the beneficiary receives. Defaults to USD. */
+  payoutCurrency?: string;
 }
 
 export async function withdraw(params: WithdrawParams) {
-  const { userId, amount, providerId, partnerAccount, recipientName } = params;
+  const { userId, amount, providerId, partnerAccount, recipientName, destination } = params;
+  const payoutCurrency = (params.payoutCurrency ?? 'USD').toUpperCase();
 
   assertUsd(amount);
 
@@ -366,6 +384,18 @@ export async function withdraw(params: WithdrawParams) {
           { kind: 'ONCHAIN_SETTLE', asset: 'USDT', amount: usdtAmount },
           { kind: 'CONVERT_CRYPTO_TO_FIAT', asset: 'USD', amount },
           { kind: 'PARTNER_PAYOUT', asset: 'USD', amount, payload: { providerId, partnerAccount, recipientName } },
+          // Only where the partner must be told who to pay. Planned after
+          // funding, never before: instructing a partner to pay from money it
+          // has not received is how a payout fails at their end with our
+          // customer already debited.
+          ...(destination
+            ? [{
+                kind: 'PARTNER_INSTRUCT' as const,
+                asset: payoutCurrency,
+                amount,
+                payload: { providerId, recipientName, payoutCurrency, destination } as unknown as Prisma.InputJsonValue,
+              }]
+            : []),
         ]);
 
         return row;
@@ -506,6 +536,57 @@ export async function advanceWithdrawal(withdrawalId: string): Promise<void> {
         return { status: 'AWAITING_CONFIRMATION', externalRef: payout.id };
       });
       break;
+
+    // ── 4: tell the partner who to pay ───────────────────────────────────────
+    //
+    // Planned only when the partner delivers something other than what we sent.
+    // Reached only after PARTNER_PAYOUT confirms: nextLeg returns legs in
+    // sequence and will not hand this one back while funding is unfinished. A
+    // partner must never be asked to pay from money it has not received.
+    case 'PARTNER_INSTRUCT': {
+      const instruct = (leg.payload ?? {}) as {
+        providerId?: string;
+        recipientName?: string;
+        payoutCurrency?: string;
+        destination?: PaymentDestination;
+      };
+
+      const partner = instruct.providerId ? getProviderById(instruct.providerId) : undefined;
+      if (!partner?.sendPayout) {
+        // The partner chosen when this withdrawal was planned is no longer
+        // registered, or cannot pay out. Fail loudly and leave the money in
+        // suspense, where reconciliation surfaces it. Silently routing to a
+        // different partner would instruct one that is not holding the funds.
+        throw Object.assign(
+          new Error(
+            `Withdrawal ${withdrawalId} was funded to '${instruct.providerId}', which is not a ` +
+            `registered provider able to pay out. The funds are with them; this needs an operator.`,
+          ),
+          { code: 'PROVIDER_UNAVAILABLE_FOR_INSTRUCT', statusCode: 500, retryable: false },
+        );
+      }
+
+      const send = partner.sendPayout.bind(partner);
+
+      await executeLeg(leg.id, async ({ externalKey, amount }) => {
+        const result = await send({
+          currency: instruct.payoutCurrency ?? 'USD',
+          amount: Number(amount ?? 0),
+          destination: {
+            ...(instruct.destination as PaymentDestination),
+            name: instruct.recipientName ?? (instruct.destination as PaymentDestination)?.name,
+          },
+          reference: externalKey,
+          description: `AxLink withdrawal ${withdrawal.trackingId}`,
+        });
+
+        // AWAITING_CONFIRMATION, not COMPLETED: the partner accepting an
+        // instruction is not the beneficiary having the money. Their webhook
+        // closes it.
+        return { status: 'AWAITING_CONFIRMATION', externalRef: result.paymentId };
+      });
+      break;
+    }
   }
 
   const following = await nextLeg('Withdrawal', withdrawalId);
@@ -606,8 +687,34 @@ export async function compensateWithdrawal(
  */
 export async function confirmPartnerPayout(withdrawalId: string, partnerReference: string): Promise<void> {
   const legs = await legsFor('Withdrawal', withdrawalId);
-  const payoutLeg = legs.find(l => l.kind === 'PARTNER_PAYOUT');
+
+  // The delivery leg is whichever one ends with the beneficiary holding the
+  // money. Where the partner had to be instructed, that is the instruct leg —
+  // confirming the funding leg instead would clear suspense and mark the
+  // withdrawal COMPLETED while the beneficiary had been paid nothing.
+  //
+  // On a USD-in/USD-out corridor there is no instruct leg, the wire is the
+  // delivery, and PARTNER_PAYOUT is correct.
+  const payoutLeg =
+    legs.find(l => l.kind === 'PARTNER_INSTRUCT') ??
+    legs.find(l => l.kind === 'PARTNER_PAYOUT');
+
   if (!payoutLeg || payoutLeg.status === 'COMPLETED') return;
+
+  // A partner cannot have delivered money it was never asked to send. Reaching
+  // here on a PENDING leg means a confirmation arrived before the instruction
+  // did — out-of-order webhooks, or a confirmation for the wrong withdrawal —
+  // and completing it would clear suspense against a payout that never
+  // happened.
+  if (payoutLeg.status === 'PENDING') {
+    throw Object.assign(
+      new Error(
+        `Cannot confirm delivery for withdrawal ${withdrawalId}: its ${payoutLeg.kind} leg is ` +
+        `still PENDING, so the partner has not been instructed yet.`,
+      ),
+      { code: 'DELIVERY_NOT_INSTRUCTED', statusCode: 409 },
+    );
+  }
 
   const withdrawal = await prisma.withdrawal.findUniqueOrThrow({ where: { id: withdrawalId } });
 
