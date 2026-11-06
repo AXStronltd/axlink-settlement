@@ -11,7 +11,7 @@ import { enqueue } from '../events/outbox.service';
 import { ApiError } from '../../shared/errors';
 import { assertDeliverableUrl, WebhookUrlRejected } from './url-policy';
 
-export const INSTITUTION_EVENTS = ['deposit.received', 'deposit.settled', 'deposit.rejected', 'deposit.expired'] as const;
+export const INSTITUTION_EVENTS = ['deposit.received', 'deposit.settled', 'deposit.rejected', 'deposit.expired', 'transfer.submitted', 'transfer.settled', 'transfer.failed'] as const;
 export type InstitutionEvent = typeof INSTITUTION_EVENTS[number];
 
 export async function createEndpoint(scope: { institutionId: string; environmentId: string }, url: string, events: string[] = ['*']) {

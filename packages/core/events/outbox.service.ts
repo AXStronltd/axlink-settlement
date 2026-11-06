@@ -186,9 +186,10 @@ function backoffMs(attempt: number): number {
 let timer: ReturnType<typeof setInterval> | null = null;
 let running = false;
 
-export async function drain(limit = BATCH): Promise<{ delivered: number; failed: number }> {
+/** `only` narrows the batch to one entity's events — used by tests that run in parallel workers and must not deliver each other's rows. */
+export async function drain(limit = BATCH, only?: { entityId: string }): Promise<{ delivered: number; failed: number }> {
   const due = await prisma.outboxEvent.findMany({
-    where: { status: 'PENDING', nextAttemptAt: { lte: new Date() } },
+    where: { status: 'PENDING', nextAttemptAt: { lte: new Date() }, ...(only ? { entityId: only.entityId } : {}) },
     orderBy: { createdAt: 'asc' },
     take: limit,
   });

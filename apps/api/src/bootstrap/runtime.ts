@@ -27,5 +27,7 @@ export async function startRuntime(cfg: AppConfig): Promise<void> {
   if (process.env.DEPOSIT_SWEEPER_ENABLED !== 'false') {
     const { startDepositInstructionSweeper } = await import('../../../../packages/settlement/deposits/deposit-instruction.service');
     startDepositInstructionSweeper();
+    const { startTransferSweeper } = await import('../../../../packages/settlement/transfers/settlement-transfer.service');
+    startTransferSweeper();
   }
 }

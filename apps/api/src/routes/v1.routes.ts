@@ -24,8 +24,10 @@ import { createWallet, getWallet, serializeWallet } from '../../../../packages/c
 import { institutionBalances, listInstitutionEntries } from '../../../../packages/core/ledger/statement.service';
 import walletRoutes from './wallet.routes';
 import depositInstructionRoutes from './deposit-instruction.routes';
-import settlementStatusRoutes from './settlement-status.routes';
 import webhookEndpointRoutes from './webhook-endpoint.routes';
+import { counterpartyRoutes, transferRoutes } from './transfer-v1.routes';
+import { getTransfer, serializeTransfer } from '../../../../packages/settlement/transfers/settlement-transfer.service';
+import { getDepositInstruction, serializeInstruction } from '../../../../packages/settlement/deposits/deposit-instruction.service';
 
 const router = Router();
 const wrap = (fn: (req: Request, res: Response) => Promise<void>) => (req: Request, res: Response, next: NextFunction) => fn(req, res).catch(next);
@@ -69,13 +71,19 @@ router.get('/balances', requireScope('wallets:read'), wrap(async (req, res) => {
   const t = req.tenant!; res.json(await institutionBalances({ institutionId: t.institutionId, environmentId: t.environmentId }));
 }));
 
-// Outbound settlement is the next slice; the contract names the routes now so integrators can plan.
-// Registered before the settlement sub-router so the answer is 501 whatever the credential's scopes.
-const notYet = (_req: Request, res: Response) => { res.status(501).json({ error: { code: 'NOT_YET_AVAILABLE', message: 'Outbound settlement (POST /v1/transfers, POST /v1/settlements) ships in the next slice; deposits, balances, ledger and webhooks are live.' } }); };
-router.post('/transfers', notYet); router.get('/transfers/:id', notYet); router.post('/settlements', notYet);
+// Outbound settlement (slice 5). POST /v1/settlements is the blueprint's name for the same action as
+// POST /v1/transfers; GET /v1/settlements/{id} answers for a deposit instruction or a transfer.
+router.use('/counterparties', counterpartyRoutes);
+router.use('/transfers', transferRoutes);
+router.post('/settlements', (req, _res, next) => { req.url = '/'; transferRoutes(req, _res, next); });
+router.get('/settlements/:id', requireScope('settlements:read'), wrap(async (req, res) => {
+  const t = req.tenant!; const scope = { institutionId: t.institutionId, environmentId: t.environmentId }; const id = req.params.id as string;
+  const transfer = await getTransfer(id, scope).catch(e => { if (e instanceof ApiError && e.statusCode === 404) return null; throw e; });
+  if (transfer) { res.json(await serializeTransfer(transfer)); return; }
+  res.json(await serializeInstruction(await getDepositInstruction(id, scope)));
+}));
 
 router.use('/deposits', depositInstructionRoutes);
-router.use('/settlements', settlementStatusRoutes);
 router.use('/webhook-endpoints', webhookEndpointRoutes);
 
 const Entries = z.object({ limit: z.coerce.number().int().min(1).max(200).optional(), cursor: z.string().max(120).optional(), asset: z.enum(['USDC_SOL', 'USDT_SOL']).optional(), entityType: z.string().max(40).optional(), entityId: z.string().max(80).optional() });

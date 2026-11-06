@@ -86,6 +86,46 @@ router.get(
 
 router.use(requireOpsKey);
 
+// ── Outbound settlement approvals (Step 2, slice 5) ───────────────────────────
+// Four-eyes: an institution asks, an operator approves. In PRODUCTION every transfer waits here;
+// in SANDBOX only those above the auto-approve limit. Counterparties in PRODUCTION are approved
+// here too, with an attestation that the address is whitelisted at the custodian.
+router.get('/transfers/pending', wrap(async (_req, res) => {
+  const { listAwaitingApproval, serializeTransfer } = await import('../../../../packages/settlement/transfers/settlement-transfer.service');
+  const rows = await listAwaitingApproval();
+  res.json(await Promise.all(rows.map(async t => ({ ...(await serializeTransfer(t)), institution: t.institution.slug, environment: t.environment.kind, policy: t.policy }))));
+}));
+router.post('/transfers/:id/approve', wrap(async (req, res) => {
+  const { approveTransfer, serializeTransfer } = await import('../../../../packages/settlement/transfers/settlement-transfer.service');
+  const by = typeof req.body?.by === 'string' && req.body.by.trim() ? `operator:${req.body.by.trim().slice(0, 80)}` : 'operator';
+  res.json(await serializeTransfer(await approveTransfer(param(req.params.id), by)));
+}));
+router.post('/transfers/:id/reject', wrap(async (req, res) => {
+  const { rejectTransfer, serializeTransfer } = await import('../../../../packages/settlement/transfers/settlement-transfer.service');
+  const reason = typeof req.body?.reason === 'string' && req.body.reason.trim() ? req.body.reason.trim() : 'no reason given';
+  const by = typeof req.body?.by === 'string' && req.body.by.trim() ? `operator:${req.body.by.trim().slice(0, 80)}` : 'operator';
+  res.json(await serializeTransfer(await rejectTransfer(param(req.params.id), by, reason)));
+}));
+router.post('/transfers/sweep', wrap(async (_req, res) => {
+  const { runTransferSweep, submitApprovedTransfers, pollSubmittedTransfers, finalizeConfirmedTransfers } = await import('../../../../packages/settlement/transfers/settlement-transfer.service');
+  void runTransferSweep; const submitted = await submitApprovedTransfers(); const polled = await pollSubmittedTransfers(); const finalized = await finalizeConfirmedTransfers();
+  res.json({ submitted, polled, finalized });
+}));
+router.get('/counterparties/pending', wrap(async (_req, res) => {
+  const rows = await prisma.counterparty.findMany({ where: { status: 'PENDING_APPROVAL' }, orderBy: { createdAt: 'asc' }, include: { institution: { select: { slug: true } }, environment: { select: { kind: true } } } });
+  res.json(rows.map(c => ({ id: c.id, institution: c.institution.slug, environment: c.environment.kind, label: c.label, network: c.network, address: c.address, note: c.note, createdAt: c.createdAt })));
+}));
+router.post('/counterparties/:id/approve', wrap(async (req, res) => {
+  const { approveCounterparty, serializeCounterparty } = await import('../../../../packages/settlement/transfers/counterparty.service');
+  const by = typeof req.body?.by === 'string' && req.body.by.trim() ? `operator:${req.body.by.trim().slice(0, 80)}` : 'operator';
+  res.json(serializeCounterparty(await approveCounterparty(param(req.params.id), by, { custodyWhitelisted: req.body?.custodyWhitelisted === true, note: typeof req.body?.note === 'string' ? req.body.note.slice(0, 500) : undefined })));
+}));
+router.post('/counterparties/:id/reject', wrap(async (req, res) => {
+  const { rejectCounterparty, serializeCounterparty } = await import('../../../../packages/settlement/transfers/counterparty.service');
+  const by = typeof req.body?.by === 'string' && req.body.by.trim() ? `operator:${req.body.by.trim().slice(0, 80)}` : 'operator';
+  res.json(serializeCounterparty(await rejectCounterparty(param(req.params.id), by, typeof req.body?.reason === 'string' ? req.body.reason : 'no reason given')));
+}));
+
 // ── Books ─────────────────────────────────────────────────────────────────────
 
 router.get(

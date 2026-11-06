@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "AxLink API",
-    "version": "2.2.0-step2",
+    "version": "2.3.0-step2",
     "description": "AxLink \u2014 provider-agnostic institutional settlement network. `/v1/*` is the institution contract (Architecture Blueprint names). Older paths under /api are aliases of the same services. Leg A: USDC and USDT on Solana in regulated custody; fiat legs are out of scope."
   },
   "servers": [
@@ -605,6 +605,220 @@
               "type": "string"
             },
             "description": "alias of scopes (blueprint wording)"
+          }
+        }
+      },
+      "Counterparty": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "network": {
+            "type": "string"
+          },
+          "address": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PENDING_APPROVAL",
+              "ACTIVE",
+              "DISABLED"
+            ]
+          },
+          "approvedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "custodyWhitelisted": {
+            "type": "boolean"
+          },
+          "note": {
+            "type": "string",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "Transfer": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "TRANSFER"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PROCESSING",
+              "COMPLETED",
+              "FAILED"
+            ],
+            "description": "COMPLETED only when a Solana node reports the signature finalized"
+          },
+          "stage": {
+            "type": "string",
+            "enum": [
+              "AWAITING_APPROVAL",
+              "APPROVED",
+              "SUBMITTED",
+              "CONFIRMED",
+              "SETTLED",
+              "FAILED",
+              "REJECTED",
+              "CANCELLED"
+            ]
+          },
+          "walletId": {
+            "type": "string"
+          },
+          "counterparty": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "address": {
+                "type": "string"
+              },
+              "network": {
+                "type": "string"
+              }
+            }
+          },
+          "asset": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "string"
+          },
+          "reference": {
+            "type": "string",
+            "nullable": true
+          },
+          "idempotencyKey": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object",
+            "nullable": true,
+            "properties": {
+              "required": {
+                "type": "boolean"
+              },
+              "by": {
+                "type": "string"
+              },
+              "at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          },
+          "proof": {
+            "type": "object",
+            "nullable": true,
+            "properties": {
+              "custodyTxId": {
+                "type": "string",
+                "nullable": true
+              },
+              "txHash": {
+                "type": "string",
+                "nullable": true
+              },
+              "explorerUrl": {
+                "type": "string",
+                "nullable": true
+              },
+              "finality": {
+                "type": "string",
+                "enum": [
+                  "PENDING",
+                  "CUSTODY_CONFIRMED",
+                  "ON_CHAIN_FINALIZED",
+                  "SANDBOX_SIMULATED"
+                ]
+              },
+              "slot": {
+                "type": "string",
+                "nullable": true
+              }
+            }
+          },
+          "attention": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "submittedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "confirmedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "settledAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "CreateTransfer": {
+        "type": "object",
+        "required": [
+          "walletId",
+          "counterpartyId",
+          "asset",
+          "amount"
+        ],
+        "properties": {
+          "walletId": {
+            "type": "string"
+          },
+          "counterpartyId": {
+            "type": "string"
+          },
+          "asset": {
+            "type": "string",
+            "enum": [
+              "USDC_SOL",
+              "USDT_SOL"
+            ]
+          },
+          "amount": {
+            "type": "string",
+            "example": "120.5"
+          },
+          "reference": {
+            "type": "string",
+            "maxLength": 140
           }
         }
       }
@@ -1939,12 +2153,40 @@
         "tags": [
           "v1"
         ],
-        "summary": "Status of any settlement you own, with custody proof and on-chain finality stated separately",
+        "summary": "Status and proof of a settlement: answers for a deposit instruction or an outbound transfer by id",
         "security": [
           {
             "institutionKey": []
           }
         ],
+        "responses": {
+          "200": {
+            "description": "Settlement",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/Settlement"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Transfer"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key"
+          },
+          "403": {
+            "description": "Credential lacks settlements:read"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
         "parameters": [
           {
             "name": "id",
@@ -1954,28 +2196,7 @@
               "type": "string"
             }
           }
-        ],
-        "responses": {
-          "200": {
-            "description": "Settlement",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Settlement"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found"
-          },
-          "401": {
-            "description": "Missing or invalid API key"
-          },
-          "403": {
-            "description": "Credential lacks the required scope"
-          }
-        }
+        ]
       }
     },
     "/v1/webhook-endpoints": {
@@ -2178,25 +2399,108 @@
         "tags": [
           "v1"
         ],
-        "summary": "Initiate a stablecoin transfer (next slice)",
+        "summary": "Initiate an outbound settlement of USDC or USDT to an ACTIVE counterparty. Policy: available balance (journal minus transfers awaiting approval), per-transfer limit, counterparty and wallet ACTIVE. SANDBOX auto-approves under a limit; PRODUCTION always waits for an operator and requires OUTBOUND_SETTLEMENT_ENABLED.",
         "security": [
           {
             "institutionKey": []
           }
         ],
         "responses": {
-          "501": {
-            "description": "Not yet available \u2014 outbound settlement ships in the next slice",
+          "202": {
+            "description": "Accepted (202 new, 200 replay)",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/NotYetAvailable"
+                  "$ref": "#/components/schemas/Transfer"
                 }
               }
             }
           },
           "401": {
             "description": "Missing or invalid API key"
+          },
+          "403": {
+            "description": "Credential lacks transfers:write (or settlements:write)"
+          },
+          "200": {
+            "description": "Replay of the same request under the same Idempotency-Key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Transfer"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "IDEMPOTENCY_KEY_REQUIRED, INVALID_AMOUNT, ASSET_NETWORK_MISMATCH, validation"
+          },
+          "404": {
+            "description": "Wallet or counterparty not found in this environment"
+          },
+          "409": {
+            "description": "IDEMPOTENCY_MISMATCH, WALLET_NOT_ACTIVE, COUNTERPARTY_NOT_ACTIVE"
+          },
+          "422": {
+            "description": "INSUFFICIENT_BALANCE, POLICY_LIMIT (details carry the checks)"
+          },
+          "503": {
+            "description": "OUTBOUND_DISABLED (production outbound not enabled on this deployment)"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTransfer"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 128
+            },
+            "description": "Unique per transfer request. A replay returns the same transfer (200); a different body under the same key is 409 IDEMPOTENCY_MISMATCH."
+          }
+        ]
+      },
+      "get": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "List transfers (optional ?status=<stage>)",
+        "security": [
+          {
+            "institutionKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Transfers",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Transfer"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key"
+          },
+          "403": {
+            "description": "Credential lacks transfers:read (or settlements:read)"
           }
         }
       }
@@ -2206,25 +2510,31 @@
         "tags": [
           "v1"
         ],
-        "summary": "Transfer status (next slice)",
+        "summary": "Transfer status, stage and proof",
         "security": [
           {
             "institutionKey": []
           }
         ],
         "responses": {
-          "501": {
-            "description": "Not yet available \u2014 outbound settlement ships in the next slice",
+          "200": {
+            "description": "Transfer",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/NotYetAvailable"
+                  "$ref": "#/components/schemas/Transfer"
                 }
               }
             }
           },
           "401": {
             "description": "Missing or invalid API key"
+          },
+          "403": {
+            "description": "Credential lacks transfers:read"
+          },
+          "404": {
+            "description": "Not found"
           }
         },
         "parameters": [
@@ -2244,27 +2554,542 @@
         "tags": [
           "v1"
         ],
-        "summary": "Initiate an institutional settlement (next slice)",
+        "summary": "Blueprint name for POST /v1/transfers \u2014 identical behaviour",
         "security": [
           {
             "institutionKey": []
           }
         ],
         "responses": {
-          "501": {
-            "description": "Not yet available \u2014 outbound settlement ships in the next slice",
+          "202": {
+            "description": "Accepted (202 new, 200 replay)",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/NotYetAvailable"
+                  "$ref": "#/components/schemas/Transfer"
                 }
               }
             }
           },
           "401": {
             "description": "Missing or invalid API key"
+          },
+          "403": {
+            "description": "Credential lacks transfers:write (or settlements:write)"
+          },
+          "200": {
+            "description": "Replay of the same request under the same Idempotency-Key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Transfer"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "IDEMPOTENCY_KEY_REQUIRED, INVALID_AMOUNT, ASSET_NETWORK_MISMATCH, validation"
+          },
+          "404": {
+            "description": "Wallet or counterparty not found in this environment"
+          },
+          "409": {
+            "description": "IDEMPOTENCY_MISMATCH, WALLET_NOT_ACTIVE, COUNTERPARTY_NOT_ACTIVE"
+          },
+          "422": {
+            "description": "INSUFFICIENT_BALANCE, POLICY_LIMIT (details carry the checks)"
+          },
+          "503": {
+            "description": "OUTBOUND_DISABLED (production outbound not enabled on this deployment)"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTransfer"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 128
+            },
+            "description": "Unique per transfer request. A replay returns the same transfer (200); a different body under the same key is 409 IDEMPOTENCY_MISMATCH."
+          }
+        ]
+      }
+    },
+    "/v1/counterparties": {
+      "post": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "Register a receiving address. SANDBOX: ACTIVE at once. PRODUCTION: PENDING_APPROVAL until an operator attests custody whitelisting.",
+        "security": [
+          {
+            "institutionKey": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Registered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Counterparty"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key"
+          },
+          "403": {
+            "description": "Credential lacks counterparties:write"
+          },
+          "400": {
+            "description": "INVALID_ADDRESS, ADDRESS_IS_AXLINK_WALLET, validation"
+          },
+          "409": {
+            "description": "COUNTERPARTY_EXISTS (details.counterpartyId)"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "label",
+                  "address"
+                ],
+                "properties": {
+                  "label": {
+                    "type": "string"
+                  },
+                  "address": {
+                    "type": "string"
+                  },
+                  "network": {
+                    "type": "string",
+                    "enum": [
+                      "solana-mainnet"
+                    ]
+                  },
+                  "note": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
           }
         }
+      },
+      "get": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "List counterparties",
+        "security": [
+          {
+            "institutionKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Counterparties",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Counterparty"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key"
+          },
+          "403": {
+            "description": "Credential lacks counterparties:read"
+          }
+        }
+      }
+    },
+    "/v1/counterparties/{id}": {
+      "get": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "One counterparty",
+        "security": [
+          {
+            "institutionKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Counterparty",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Counterparty"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key"
+          },
+          "403": {
+            "description": "Credential lacks counterparties:read"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "Disable a counterparty (re-enabling is an operator approval)",
+        "security": [
+          {
+            "institutionKey": []
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Disabled"
+          },
+          "401": {
+            "description": "Missing or invalid API key"
+          },
+          "403": {
+            "description": "Credential lacks counterparties:write"
+          },
+          "409": {
+            "description": "Already disabled"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/v1/transfers/{id}/cancel": {
+      "post": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "Cancel a transfer still AWAITING_APPROVAL",
+        "security": [
+          {
+            "institutionKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cancelled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Transfer"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key"
+          },
+          "403": {
+            "description": "Credential lacks transfers:write"
+          },
+          "409": {
+            "description": "NOT_CANCELLABLE"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/settlement/transfers/pending": {
+      "get": {
+        "tags": [
+          "Operations"
+        ],
+        "summary": "Operator: transfers awaiting approval across institutions",
+        "security": [
+          {
+            "opsKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        }
+      }
+    },
+    "/settlement/transfers/{id}/approve": {
+      "post": {
+        "tags": [
+          "Operations"
+        ],
+        "summary": "Operator: approve a transfer \u2014 writes the journal entry; custody is called by the sweeper",
+        "security": [
+          {
+            "opsKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "by": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/settlement/transfers/{id}/reject": {
+      "post": {
+        "tags": [
+          "Operations"
+        ],
+        "summary": "Operator: reject a transfer awaiting approval",
+        "security": [
+          {
+            "opsKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "by": {
+                    "type": "string"
+                  },
+                  "reason": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/settlement/counterparties/pending": {
+      "get": {
+        "tags": [
+          "Operations"
+        ],
+        "summary": "Operator: counterparties awaiting approval (PRODUCTION)",
+        "security": [
+          {
+            "opsKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        }
+      }
+    },
+    "/settlement/counterparties/{id}/approve": {
+      "post": {
+        "tags": [
+          "Operations"
+        ],
+        "summary": "Operator: approve a counterparty after whitelisting the address at the custodian (custodyWhitelisted: true attests it)",
+        "security": [
+          {
+            "opsKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "custodyWhitelisted"
+                ],
+                "properties": {
+                  "custodyWhitelisted": {
+                    "type": "boolean"
+                  },
+                  "by": {
+                    "type": "string"
+                  },
+                  "note": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/settlement/counterparties/{id}/reject": {
+      "post": {
+        "tags": [
+          "Operations"
+        ],
+        "summary": "Operator: reject a counterparty",
+        "security": [
+          {
+            "opsKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "by": {
+                    "type": "string"
+                  },
+                  "reason": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
       }
     }
   }

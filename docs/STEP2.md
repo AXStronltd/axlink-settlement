@@ -129,3 +129,26 @@ Files: `apps/api/src/routes/v1.routes.ts`, `packages/core/ledger/statement.servi
 | Every composed route authenticated twice | Low | `requireInstitution` is a no-op when the enclosing router already set `req.tenant` |
 | Scope strings were only regex-validated at issuance (`ledger:raed` issued silently) | Low | `KNOWN_SCOPES` enum at issuance; tests and web updated to the canonical names |
 | (pre-existing) key hash compared with `!==` | Info | `timingSafeEqual` |
+
+## Slice 5 — Outbound settlement: counterparties and transfers
+
+**What.** The first slice that moves money *out* of a vault: `POST /v1/transfers` (and its blueprint name `POST /v1/settlements`) settles USDC or USDT from an institution's wallet to an approved counterparty address, journaled before custody is called and COMPLETED only on Solana finality. Nothing in this slice can move live funds: PRODUCTION outbound is refused unless `OUTBOUND_SETTLEMENT_ENABLED=true` is set deliberately, and even then every production transfer waits for an operator.
+
+| Piece | Where |
+|---|---|
+| Counterparties | `packages/settlement/transfers/counterparty.service.ts` — register (valid network address; AxLink's own wallets refused; unique per environment), list, disable. **SANDBOX: ACTIVE at once. PRODUCTION: PENDING_APPROVAL** until an operator approves with `custodyWhitelisted: true`, an attestation that the address is whitelisted at the custodian (Fireblocks TAP) — AxLink does not automate the custodian's whitelist on purpose |
+| Transfers | `packages/settlement/transfers/settlement-transfer.service.ts` — lifecycle `AWAITING_APPROVAL → APPROVED (journaled) → SUBMITTED (custody) → CONFIRMED (txHash) → SETTLED (finality)`; `FAILED` reverses the journal; `REJECTED` / `CANCELLED` before posting |
+| Policy | per-transfer limit (`TRANSFER_MAX_AMOUNT`, 1,000,000), available = journal balance − transfers awaiting approval, counterparty and wallet ACTIVE, asset on the wallet's network; sandbox auto-approves up to `TRANSFER_AUTO_APPROVE_LIMIT_SANDBOX` (100,000); the checks are recorded on the row (`policy`) |
+| Idempotency | `Idempotency-Key` header required; unique per environment; same request → same transfer (200), different body → 409 `IDEMPOTENCY_MISMATCH`; `externalTxId = transfer.id` at the custodian so a crash-and-retry cannot pay twice |
+| Journal | at APPROVED: `CUSTODY:<vault>:<ASSET>` − / `INSTITUTION:<id>:<ASSET>` + (`SETTLEMENT`, posting key `SettlementTransfer:<id>:debit`); on failure the entry is reversed (`reversesId`) and the wallet projection restored |
+| Custody | `providers.custody().transferExternal` via the port; sweeper submits APPROVED rows with backoff 30 s → 2 m → 10 m → 30 m → 1 h, terminal after 5 attempts; status by Fireblocks webhook (`source.type = VAULT_ACCOUNT`, matched by `providerTxId`, exactly once) or by polling `getTransfer` |
+| Finality | `proveSettlement` on the txHash with the counterparty address (mint + exact amount); custody-confirmed-but-chain-disagrees is **never auto-reversed**: recorded, `attention: true`, `transfer.failed` with status PROCESSING, a person decides. Sandbox stub has no chain → `SANDBOX_SIMULATED`, stated as such |
+| Events | `transfer.submitted`, `transfer.settled`, `transfer.failed` on the signed institution webhooks |
+| Operator | `GET /api/settlement/transfers/pending`, `POST …/:id/approve|reject`, `POST …/transfers/sweep`, `GET /api/settlement/counterparties/pending`, `POST …/:id/approve|reject` |
+| Routes | `apps/api/src/routes/transfer-v1.routes.ts` (`/v1/counterparties`, `/v1/transfers`), `v1.routes.ts` (`POST /v1/settlements` alias, `GET /v1/settlements/{id}` answers for deposits and transfers), webhook hook in `webhook.routes.ts` |
+| Schema | `Counterparty`, `SettlementTransfer` (migration `step2_outbound_settlement`); the legacy Leg B `Transfer` model is untouched |
+| Scopes | `counterparties:read|write`, `transfers:read|write` (`settlements:*` accepted for transfers as the blueprint alias) |
+| Front end | Settlements screen in transfer terms (stage, finality, lifecycle), New Settlement dialog in API terms, Counterparties in registration/approval terms, Approvals queue mirroring the operator endpoints, Developers list (`align_step2.py`, slice 5; markers of earlier slices made durable so the script re-runs from any state) |
+| Tests | `tests/integration/transfers.step2.test.ts` (6): sandbox end to end with ledger and webhooks; policy and tenancy refusals; approval/reject/cancel with reservation semantics; real-shaped custody adapter → webhook CONFIRMED → on-chain proof → SETTLED, public proof; custody failure reverses; retry/backoff/terminal failure; PRODUCTION gating and counterparty attestation. Outbox `drain()` gained an `only: { entityId }` filter so parallel test workers do not deliver each other's rows |
+
+**Not in this slice (on purpose):** internal transfers between two AxLink institutions as one custody move (`transferInternal`), daily/velocity limits, screening of counterparty addresses against a sanctions provider — all planned for slice 6 (B2B settlement on the network) together with the operator exception queue.

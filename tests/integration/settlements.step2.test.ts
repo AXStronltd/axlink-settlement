@@ -87,7 +87,7 @@ db('deposit instructions, settlement status, institution webhooks', () => {
 
     // webhook: one outbox row, delivered with t=…,v1=… over the exact body, and an event id
     const { drain } = await import('../../packages/core/events/outbox.service');
-    received.length = 0; await drain();
+    await drain(100, { entityId: instr.id });
     const hit = received.find(h => h.body.includes(instr.id));
     expect(hit).toBeTruthy();
     const payload = JSON.parse(hit!.body);
@@ -109,7 +109,7 @@ db('deposit instructions, settlement status, institution webhooks', () => {
     const done = await request(app).get(`/api/settlements/${instr.id}`).set(A.auth).expect(200);
     expect(done.body).toMatchObject({ status: 'COMPLETED', instructionStatus: 'SETTLED' });
     expect(done.body.proof.finality).toBe('ON_CHAIN_FINALIZED'); expect(done.body.proof.onChain.slot).toBe('1234');
-    received.length = 0; await drain();
+    await drain(100, { entityId: instr.id });
     expect(received.some(h => h.body.includes('"type":"deposit.settled"') && h.body.includes(instr.id))).toBe(true);
   });
 
@@ -129,7 +129,7 @@ db('deposit instructions, settlement status, institution webhooks', () => {
     const s = await request(app).get(`/api/settlements/${instr.id}`).set(A.auth).expect(200);
     expect(s.body.status).toBe('PROCESSING'); expect(s.body.instructionStatus).toBe('RECEIVED'); expect(s.body.attention.reason).toMatch(/on-chain proof failed/);
     const { drain } = await import('../../packages/core/events/outbox.service');
-    received.length = 0; await drain();
+    await drain(100, { entityId: instr.id });
     expect(received.some(h => h.body.includes('"type":"deposit.rejected"') && h.body.includes(instr.id))).toBe(true);
   });
 
@@ -203,7 +203,7 @@ db('deposit instructions, settlement status, institution webhooks', () => {
     const { expireDepositInstructions, } = await import('../../packages/settlement/deposits/deposit-instruction.service');
     const { drain } = await import('../../packages/core/events/outbox.service');
     await expireDepositInstructions();
-    hookStatus = 302; try { await drain(); } finally { hookStatus = 200; }
+    hookStatus = 302; try { await drain(100, { entityId: instr.id }); } finally { hookStatus = 200; }
     const ob = await prisma.outboxEvent.findFirst({ where: { entityType: 'DepositInstruction', entityId: instr.id } });
     expect(ob.status).not.toBe('DELIVERED');
     expect(ob.lastStatus).toBe(302);
@@ -222,7 +222,7 @@ db('deposit instructions, settlement status, institution webhooks', () => {
     expect(row.status).toBe('EXPIRED');
     expect((await request(app).get(`/api/settlements/${instr.id}`).set(A.auth)).body.status).toBe('FAILED');
     // receiver down → retry scheduled per the documented table
-    hookStatus = 503; try { await drain(); } finally { hookStatus = 200; }
+    hookStatus = 503; try { await drain(100, { entityId: instr.id }); } finally { hookStatus = 200; }
     const ob = await prisma.outboxEvent.findFirst({ where: { entityType: 'DepositInstruction', entityId: instr.id, eventType: 'deposit.expired' } });
     expect(ob.status).toBe('PENDING'); expect(ob.attempts).toBe(1);
     expect(ob.nextAttemptAt.getTime() - Date.now()).toBeGreaterThan(50_000);

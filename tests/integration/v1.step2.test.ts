@@ -15,7 +15,7 @@ process.env.FIREBLOCKS_WEBHOOK_PUBLIC_KEY = pair.publicKey.export({ type: 'spki'
 
 const db = process.env.DATABASE_URL ? describe : describe.skip;
 const ops = { Authorization: `Bearer ${process.env.OPS_API_KEY}` };
-const ALL = ['wallets:read', 'wallets:write', 'deposits:write', 'deposits:read', 'settlements:read', 'webhooks:write', 'webhooks:read', 'ledger:read'];
+const ALL = ['wallets:read', 'wallets:write', 'deposits:write', 'deposits:read', 'settlements:read', 'webhooks:write', 'webhooks:read', 'ledger:read', 'counterparties:read', 'counterparties:write', 'transfers:read', 'transfers:write'];
 
 db('/api/v1 institution contract', () => {
   let app: import('express').Express; let prisma: any;
@@ -69,10 +69,11 @@ db('/api/v1 institution contract', () => {
     expect((await request(app).get('/api/v1/webhook-endpoints').set(A.auth).expect(200)).body.map((e: any) => e.id)).toEqual([ep.body.id]);
     await request(app).delete(`/api/v1/webhook-endpoints/${ep.body.id}`).set(A.auth).expect(204);
 
-    for (const [m, p] of [['post', '/api/v1/transfers'], ['get', '/api/v1/transfers/x'], ['post', '/api/v1/settlements']] as const) {
-      const r = await (request(app) as any)[m](p).set(A.auth).send({}).expect(501);
-      expect(r.body.error.code).toBe('NOT_YET_AVAILABLE');
-    }
+    // outbound (slice 5) is live under the blueprint names: POST /v1/settlements is POST /v1/transfers
+    expect((await request(app).post('/api/v1/transfers').set(A.auth).send({}).expect(400)).body.error.code).toBe('IDEMPOTENCY_KEY_REQUIRED');
+    expect((await request(app).post('/api/v1/settlements').set(A.auth).send({}).expect(400)).body.error.code).toBe('IDEMPOTENCY_KEY_REQUIRED');
+    await request(app).get('/api/v1/transfers/nope').set(A.auth).expect(404);
+    expect((await request(app).get('/api/v1/transfers').set(A.auth).expect(200)).body).toEqual([]);
   });
 
   it('ledger entries: a settled deposit shows the institution its two lines; another tenant sees nothing; cursor paging; scope enforced', async () => {
@@ -137,10 +138,10 @@ db('/api/v1 institution contract', () => {
     await prisma.wallet.update({ where: { id: w.id }, data: { depositAddress: 'addr' } });
     expect((await request(app).post('/api/v1/custody/deposit-addresses').set(A.auth).send({ walletId: w.id }).expect(200)).body.address).toBe('addr');
 
-    // 501 placeholders answer 501 for a key with no settlement scopes at all
+    // outbound routes are scope-gated for a key without transfer/settlement scopes
     const narrow = await institution('nw', ['wallets:read']);
-    await request(app).post('/api/v1/settlements').set(narrow.auth).send({}).expect(501);
-    await request(app).post('/api/v1/transfers').set(narrow.auth).send({}).expect(501);
+    await request(app).post('/api/v1/settlements').set(narrow.auth).send({}).expect(403);
+    await request(app).post('/api/v1/transfers').set(narrow.auth).send({}).expect(403);
     // unknown scope strings are refused at issuance
     const inst = await request(app).post('/api/institutions').set(ops).send({ slug: `v1-sc-${randomUUID().slice(0, 8)}`, legalName: 'Sc', country: 'KE', kind: 'BANK' }).expect(201);
     await request(app).post(`/api/institutions/${inst.body.id}/credentials`).set(ops).send({ environment: 'SANDBOX', label: 'k', scopes: ['ledger:raed'] }).expect(400);

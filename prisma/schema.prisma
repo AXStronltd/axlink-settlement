@@ -746,6 +746,8 @@ model Institution {
   users         User[]
   wallets       Wallet[]
   depositInstructions DepositInstruction[]
+  counterparties Counterparty[]
+  settlementTransfers SettlementTransfer[]
   webhookEndpoints    WebhookEndpoint[]
 
   @@index([status])
@@ -770,6 +772,8 @@ model ApiEnvironment {
   depositInstructions DepositInstruction[]
   webhookEndpoints    WebhookEndpoint[]
   wallets         Wallet[]
+  counterparties  Counterparty[]
+  settlementTransfers SettlementTransfer[]
   @@unique([institutionId, kind])
 }
 
@@ -844,6 +848,7 @@ model Wallet {
   updatedAt       DateTime       @updatedAt
   balances        WalletBalance[]
   depositInstructions DepositInstruction[]
+  settlementTransfers SettlementTransfer[]
 
   @@unique([custodyProvider, custodyVaultId])
   @@unique([environmentId, label])
@@ -927,4 +932,84 @@ model WebhookEndpoint {
   updatedAt        DateTime              @updatedAt
 
   @@index([institutionId, environmentId, status])
+}
+
+// ── Outbound settlement (Step 2, slice 5) ─────────────────────────────────────
+// A counterparty is a receiving address an institution has registered. It becomes usable only when
+// approved: automatically in SANDBOX, by an operator in PRODUCTION after the address is whitelisted
+// at the custodian (Fireblocks Transaction Authorization Policy). A transfer is money leaving a
+// vault; every one is journaled, reserved before submission, and SETTLED only on Solana finality.
+enum CounterpartyStatus {
+  PENDING_APPROVAL
+  ACTIVE
+  DISABLED
+}
+
+model Counterparty {
+  id             String             @id @default(cuid())
+  institutionId  String
+  institution    Institution        @relation(fields: [institutionId], references: [id])
+  environmentId  String
+  environment    ApiEnvironment     @relation(fields: [environmentId], references: [id])
+  label          String
+  network        String             // registry NetworkId
+  address        String
+  status         CounterpartyStatus @default(PENDING_APPROVAL)
+  approvedBy     String?            // operator id/label, or "sandbox-auto"
+  approvedAt     DateTime?
+  custodyWhitelisted Boolean        @default(false) // operator attests the address is whitelisted at the custodian
+  note           String?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  transfers      SettlementTransfer[]
+
+  @@unique([environmentId, address])
+  @@index([institutionId, environmentId, status])
+}
+
+enum SettlementTransferStatus {
+  AWAITING_APPROVAL // policy requires an operator decision before anything leaves the vault
+  APPROVED          // journaled and reserved; custody submission pending
+  SUBMITTED         // custody accepted the transaction (providerTxId)
+  CONFIRMED         // custody reports completion; txHash known; finality not yet proven
+  SETTLED           // Solana node reports the signature finalized (SettlementProof row)
+  FAILED            // custody rejected/failed or on-chain failure — journal reversed
+  REJECTED          // operator declined, or policy refused after creation
+  CANCELLED         // institution cancelled while AWAITING_APPROVAL
+}
+
+model SettlementTransfer {
+  id              String         @id @default(cuid())
+  institutionId   String
+  institution     Institution    @relation(fields: [institutionId], references: [id])
+  environmentId   String
+  environment     ApiEnvironment @relation(fields: [environmentId], references: [id])
+  walletId        String
+  wallet          Wallet         @relation(fields: [walletId], references: [id])
+  counterpartyId  String
+  counterparty    Counterparty   @relation(fields: [counterpartyId], references: [id])
+  assetId         String
+  amount          Decimal        @db.Decimal(36, 18)
+  reference       String?
+  idempotencyKey  String         // the institution's Idempotency-Key, unique per environment
+  status          SettlementTransferStatus @default(AWAITING_APPROVAL)
+  policy          Json?          // the checks that ran and their outcome, for the audit trail
+  approvedBy      String?
+  approvedAt      DateTime?
+  journalEntryId  String?        // the CUSTODY−/INSTITUTION+ posting; reversed on failure
+  providerTxId    String?
+  txHash          String?
+  submittedAt     DateTime?
+  confirmedAt     DateTime?
+  settledAt       DateTime?
+  failureReason   String?
+  attempts        Int            @default(0)
+  nextAttemptAt   DateTime?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@unique([environmentId, idempotencyKey])
+  @@index([institutionId, environmentId, status])
+  @@index([status, nextAttemptAt])
+  @@index([providerTxId])
 }

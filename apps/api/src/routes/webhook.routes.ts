@@ -170,6 +170,21 @@ router.post(['/fireblocks', '/fireboks'], async (req: Request, res: Response) =>
     `[Fireblocks webhook] event=${event} txId=${tx?.id ?? '-'} status=${statusLabel} asset=${tx?.assetId ?? '-'} amount=${tx?.amount ?? '-'} hash=${tx?.txHash ?? '-'} externalId=${tx?.externalTxId ?? '-'} destVault=${tx?.destination?.id ?? '-'}`
   );
 
+  // ── Outbound settlement: custody's word on a transfer we submitted (slice 5) ──
+  // Matched by providerTxId; exactly once per (tx id, status). Deposits never match (no transfer row).
+  if ((event === 'TRANSACTION_STATUS_UPDATED' || event === 'transaction.status.updated') && tx?.id && tx.source?.type === 'VAULT_ACCOUNT') {
+    const { applyCustodyStatus } = await import('../../../../packages/settlement/transfers/settlement-transfer.service');
+    const outbound = await prisma.settlementTransfer.findFirst({ where: { providerTxId: tx.id }, select: { id: true } });
+    if (outbound) {
+      const mapped = statusLabel === 'completed' ? { status: 'CONFIRMED' as const, final: true } : ['failed', 'rejected', 'cancelled', 'blocked'].includes(statusLabel) ? { status: 'FAILED' as const, final: true } : { status: 'PENDING' as const, final: false };
+      const r = await processOnce({ provider: 'fireblocks', eventId: `${tx.id}:${tx.status ?? 'UNKNOWN'}`, kind: event, rawBody }, async (t) => {
+        const applied = await applyCustodyStatus(tx.id!, { ...mapped, txHash: tx.txHash }, t);
+        return { outcome: { status: applied === 'updated' ? 'PROCESSED' as const : 'IGNORED' as const, reason: applied === 'ignored' ? 'no state change' : undefined, entityType: 'SettlementTransfer', entityId: outbound.id }, result: applied };
+      });
+      res.status(200).json({ received: true, outbound: true, duplicate: r.duplicate, outcome: r.duplicate ? 'DUPLICATE' : r.outcome.status }); return;
+    }
+  }
+
   // ── A stablecoin landed in a custody vault → settle the matching deposit ───
   // F1: exactly once per (tx id, status) via ProviderEvent uniqueness, in one transaction.
   // F3: the asset is resolved from the registry by network + contract; USDC and USDT both settle;

@@ -8,7 +8,7 @@ import { notFound } from '../../../../packages/shared/errors';
 import { requireInstitution } from '../../../../packages/core/tenancy/tenancy.middleware';
 
 /** Every scope the API checks. Issuing an unknown scope (a typo) is refused here rather than failing silently at call time. */
-export const KNOWN_SCOPES = ['*', 'wallets:read', 'wallets:write', 'wallets:*', 'deposits:read', 'deposits:write', 'deposits:*', 'settlements:read', 'settlements:write', 'settlements:*', 'ledger:read', 'ledger:*', 'webhooks:read', 'webhooks:write', 'webhooks:*'] as const;
+export const KNOWN_SCOPES = ['*', 'wallets:read', 'wallets:write', 'wallets:*', 'deposits:read', 'deposits:write', 'deposits:*', 'settlements:read', 'settlements:write', 'settlements:*', 'ledger:read', 'ledger:*', 'webhooks:read', 'webhooks:write', 'webhooks:*', 'counterparties:read', 'counterparties:write', 'counterparties:*', 'transfers:read', 'transfers:write', 'transfers:*'] as const;
 
 const router = Router();
 const wrap = (fn: (req: Request, res: Response) => Promise<unknown>) => (req: Request, res: Response, next: NextFunction) => fn(req, res).catch(next);
