@@ -1,3 +1,4 @@
+import 'dotenv/config'; // tests read .env like the app does, so DATABASE_URL-gated suites run on a fresh checkout
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({

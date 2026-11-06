@@ -8,7 +8,10 @@ import { ASSETS, toMinorUnits } from '../assets/registry';
 let _prisma: PrismaClient | null = null;
 function getPrisma(): PrismaClient {
   if (!_prisma) {
-    const pgUrl = process.env.DIRECT_DATABASE_URL ?? process.env.DATABASE_URL ?? '';
+    // An empty DIRECT_DATABASE_URL (as in .env.example) must not win over DATABASE_URL: an empty
+    // connection string makes pg dial localhost:5432 silently.
+    const pgUrl = process.env.DIRECT_DATABASE_URL || process.env.DATABASE_URL || '';
+    if (!pgUrl) throw new Error('DATABASE_URL is not set (check .env)');
     const adapter = new PrismaPg({ connectionString: pgUrl });
     _prisma = new PrismaClient({ adapter } as ConstructorParameters<typeof PrismaClient>[0]);
   }
