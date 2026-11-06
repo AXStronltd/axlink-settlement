@@ -153,8 +153,24 @@ export async function createTransfer(params: TransferParams) {
 
     return res.data;
   } catch (err: unknown) {
-    console.warn('[fireblocks] createTransfer failed — returning sandbox stub:', (err as Error).message);
-    return { id: stubId('tx'), status: 'COMPLETED', assetId: params.assetId, amount: params.amount };
+    // Never fabricate a completed transaction for a live workspace: a rejected or timed-out
+    // submission must surface as an error so the caller retries or reconciles by externalTxId.
+    const e = err as Error & { response?: { status?: number; data?: { message?: string; code?: number } } };
+    const message = e.response?.data?.message ?? e.message;
+    throw Object.assign(new Error(`Fireblocks createTransaction failed: ${message}`), { code: 'CUSTODY_SUBMIT_FAILED', httpStatus: e.response?.status, providerCode: e.response?.data?.code, retryable: true });
+  }
+}
+
+/** Resolve a transaction we may already have submitted (same externalTxId) — the recovery path after a timeout. */
+export async function getTransactionByExternalId(externalTxId: string): Promise<{ id: string; status?: string; txHash?: string } | null> {
+  if (!isConfigured()) return null;
+  try {
+    const res = await client().transactions.getTransactionByExternalId({ externalTxId });
+    return res.data as { id: string; status?: string; txHash?: string };
+  } catch (err: unknown) {
+    const e = err as Error & { response?: { status?: number } };
+    if (e.response?.status === 404) return null;
+    throw err;
   }
 }
 

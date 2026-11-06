@@ -76,7 +76,11 @@ router.get('/balances', requireScope('wallets:read'), wrap(async (req, res) => {
 router.use('/counterparties', counterpartyRoutes);
 router.use('/transfers', transferRoutes);
 router.post('/settlements', (req, _res, next) => { req.url = '/'; transferRoutes(req, _res, next); });
-router.get('/settlements/:id', requireScope('settlements:read'), wrap(async (req, res) => {
+const settlementsRead = (req: Request, _res: Response, next: NextFunction) => {
+  const have = req.tenant?.scopes ?? [];
+  next(['settlements:read', 'settlements:*', 'transfers:read', 'transfers:*', 'deposits:read', 'deposits:*', '*'].some(s => have.includes(s)) ? undefined : new ApiError('FORBIDDEN', 'Credential lacks settlements:read', 403));
+};
+router.get('/settlements/:id', settlementsRead, wrap(async (req, res) => {
   const t = req.tenant!; const scope = { institutionId: t.institutionId, environmentId: t.environmentId }; const id = req.params.id as string;
   const transfer = await getTransfer(id, scope).catch(e => { if (e instanceof ApiError && e.statusCode === 404) return null; throw e; });
   if (transfer) { res.json(await serializeTransfer(transfer)); return; }

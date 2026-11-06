@@ -136,9 +136,9 @@ export function stopDepositInstructionSweeper(): void { if (sweeper) { clearInte
  * unreachable) leave the row RECEIVED for the next tick; a definite on-chain failure or mismatch is
  * recorded on the instruction and announced — custody said yes, the chain said no, a human decides.
  */
-export async function finalizeReceivedInstructions(limit = 100): Promise<{ settled: number; pending: number; failed: number }> {
+export async function finalizeReceivedInstructions(limit = 100, only?: { id: string }): Promise<{ settled: number; pending: number; failed: number }> {
   const { emitInstitutionEvent } = await import('../../core/webhooks/webhook-endpoint.service');
-  const rows = await prisma.depositInstruction.findMany({ where: { status: 'RECEIVED', txHash: { not: null } }, include: { wallet: { select: { depositAddress: true } } }, take: limit, orderBy: { receivedAt: 'asc' } });
+  const rows = await prisma.depositInstruction.findMany({ where: { status: 'RECEIVED', txHash: { not: null }, ...(only ? { id: only.id } : {}) }, include: { wallet: { select: { depositAddress: true } } }, take: limit, orderBy: { receivedAt: 'asc' } });
   const out = { settled: 0, pending: 0, failed: 0 };
   for (const i of rows) {
     const asset = getAsset(i.assetId);

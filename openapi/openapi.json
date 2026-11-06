@@ -675,6 +675,7 @@
             "enum": [
               "AWAITING_APPROVAL",
               "APPROVED",
+              "SUBMITTING",
               "SUBMITTED",
               "CONFIRMED",
               "SETTLED",
@@ -2423,7 +2424,7 @@
             "description": "Credential lacks transfers:write (or settlements:write)"
           },
           "200": {
-            "description": "Replay of the same request under the same Idempotency-Key",
+            "description": "Replay: the same request under the same Idempotency-Key (walletId, counterpartyId, asset, amount, reference all equal) returns the existing transfer",
             "content": {
               "application/json": {
                 "schema": {
@@ -2501,8 +2502,32 @@
           },
           "403": {
             "description": "Credential lacks transfers:read (or settlements:read)"
+          },
+          "400": {
+            "description": "Unknown status"
           }
-        }
+        },
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "AWAITING_APPROVAL",
+                "APPROVED",
+                "SUBMITTING",
+                "SUBMITTED",
+                "CONFIRMED",
+                "SETTLED",
+                "FAILED",
+                "REJECTED",
+                "CANCELLED"
+              ]
+            },
+            "description": "filter by stage"
+          }
+        ]
       }
     },
     "/v1/transfers/{id}": {
@@ -2837,6 +2862,9 @@
           },
           "409": {
             "description": "NOT_CANCELLABLE"
+          },
+          "404": {
+            "description": "Not found"
           }
         },
         "parameters": [
@@ -2889,6 +2917,18 @@
           },
           "401": {
             "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "409": {
+            "description": "NOT_AWAITING_APPROVAL, COUNTERPARTY_NOT_ACTIVE, WALLET_NOT_ACTIVE"
+          },
+          "422": {
+            "description": "INSUFFICIENT_BALANCE"
+          },
+          "503": {
+            "description": "OUTBOUND_DISABLED (production)"
           }
         },
         "requestBody": {
@@ -2935,6 +2975,12 @@
           },
           "401": {
             "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "409": {
+            "description": "NOT_AWAITING_APPROVAL"
           }
         },
         "requestBody": {
@@ -3005,6 +3051,15 @@
           },
           "401": {
             "description": "Unauthorized"
+          },
+          "400": {
+            "description": "NOT_WHITELISTED (custodyWhitelisted must be true)"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "409": {
+            "description": "NOT_PENDING"
           }
         },
         "requestBody": {
@@ -3060,6 +3115,9 @@
           },
           "401": {
             "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
           }
         },
         "requestBody": {

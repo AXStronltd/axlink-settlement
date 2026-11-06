@@ -209,6 +209,82 @@ db('outbound settlement transfers', () => {
     expect((await request(app).get('/api/v1/balances').set(A.auth)).body.balances.find((b: any) => b.asset === 'USDT_SOL').available).toBe('10');
   });
 
+  it('review fixes: concurrent creates cannot overdraw; a disabled counterparty is refused at approval and at submission; wrong recipient is not a proof', async () => {
+    const A = await institution('race');
+    await fund(A, 'USDC_SOL', 100);
+    const cp = (await request(app).post('/api/v1/counterparties').set(A.auth).send({ label: 'R', address: CP_ADDR() }).expect(201)).body;
+    const rs = await Promise.all([1, 2, 3, 4, 5].map(() => request(app).post('/api/v1/transfers').set(A.auth).set('Idempotency-Key', key()).send({ walletId: A.wallet.id, counterpartyId: cp.id, asset: 'USDC_SOL', amount: '80' })));
+    expect(rs.map(r => r.status).sort()).toEqual([202, 422, 422, 422, 422]);
+    expect((await request(app).get('/api/v1/balances').set(A.auth)).body.balances.find((b: any) => b.asset === 'USDC_SOL').available).toBe('20');
+    const { journalBalance } = await import('../../packages/core/wallets/wallet.service');
+    expect((await journalBalance({ custodyVaultId: A.wallet.custody.vaultId }, 'USDC_SOL')).isNegative()).toBe(false);
+
+    // above the auto limit → waits; counterparty disabled meanwhile → operator approval refused
+    const B = await institution('dis'); await fund(B, 'USDC_SOL', 5000);
+    const cpB = (await request(app).post('/api/v1/counterparties').set(B.auth).send({ label: 'D', address: CP_ADDR() }).expect(201)).body;
+    const big = (await request(app).post('/api/v1/transfers').set(B.auth).set('Idempotency-Key', key()).send({ walletId: B.wallet.id, counterpartyId: cpB.id, asset: 'USDC_SOL', amount: '3000' }).expect(202)).body;
+    await request(app).delete(`/api/v1/counterparties/${cpB.id}`).set(B.auth).expect(204);
+    expect((await request(app).post(`/api/settlement/transfers/${big.id}/approve`).set(ops).send({}).expect(409)).body.error.code).toBe('COUNTERPARTY_NOT_ACTIVE');
+    // approved, then counterparty disabled before the sweeper submits → refused before custody, journal restored
+    const cpC = (await request(app).post('/api/v1/counterparties').set(B.auth).send({ label: 'C', address: CP_ADDR() }).expect(201)).body;
+    const t = (await request(app).post('/api/v1/transfers').set(B.auth).set('Idempotency-Key', key()).send({ walletId: B.wallet.id, counterpartyId: cpC.id, asset: 'USDC_SOL', amount: '10' }).expect(202)).body;
+    expect(t.stage).toBe('APPROVED');
+    await request(app).delete(`/api/v1/counterparties/${cpC.id}`).set(B.auth).expect(204);
+    const calls: any[] = []; reg.registerCustodyProvider({ ...fbAdapter, transferExternal: async (p: any) => { calls.push(p); return { providerTxId: 'x', status: 'PENDING' as const }; } });
+    await svc.submitApprovedTransfers();
+    expect(calls.filter(c => c.clientRef === t.id)).toHaveLength(0);
+    expect((await request(app).get(`/api/v1/transfers/${t.id}`).set(B.auth)).body).toMatchObject({ stage: 'FAILED', attention: true });
+    expect((await request(app).get('/api/v1/balances').set(B.auth)).body.balances.find((b: any) => b.asset === 'USDC_SOL').available).toBe('5000');
+
+    // proof: right amount to the WRONG owner is a mismatch
+    const { proveSettlement } = await import('../../packages/settlement/proof/proof.service');
+    const { useTestPorts } = await import('../../packages/providers/ports/runtime');
+    const { ASSETS } = await import('../../packages/core/assets/registry');
+    const restore = useTestPorts({ chain: {
+      awaitFinality: async (s: string) => ({ signature: s, found: true, slot: 1, confirmations: null, commitment: 'finalized', err: null }),
+      getTransaction: async (s: string) => ({ signature: s, slot: 1, blockTime: new Date(), feeLamports: 1n, err: null, tokenTransfers: [{ mint: ASSETS.USDC_SOL.contract, owner: 'SomeoneElse111111111111111111111111111111111', decimals: 6, changeRaw: 10_000_000n }] }),
+    } as any });
+    try { await expect(proveSettlement({ entityType: 'Test', entityId: `w-${randomUUID()}`, signature: `sig-${randomUUID()}`, asset: 'USDC_SOL', expectedAmount: '10', toAddress: cpC.address, requireRecipient: true })).rejects.toThrow(/moved no USDC .* to /); } finally { restore(); }
+  });
+
+  it('review fixes: a timed-out submission is recovered from the custodian by transfer id (never paid twice, never reversed); FAILED after broadcast is flagged, not reversed; stub ids refused on a configured workspace', async () => {
+    const A = await institution('rec'); await fund(A, 'USDT_SOL', 50);
+    const cp = (await request(app).post('/api/v1/counterparties').set(A.auth).send({ label: 'Rec', address: CP_ADDR() }).expect(201)).body;
+    let submits = 0;
+    const held = new Map<string, { providerTxId: string; status: 'PENDING' | 'CONFIRMED' | 'FAILED'; final: boolean; txHash?: string }>();
+    reg.registerCustodyProvider({ ...fbAdapter,
+      transferExternal: async (p: any) => { submits++; held.set(p.clientRef, { providerTxId: `fb-${p.clientRef}`, status: 'PENDING', final: false }); throw Object.assign(new Error('gateway timeout'), { retryable: true }); },
+      findTransferByClientRef: async (ref: string) => held.get(ref) ?? null,
+      getTransfer: async (id: string) => [...held.values()].find(h => h.providerTxId === id) ?? { status: 'PENDING' as const, final: false },
+    });
+    const t = (await request(app).post('/api/v1/transfers').set(A.auth).set('Idempotency-Key', key()).send({ walletId: A.wallet.id, counterpartyId: cp.id, asset: 'USDT_SOL', amount: '20' }).expect(202)).body;
+    expect((await svc.submitApprovedTransfers()).deferred).toBe(1); // custodian accepted but we timed out
+    await prisma.settlementTransfer.update({ where: { id: t.id }, data: { nextAttemptAt: new Date(0) } });
+    await svc.submitApprovedTransfers();
+    expect(submits).toBe(1); // recovered by externalTxId, not resubmitted
+    let cur = (await request(app).get(`/api/v1/transfers/${t.id}`).set(A.auth)).body;
+    expect(cur.stage).toBe('SUBMITTED'); expect(cur.proof.custodyTxId).toBe(`fb-${t.id}`);
+    expect((await request(app).get('/api/v1/balances').set(A.auth)).body.balances.find((b: any) => b.asset === 'USDT_SOL').available).toBe('30');
+
+    // custody later says FAILED but with a txHash (broadcast happened): attention, no reversal
+    held.set(t.id, { providerTxId: `fb-${t.id}`, status: 'FAILED', final: true, txHash: 'sigbroadcast' });
+    await svc.pollSubmittedTransfers();
+    cur = (await request(app).get(`/api/v1/transfers/${t.id}`).set(A.auth)).body;
+    expect(cur.stage).toBe('SUBMITTED'); expect(cur.attention).toBe(true); expect(cur.reason).toMatch(/after broadcast/);
+    expect((await request(app).get('/api/v1/balances').set(A.auth)).body.balances.find((b: any) => b.asset === 'USDT_SOL').available).toBe('30');
+
+    // a "configured" custodian answering a sandbox id is refused (not recorded as confirmed)
+    reg.registerCustodyProvider({ ...fbAdapter, configured: () => true, findTransferByClientRef: async () => null });
+    const sv = process.env.FIREBLOCKS_SANDBOX; process.env.FIREBLOCKS_SANDBOX = 'true'; // keep custodyEnvironmentKind SANDBOX for wallet gating
+    try {
+      const t2 = (await request(app).post('/api/v1/transfers').set(A.auth).set('Idempotency-Key', key()).send({ walletId: A.wallet.id, counterpartyId: cp.id, asset: 'USDT_SOL', amount: '5' }).expect(202)).body;
+      await svc.submitApprovedTransfers();
+      const row = await prisma.settlementTransfer.findUnique({ where: { id: t2.id } });
+      expect(row.status).toBe('FAILED'); expect(row.failureReason).toMatch(/sandbox transaction id/);
+      expect((await request(app).get('/api/v1/balances').set(A.auth)).body.balances.find((b: any) => b.asset === 'USDT_SOL').available).toBe('30');
+    } finally { if (sv === undefined) delete process.env.FIREBLOCKS_SANDBOX; else process.env.FIREBLOCKS_SANDBOX = sv; }
+  });
+
   it('PRODUCTION: outbound is disabled unless OUTBOUND_SETTLEMENT_ENABLED=true; counterparties need an operator attestation', async () => {
     expect(svc.outboundEnabled('PRODUCTION')).toBe(false); expect(svc.outboundEnabled('SANDBOX')).toBe(true);
     const { registerCounterparty, approveCounterparty } = await import('../../packages/settlement/transfers/counterparty.service');

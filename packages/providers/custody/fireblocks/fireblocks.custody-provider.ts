@@ -49,6 +49,10 @@ export const fireblocksCustodyProvider: CustodyProvider = {
     const r = await ports().custody.createTransfer({ assetId: providerAssetId('fireblocks', assetIdOf(p.asset)), amount: p.amount, sourceVaultId: p.fromVaultId, destAddress: p.toAddress, note: p.memo, externalTxId: p.clientRef }) as { id: string; status?: string; txHash?: string };
     return { providerTxId: r.id, ...toStatus(r.status), txHash: r.txHash };
   },
+  async findTransferByClientRef(clientRef) {
+    const t = await fb.getTransactionByExternalId(clientRef);
+    return t ? { providerTxId: t.id, ...toStatus(t.status), txHash: t.txHash } : null;
+  },
   async getTransfer(providerTxId) {
     const t = await ports().custody.getTransaction(providerTxId) as { status?: string; txHash?: string };
     return { ...toStatus(t.status), txHash: t.txHash };

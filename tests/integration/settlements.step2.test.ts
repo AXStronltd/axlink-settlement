@@ -105,7 +105,7 @@ db('deposit instructions, settlement status, institution webhooks', () => {
       awaitFinality: async (signature: string) => ({ signature, found: true, slot: 1234, confirmations: null, commitment: 'finalized', err: null }),
       getTransaction: async (signature: string) => ({ signature, slot: 1234, blockTime: new Date(), feeLamports: 5000n, err: null, tokenTransfers: [{ mint: ASSETS.USDC_SOL.contract, owner: null, decimals: 6, changeRaw: 12_500_000n }] }),
     } as any });
-    try { expect((await finalizeReceivedInstructions()).settled).toBeGreaterThanOrEqual(1); } finally { restore(); }
+    try { expect((await finalizeReceivedInstructions(100, { id: instr.id })).settled).toBeGreaterThanOrEqual(1); } finally { restore(); }
     const done = await request(app).get(`/api/settlements/${instr.id}`).set(A.auth).expect(200);
     expect(done.body).toMatchObject({ status: 'COMPLETED', instructionStatus: 'SETTLED' });
     expect(done.body.proof.finality).toBe('ON_CHAIN_FINALIZED'); expect(done.body.proof.onChain.slot).toBe('1234');
@@ -125,7 +125,7 @@ db('deposit instructions, settlement status, institution webhooks', () => {
       awaitFinality: async (signature: string) => ({ signature, found: true, slot: 1, confirmations: null, commitment: 'finalized', err: null }),
       getTransaction: async (signature: string) => ({ signature, slot: 1, blockTime: new Date(), feeLamports: 5000n, err: null, tokenTransfers: [{ mint: ASSETS.USDT_SOL.contract, owner: null, decimals: 6, changeRaw: 12_500_000n }] }), // wrong mint on chain
     } as any });
-    try { expect((await finalizeReceivedInstructions()).failed).toBeGreaterThanOrEqual(1); } finally { restore(); }
+    try { expect((await finalizeReceivedInstructions(100, { id: instr.id })).failed).toBeGreaterThanOrEqual(1); } finally { restore(); }
     const s = await request(app).get(`/api/settlements/${instr.id}`).set(A.auth).expect(200);
     expect(s.body.status).toBe('PROCESSING'); expect(s.body.instructionStatus).toBe('RECEIVED'); expect(s.body.attention.reason).toMatch(/on-chain proof failed/);
     const { drain } = await import('../../packages/core/events/outbox.service');

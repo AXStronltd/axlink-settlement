@@ -44,6 +44,20 @@ export const outboundEnabled = (kind: 'SANDBOX' | 'PRODUCTION') => kind === 'SAN
 
 const OPEN_RESERVING: SettlementTransfer['status'][] = ['AWAITING_APPROVAL'];
 
+/**
+ * Serialise every balance-changing decision on one wallet. Two concurrent creates (or a create and an
+ * operator approve) must not both read the same available balance: the row lock makes the second wait
+ * for the first commit and re-read. Defence in depth: `assertNotOverdrawn` re-reads the journal after
+ * the posting and aborts the transaction if the custody account went negative.
+ */
+async function lockWallet(tx: Prisma.TransactionClient, walletId: string): Promise<void> {
+  await tx.$queryRaw`SELECT id FROM "Wallet" WHERE id = ${walletId} FOR UPDATE`;
+}
+async function assertNotOverdrawn(tx: Prisma.TransactionClient, wallet: { custodyVaultId: string }, assetId: string): Promise<void> {
+  const after = await journalBalance(wallet, assetId, tx);
+  if (after.isNegative()) throw new ApiError('INSUFFICIENT_BALANCE', `posting would overdraw the custody account (${after.toFixed()} ${assetId})`, 422);
+}
+
 /** Journal balance of the wallet asset minus transfers awaiting approval (not yet posted). */
 export async function availableForTransfer(wallet: { id: string; custodyVaultId: string }, assetId: string, db: Prisma.TransactionClient | typeof prisma = prisma) {
   const posted = await journalBalance(wallet, assetId, db);
@@ -64,7 +78,7 @@ export async function createTransfer(scope: Scope, input: CreateTransferInput): 
   // Idempotent on (environment, key): same request → same transfer; different request under the same key → 409.
   const existing = await prisma.settlementTransfer.findUnique({ where: { environmentId_idempotencyKey: { environmentId: scope.environmentId, idempotencyKey: input.idempotencyKey } } });
   if (existing) {
-    const same = existing.walletId === input.walletId && existing.counterpartyId === input.counterpartyId && existing.assetId === asset.id && existing.amount.equals(amount);
+    const same = existing.walletId === input.walletId && existing.counterpartyId === input.counterpartyId && existing.assetId === asset.id && existing.amount.equals(amount) && (existing.reference ?? null) === (input.reference ?? null);
     if (!same) throw new ApiError('IDEMPOTENCY_MISMATCH', 'Idempotency-Key was already used for a different request', 409, { transferId: existing.id });
     return { transfer: existing, replayed: true };
   }
@@ -82,6 +96,7 @@ export async function createTransfer(scope: Scope, input: CreateTransferInput): 
 
   try {
     const transfer = await prisma.$transaction(async tx => {
+      await lockWallet(tx, wallet.id);
       const bal = await availableForTransfer(wallet, asset.id, tx);
       checks.available = bal.available.toFixed(); checks.reserved = bal.reserved.toFixed();
       if (bal.available.lt(amount)) throw new ApiError('INSUFFICIENT_BALANCE', `available ${bal.available.toFixed()} ${asset.symbol} is less than ${amount.toFixed()}`, 422, checks);
@@ -106,6 +121,11 @@ export async function createTransfer(scope: Scope, input: CreateTransferInput): 
 
 /** APPROVED = journaled. The posting is the reservation; from here the money is committed. */
 async function approveInTx(tx: Prisma.TransactionClient, t: SettlementTransfer, wallet: { custodyVaultId: string }, by: string): Promise<SettlementTransfer> {
+  // The counterparty or wallet may have changed since the request was made (disabled, suspended,
+  // rejected by an operator). Nothing is posted for a destination that is no longer approved.
+  const [cp, w] = await Promise.all([tx.counterparty.findUnique({ where: { id: t.counterpartyId } }), tx.wallet.findUnique({ where: { id: t.walletId } })]);
+  if (!cp || cp.status !== 'ACTIVE') throw new ApiError('COUNTERPARTY_NOT_ACTIVE', `counterparty is ${cp?.status ?? 'missing'}`, 409);
+  if (!w || w.status !== 'ACTIVE') throw new ApiError('WALLET_NOT_ACTIVE', `wallet is ${w?.status ?? 'missing'}`, 409);
   const entry = await post(tx, {
     eventType: 'SETTLEMENT', entityType: 'SettlementTransfer', entityId: t.id, postingKey: `SettlementTransfer:${t.id}:debit`,
     narrative: `Outbound settlement ${t.assetId} ${t.amount.toFixed()} to counterparty ${t.counterpartyId} for institution ${t.institutionId}`,
@@ -115,11 +135,16 @@ async function approveInTx(tx: Prisma.TransactionClient, t: SettlementTransfer, 
     ],
   });
   await applyWalletCredit(tx, t.walletId, t.assetId, t.amount.negated());
+  await assertNotOverdrawn(tx, wallet, t.assetId);
   return tx.settlementTransfer.update({ where: { id: t.id }, data: { status: 'APPROVED', approvedBy: by, approvedAt: new Date(), journalEntryId: entry.id, nextAttemptAt: new Date() } });
 }
 
 export async function approveTransfer(id: string, by: string) {
   return prisma.$transaction(async tx => {
+    const pre = await tx.settlementTransfer.findUnique({ where: { id }, select: { walletId: true, environment: { select: { kind: true } } } });
+    if (!pre) throw new ApiError('NOT_FOUND', 'transfer not found', 404);
+    if (!outboundEnabled(pre.environment.kind)) throw new ApiError('OUTBOUND_DISABLED', 'outbound settlement is not enabled for PRODUCTION on this deployment', 503);
+    await lockWallet(tx, pre.walletId);
     const t = await tx.settlementTransfer.findUnique({ where: { id }, include: { wallet: true } });
     if (!t) throw new ApiError('NOT_FOUND', 'transfer not found', 404);
     if (t.status !== 'AWAITING_APPROVAL') throw new ApiError('NOT_AWAITING_APPROVAL', `transfer is ${t.status}`, 409);
@@ -133,11 +158,13 @@ export async function approveTransfer(id: string, by: string) {
 }
 
 export async function rejectTransfer(id: string, by: string, reason: string) {
-  const r = await prisma.settlementTransfer.updateMany({ where: { id, status: 'AWAITING_APPROVAL' }, data: { status: 'REJECTED', approvedBy: by, failureReason: `rejected by operator: ${reason}`.slice(0, 500) } });
-  if (r.count !== 1) { const t = await prisma.settlementTransfer.findUnique({ where: { id } }); if (!t) throw new ApiError('NOT_FOUND', 'transfer not found', 404); throw new ApiError('NOT_AWAITING_APPROVAL', `transfer is ${t.status}`, 409); }
-  const t = (await prisma.settlementTransfer.findUnique({ where: { id } }))!;
-  await emit(t, 'transfer.failed', { reason: t.failureReason });
-  return t;
+  return prisma.$transaction(async tx => {
+    const r = await tx.settlementTransfer.updateMany({ where: { id, status: 'AWAITING_APPROVAL' }, data: { status: 'REJECTED', approvedBy: by, failureReason: `rejected by operator: ${reason}`.slice(0, 500) } });
+    if (r.count !== 1) { const t = await tx.settlementTransfer.findUnique({ where: { id } }); if (!t) throw new ApiError('NOT_FOUND', 'transfer not found', 404); throw new ApiError('NOT_AWAITING_APPROVAL', `transfer is ${t.status}`, 409); }
+    const t = (await tx.settlementTransfer.findUnique({ where: { id } }))!;
+    await emit(t, 'transfer.failed', { reason: t.failureReason }, tx);
+    return t;
+  });
 }
 
 export async function cancelTransfer(id: string, scope: { institutionId: string; environmentId: string }) {
@@ -150,7 +177,7 @@ export async function getTransfer(id: string, scope: { institutionId: string; en
   if (!t) throw new ApiError('NOT_FOUND', 'transfer not found', 404);
   return t;
 }
-const STATUSES = ['AWAITING_APPROVAL', 'APPROVED', 'SUBMITTED', 'CONFIRMED', 'SETTLED', 'FAILED', 'REJECTED', 'CANCELLED'] as const;
+const STATUSES = ['AWAITING_APPROVAL', 'APPROVED', 'SUBMITTING', 'SUBMITTED', 'CONFIRMED', 'SETTLED', 'FAILED', 'REJECTED', 'CANCELLED'] as const;
 export function listTransfers(scope: { institutionId: string; environmentId: string }, status?: string) {
   if (status !== undefined && !(STATUSES as readonly string[]).includes(status)) throw new ApiError('VALIDATION_ERROR', `status must be one of ${STATUSES.join(', ')}`, 400);
   return prisma.settlementTransfer.findMany({ where: { ...where(scope), ...(status ? { status: status as typeof STATUSES[number] } : {}) }, orderBy: { createdAt: 'desc' }, take: 100, include: { counterparty: true } });
@@ -168,31 +195,68 @@ async function emit(t: SettlementTransfer & { counterparty?: Counterparty }, typ
 
 // ── Submission to custody (sweeper) ───────────────────────────────────────────
 const BACKOFF_MS = [30_000, 120_000, 600_000, 1_800_000, 3_600_000];
+const CLAIM_LEASE_MS = 120_000;
+let sweeping = false;
 
+/**
+ * Submit APPROVED transfers to the custodian. Each row is CLAIMED first with a conditional update
+ * (status APPROVED → SUBMITTING with a lease), so two instances or two overlapping sweeps cannot both
+ * call custody for the same row. Before any (re)submission the custodian is asked whether it already
+ * holds a transaction for this transfer id — a timeout after acceptance must adopt that transaction,
+ * never pay again and never reverse the journal.
+ */
 export async function submitApprovedTransfers(limit = 50): Promise<{ submitted: number; failed: number; deferred: number }> {
-  const rows = await prisma.settlementTransfer.findMany({ where: { status: 'APPROVED', OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: new Date() } }] }, include: { wallet: true, counterparty: true }, take: limit, orderBy: { approvedAt: 'asc' } });
+  const now = new Date();
+  const rows = await prisma.settlementTransfer.findMany({
+    where: { OR: [
+      { status: 'APPROVED', OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }] },
+      { status: 'SUBMITTING', nextAttemptAt: { lte: now } }, // a lease that expired: the claimer died mid-call
+    ] },
+    include: { wallet: true, counterparty: true, environment: { select: { kind: true } } }, take: limit, orderBy: { approvedAt: 'asc' },
+  });
   const out = { submitted: 0, failed: 0, deferred: 0 };
   const custody = providers.custody();
   for (const t of rows) {
+    if (!outboundEnabled(t.environment.kind)) { log.error('transfer.outbound_disabled', { transferId: t.id, environment: t.environment.kind }); out.deferred++; continue; }
+    // claim
+    const claimed = await prisma.settlementTransfer.updateMany({ where: { id: t.id, status: t.status, nextAttemptAt: t.nextAttemptAt }, data: { status: 'SUBMITTING', nextAttemptAt: new Date(Date.now() + CLAIM_LEASE_MS) } });
+    if (claimed.count !== 1) continue; // someone else has it
+    if (t.counterparty.status !== 'ACTIVE' || t.wallet.status !== 'ACTIVE') {
+      // Nothing has left custody yet: this is a clean refusal, and the journal is restored.
+      await failTransfer(t.id, `refused before submission: counterparty is ${t.counterparty.status}, wallet is ${t.wallet.status}`, undefined, t.attempts, 'SUBMITTING'); out.failed++; continue;
+    }
     const asset = getAsset(t.assetId);
     try {
-      // externalTxId = transfer id: a retry after a crash is deduplicated by the custodian.
-      const r = await custody.transferExternal({ clientRef: t.id, fromVaultId: t.wallet.custodyVaultId, toAddress: t.counterparty.address, asset: { symbol: asset.symbol, chain: asset.network }, amount: t.amount.toFixed(), memo: t.reference ?? `AxLink ${t.id}` });
-      const now = new Date();
-      const data = r.status === 'FAILED'
-        ? { status: 'SUBMITTED' as const, providerTxId: r.providerTxId, submittedAt: now, attempts: t.attempts + 1 } // let the poller record the failure with custody's final word
-        : { status: r.status === 'CONFIRMED' ? 'CONFIRMED' as const : 'SUBMITTED' as const, providerTxId: r.providerTxId, txHash: r.txHash ?? null, submittedAt: now, ...(r.status === 'CONFIRMED' ? { confirmedAt: now } : {}), attempts: t.attempts + 1 };
+      // Recovery first: did an earlier attempt reach the custodian? (externalTxId = transfer id)
+      let r: { providerTxId: string; status: 'PENDING' | 'CONFIRMED' | 'FAILED'; txHash?: string } | null = null;
+      if (t.attempts > 0) {
+        const existing = await custody.findTransferByClientRef(t.id);
+        if (existing) { r = existing; log.warn('transfer.recovered_from_custody', { transferId: t.id, providerTxId: existing.providerTxId }); }
+      }
+      r ??= await custody.transferExternal({ clientRef: t.id, fromVaultId: t.wallet.custodyVaultId, toAddress: t.counterparty.address, asset: { symbol: asset.symbol, chain: asset.network }, amount: t.amount.toFixed(), memo: t.reference ?? `AxLink ${t.id}` });
+      if (custody.configured() && /_sandbox_/.test(r.providerTxId)) throw Object.assign(new Error(`custodian returned a sandbox transaction id on a configured workspace: ${r.providerTxId}`), { retryable: false });
+      const at = new Date();
+      if (r.status === 'FAILED') {
+        // The custodian refused outright (policy, insufficient fee, blocked). Nothing left the vault.
+        await failTransfer(t.id, `custody rejected the transaction (${r.providerTxId})`, undefined, t.attempts + 1, 'SUBMITTING'); out.failed++; continue;
+      }
+      const data = { status: r.status === 'CONFIRMED' ? 'CONFIRMED' as const : 'SUBMITTED' as const, providerTxId: r.providerTxId, txHash: r.txHash ?? null, submittedAt: at, ...(r.status === 'CONFIRMED' ? { confirmedAt: at } : {}), attempts: t.attempts + 1, nextAttemptAt: null };
       await prisma.$transaction(async tx => {
-        const c = await tx.settlementTransfer.updateMany({ where: { id: t.id, status: 'APPROVED' }, data });
+        const c = await tx.settlementTransfer.updateMany({ where: { id: t.id, status: 'SUBMITTING' }, data });
         if (c.count !== 1) return;
-        await emit({ ...t, ...data }, 'transfer.submitted', { providerTxId: r.providerTxId }, tx);
+        await emit({ ...t, ...data }, 'transfer.submitted', { providerTxId: r!.providerTxId }, tx);
       });
       out.submitted++;
     } catch (e) {
-      const err = e as Error;
+      const err = e as Error & { retryable?: boolean };
       const attempts = t.attempts + 1;
-      if (attempts >= policyLimits().maxSubmitAttempts) { await failTransfer(t.id, `custody submission failed after ${attempts} attempts: ${err.message}`, undefined, attempts); out.failed++; continue; }
-      await prisma.settlementTransfer.update({ where: { id: t.id }, data: { attempts, nextAttemptAt: new Date(Date.now() + (BACKOFF_MS[Math.min(attempts, BACKOFF_MS.length) - 1])), failureReason: `attempt ${attempts}: ${err.message}`.slice(0, 500) } });
+      // A terminal failure here is only declared when the custodian confirms it holds nothing for us.
+      if (attempts >= policyLimits().maxSubmitAttempts || err.retryable === false) {
+        let held = null; try { held = await custody.findTransferByClientRef(t.id); } catch { /* unknown: keep retrying rather than reverse */ }
+        if (held) { await prisma.settlementTransfer.update({ where: { id: t.id }, data: { status: 'SUBMITTED', providerTxId: held.providerTxId, txHash: held.txHash ?? null, submittedAt: new Date(), attempts, nextAttemptAt: null } }); out.submitted++; continue; }
+        if (err.retryable === false || attempts >= policyLimits().maxSubmitAttempts) { await failTransfer(t.id, `custody submission failed after ${attempts} attempts: ${err.message}`, undefined, attempts, 'SUBMITTING'); out.failed++; continue; }
+      }
+      await prisma.settlementTransfer.updateMany({ where: { id: t.id, status: 'SUBMITTING' }, data: { status: 'APPROVED', attempts, nextAttemptAt: new Date(Date.now() + BACKOFF_MS[Math.min(attempts, BACKOFF_MS.length) - 1]), failureReason: `attempt ${attempts}: ${err.message}`.slice(0, 500) } });
       log.warn('transfer.submit_retry', { transferId: t.id, attempts, message: err.message });
       out.deferred++;
     }
@@ -206,7 +270,13 @@ export async function applyCustodyStatus(providerTxId: string, s: { status: 'PEN
   const db = tx ?? prisma;
   const t = await db.settlementTransfer.findFirst({ where: { providerTxId, status: { in: ['SUBMITTED', 'CONFIRMED'] } } });
   if (!t) return 'ignored';
-  if (s.status === 'FAILED' && s.final) { await failTransfer(t.id, 'custody reported the transaction failed/rejected', tx); return 'updated'; }
+  if (s.status === 'FAILED' && s.final) {
+    if (t.status === 'SUBMITTED' && !t.txHash && !s.txHash) { await failTransfer(t.id, 'custody reported the transaction failed/rejected before broadcast', tx); return 'updated'; }
+    // Broadcast already happened (a signature exists): funds may have moved. Flag for a person; never reverse here.
+    const u = await db.settlementTransfer.update({ where: { id: t.id }, data: { failureReason: 'custody reported FAILED after broadcast; on-chain outcome must be verified by operations'.slice(0, 500), txHash: s.txHash ?? t.txHash } });
+    await emit(u, 'transfer.failed', { attention: true, status: 'PROCESSING', reason: u.failureReason }, tx);
+    return 'updated';
+  }
   if (s.status === 'CONFIRMED' && s.final && t.status === 'SUBMITTED') {
     await db.settlementTransfer.update({ where: { id: t.id }, data: { status: 'CONFIRMED', confirmedAt: new Date(), txHash: s.txHash ?? t.txHash } });
     return 'updated';
@@ -229,10 +299,11 @@ export async function pollSubmittedTransfers(limit = 50): Promise<{ confirmed: n
 }
 
 /** Terminal failure before or at custody: reverse the posting so the institution's balance is restored. */
-export async function failTransfer(id: string, reason: string, tx?: Prisma.TransactionClient, attempts?: number) {
+export async function failTransfer(id: string, reason: string, tx?: Prisma.TransactionClient, attempts?: number, fromStatus?: SettlementTransfer['status']) {
   const run = async (db: Prisma.TransactionClient) => {
     const t = await db.settlementTransfer.findUnique({ where: { id } });
-    if (!t || !['APPROVED', 'SUBMITTED', 'CONFIRMED'].includes(t.status)) return null;
+    if (!t || !['APPROVED', 'SUBMITTING', 'SUBMITTED'].includes(t.status)) return null; // CONFIRMED (broadcast) is never reversed automatically
+    if (fromStatus && t.status !== fromStatus) return null;
     if (t.journalEntryId) {
       await reverse(db, t.journalEntryId, reason.slice(0, 200));
       await applyWalletCredit(db, t.walletId, t.assetId, t.amount);
@@ -254,7 +325,7 @@ export async function finalizeConfirmedTransfers(limit = 50): Promise<{ settled:
     try {
       let finality: 'ON_CHAIN_FINALIZED' | 'SANDBOX_SIMULATED'; let slot: string | null = null;
       if (t.txHash) {
-        const r = await proveSettlement({ entityType: 'SettlementTransfer', entityId: t.id, signature: t.txHash, asset: asset.id, expectedAmount: t.amount, toAddress: t.counterparty.address });
+        const r = await proveSettlement({ entityType: 'SettlementTransfer', entityId: t.id, signature: t.txHash, asset: asset.id, expectedAmount: t.amount, toAddress: t.counterparty.address, requireRecipient: true });
         if (r.status === 'PENDING_BROADCAST') { out.pending++; continue; }
         finality = 'ON_CHAIN_FINALIZED'; slot = r.proof?.slot?.toString() ?? null;
       } else if (!providers.custody().configured()) {
@@ -293,7 +364,10 @@ export function startTransferSweeper(intervalMs = 15_000): void {
   sweeper.unref?.();
 }
 export function stopTransferSweeper(): void { if (sweeper) { clearInterval(sweeper); sweeper = null; } }
-export async function runTransferSweep() { await submitApprovedTransfers(); await pollSubmittedTransfers(); await finalizeConfirmedTransfers(); }
+export async function runTransferSweep() {
+  if (sweeping) return; sweeping = true;
+  try { await submitApprovedTransfers(); await pollSubmittedTransfers(); await finalizeConfirmedTransfers(); } finally { sweeping = false; }
+}
 
 // ── Serialisation ─────────────────────────────────────────────────────────────
 export function publicStatus(t: SettlementTransfer): 'PROCESSING' | 'COMPLETED' | 'FAILED' {

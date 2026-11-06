@@ -970,6 +970,7 @@ model Counterparty {
 enum SettlementTransferStatus {
   AWAITING_APPROVAL // policy requires an operator decision before anything leaves the vault
   APPROVED          // journaled and reserved; custody submission pending
+  SUBMITTING        // claimed by one sweeper (lease in nextAttemptAt) while the custodian is being called
   SUBMITTED         // custody accepted the transaction (providerTxId)
   CONFIRMED         // custody reports completion; txHash known; finality not yet proven
   SETTLED           // Solana node reports the signature finalized (SettlementProof row)
@@ -997,7 +998,7 @@ model SettlementTransfer {
   approvedBy      String?
   approvedAt      DateTime?
   journalEntryId  String?        // the CUSTODY−/INSTITUTION+ posting; reversed on failure
-  providerTxId    String?
+  providerTxId    String?        @unique
   txHash          String?
   submittedAt     DateTime?
   confirmedAt     DateTime?
@@ -1011,5 +1012,5 @@ model SettlementTransfer {
   @@unique([environmentId, idempotencyKey])
   @@index([institutionId, environmentId, status])
   @@index([status, nextAttemptAt])
-  @@index([providerTxId])
+  @@index([walletId, assetId, status])
 }

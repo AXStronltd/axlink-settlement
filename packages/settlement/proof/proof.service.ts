@@ -37,6 +37,8 @@ export interface ProveParams {
   expectedAmount: Prisma.Decimal | string | number;
   fromAddress?: string;
   toAddress?: string;
+  /** Fail unless a movement is credited to exactly `toAddress` (owner reported by the node). */
+  requireRecipient?: boolean;
   /** Tolerance for the amount check, as a fraction. Default 0 — exact match. */
   tolerance?: number;
 }
@@ -156,13 +158,19 @@ export async function proveSettlement(params: ProveParams) {
     throw new ChainTransactionFailed(signature, tx.error ?? 'failed on chain');
   }
   const expectedRaw = toMinorUnits(new Prisma.Decimal(params.expectedAmount).toFixed(mintInfo.decimals), assetDef);
+  // When the caller names the recipient, only movements credited to THAT owner count: a finalized
+  // transaction that paid the right amount to the wrong address is a mismatch, not a proof.
+  // A movement whose owner the node did not report (null) counts only when the caller did not demand
+  // the recipient (`requireRecipient`): outbound settlement demands it; deposits to our own vault
+  // address are matched on custody's say-so plus the mint and amount.
+  const toOwner = params.toAddress || null;
   const credited = tx.tokenMovements
-    .filter(t => t.contract === mintInfo.mint && t.changeRaw > 0n)
+    .filter(t => t.contract === mintInfo.mint && t.changeRaw > 0n && (!toOwner || t.owner === toOwner || (t.owner === null && !params.requireRecipient)))
     .reduce((s, t) => s + t.changeRaw, 0n);
 
   if (credited === 0n) {
     throw new ProofMismatchError(
-      `Transaction ${signature} finalized but moved no ${asset} (contract ${mintInfo.mint}). ` +
+      `Transaction ${signature} finalized but moved no ${asset} (contract ${mintInfo.mint})${toOwner ? ` to ${toOwner}` : ''}. ` +
       `Token movements seen: ${tx.tokenMovements.map(t => `${t.contract}:${t.changeRaw}`).join(', ') || 'none'}`,
     );
   }

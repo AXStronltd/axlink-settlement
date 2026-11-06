@@ -60,6 +60,7 @@ export async function runReconciliation(
       summary.projection = await checkProjectionDrift(breaks);
       summary.hygiene = await checkHygiene(breaks);
       summary['walletProjection'] = await checkWalletProjectionDrift(breaks);
+      summary['negativeCustody'] = await checkNegativeCustodyAccounts(breaks);
     }
 
     if (kind === 'CUSTODY' || kind === 'FULL') {
@@ -203,6 +204,17 @@ async function checkWalletProjectionDrift(breaks: Break[]) {
     }
   }
   return { checked, drifted };
+}
+
+/** A CUSTODY account below zero means we posted more out than ever came in — an overdraft the wallet lock should make impossible. */
+async function checkNegativeCustodyAccounts(breaks: Break[]) {
+  const rows = await prisma.$queryRaw<Array<{ code: string; balance: string }>>`
+    SELECT a.code, SUM(l.amount)::text AS balance FROM "JournalLine" l JOIN "LedgerAccount" a ON a.id = l."accountId"
+    WHERE a.code LIKE 'CUSTODY:%' GROUP BY a.code HAVING SUM(l.amount) < 0`;
+  for (const r of rows) {
+    breaks.push({ kind: 'NEGATIVE_CUSTODY', severity: 'CRITICAL', subject: r.code, currency: r.code.split(':')[2] ?? '', expected: new Prisma.Decimal(0), actual: new Prisma.Decimal(r.balance), detail: { note: 'custody account overdrawn: an outbound posting exceeded what the vault holds on our books' } });
+  }
+  return { negative: rows.length };
 }
 
 // ── 3. Custody ────────────────────────────────────────────────────────────────

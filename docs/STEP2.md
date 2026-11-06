@@ -152,3 +152,21 @@ Files: `apps/api/src/routes/v1.routes.ts`, `packages/core/ledger/statement.servi
 | Tests | `tests/integration/transfers.step2.test.ts` (6): sandbox end to end with ledger and webhooks; policy and tenancy refusals; approval/reject/cancel with reservation semantics; real-shaped custody adapter → webhook CONFIRMED → on-chain proof → SETTLED, public proof; custody failure reverses; retry/backoff/terminal failure; PRODUCTION gating and counterparty attestation. Outbox `drain()` gained an `only: { entityId }` filter so parallel test workers do not deliver each other's rows |
 
 **Not in this slice (on purpose):** internal transfers between two AxLink institutions as one custody move (`transferInternal`), daily/velocity limits, screening of counterparty addresses against a sanctions provider — all planned for slice 6 (B2B settlement on the network) together with the operator exception queue.
+
+**Independent review (fresh reviewer, def067c, money-out lens) and what changed.**
+
+| Finding | Severity | Fix |
+|---|---|---|
+| Two concurrent creates (or a create and an operator approve) could both pass the balance check and both post — overdraft, two real custody transfers | **Critical** | Every balance-changing decision takes a row lock on the wallet (`SELECT … FOR UPDATE`) inside the transaction; after posting, the custody account is re-read and the transaction aborts if negative. Test: five concurrent 80s against 100 → one 202, four 422, journal never negative |
+| The live Fireblocks `createTransfer` swallowed every API error and returned a fabricated `COMPLETED` stub — a rejection or timeout on a real workspace would have parked the institution's money as "confirmed" | **Critical** | Live errors now throw (`CUSTODY_SUBMIT_FAILED`, retryable); the submission path refuses a `_sandbox_` id on a configured workspace and fails the transfer (journal restored) |
+| Two instances / overlapping sweeps could submit the same APPROVED row twice | High | Atomic claim `APPROVED → SUBMITTING` with a lease before custody is called; expired leases are re-claimed; the sweeper has a running guard |
+| A timeout after the custodian accepted would be retried, hit the duplicate-`externalTxId` refusal, exhaust attempts and **reverse the journal for money that had left** | High | Before any resubmission and before any terminal failure the custodian is asked `findTransferByClientRef(transfer.id)` (Fireblocks `GET /transactions/external_tx_id/…`); a held transaction is adopted as SUBMITTED. Test: one submission, recovered, balance unchanged |
+| Approval and submission ignored counterparty/wallet state — a counterparty disabled after the request could still be paid | High | Checked at approval (409) and at submission (refused before custody, journal restored) |
+| The on-chain proof summed every credit of the mint; the right amount to the **wrong address** would have proven | High | `requireRecipient` for outbound: only movements whose owner is the counterparty count. Test: payment to someone else is a mismatch |
+| Production kill switch checked only at create | Medium | Checked at approval and in the sweeper (rows deferred, logged) |
+| A custody `FAILED` after broadcast (txHash known) reversed the journal | Medium | Never reversed after broadcast: flagged `attention`, `transfer.failed` with status PROCESSING, a person verifies on chain |
+| No alarm for a negative custody account | Medium | Reconciliation `NEGATIVE_CUSTODY` (CRITICAL) check |
+| `providerTxId` not unique; no index for the reservation aggregate | Medium | `@unique`, `(walletId, assetId, status)` index (migration `step2_outbound_review`) |
+| Replay ignored `reference`; reject emitted outside its transaction; `/v1/settlements/{id}` refused `transfers:read`; OpenAPI gaps | Low | All fixed |
+
+Noted, not changed: the Solana address check is base58-shape only (the custodian's whitelist is the control that matters); the `ADDRESS_IS_AXLINK_WALLET` check runs at registration.
