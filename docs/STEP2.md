@@ -240,4 +240,4 @@ Noted, not changed: "oldest ACTIVE wallet" as the participant's receiving wallet
 | Front end | Transactions (ledger statement, cursor-paged) and Balances go live; screens with no API behind them leave the live nav (institution and operator); counterparties show the screening verdict |
 | Tests | `tests/integration/readiness.step2.test.ts` (4), certification (1), browser test extended; 312 total |
 
-Step 2 is complete with this slice. What is deliberately not here: a real screening adapter (needs a vendor contract), the B2BinPay conversion path (Leg B), and the production deploy itself (owner's decision per GO-LIVE.md).
+Step 2 is complete with this slice. `main` is at `ba2233d`, 312 tests. What is deliberately not here: a real screening adapter (needs a vendor contract), the B2BinPay conversion path (Leg B), and the production deploy itself (owner's decision per GO-LIVE.md).
