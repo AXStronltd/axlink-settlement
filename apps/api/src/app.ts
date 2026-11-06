@@ -53,6 +53,12 @@ app.use(express.json({
   },
 } as Parameters<typeof express.json>[0]));
 
+// The AxLink portal (apps/web/index.html) served by the API itself, so a sandbox deployment is one
+// process: the page talks to /api/v1 on the same origin with an institution API key (no CORS, no
+// separate host). A CDN deployment of the same file points at the API with its own base URL.
+const webDir = path.resolve(process.cwd(), 'apps', 'web');
+app.get(['/portal', '/portal/'], (_req, res) => { res.sendFile(path.join(webDir, 'index.html')); });
+
 // Health (liveness), readiness (DB + migrations), OpenAPI
 app.use(healthRouter());
 app.use(openapiRouter());

@@ -14,7 +14,8 @@
     "dev:console": "./scripts/dev-up.sh",
     "typecheck": "tsc --noEmit",
     "check:web": "node scripts/check-web.js",
-    "verify": "npm run typecheck && npm run check:web && vitest run"
+    "verify": "npm run typecheck && npm run check:web && vitest run",
+    "seed:sandbox": "ts-node scripts/seed-sandbox.ts"
   },
   "keywords": [],
   "author": "",

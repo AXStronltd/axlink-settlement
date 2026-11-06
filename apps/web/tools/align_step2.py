@@ -247,3 +247,36 @@ rep("""<span class="chip">1 · Operator creates</span><span style="color:var(--t
 """<span class="chip">1 · Institution creates (API)</span><span style="color:var(--teal)">&#8594;</span><span class="chip">2 · Policy: balance, limit, counterparty ACTIVE</span><span style="color:var(--teal)">&#8594;</span><span class="chip">3 · Operator approves → journal entry</span><span style="color:var(--teal)">&#8594;</span><span class="chip">4 · Custody → chain → SETTLED on finality</span>""")
 open('index.html', 'w', encoding='utf-8').write(src)
 print('slice 5 applied')
+
+# ── Slice 6a: portal connected — live layer (tools/live_portal.js inlined) + hooks into the screens ──
+src = open('index.html', encoding='utf-8').read()
+live = open('tools/live_portal.js', encoding='utf-8').read()
+LIVE_START = '<script>/* ===== LIVE PORTAL (Step 2, slice 6a) ====='
+if LIVE_START in src:
+    # refresh the inlined copy so live_portal.js stays the single source
+    a = src.index(LIVE_START); b = src.index('</script>', a) + len('</script>')
+    src = src[:a] + '<script>' + live + '</script>' + src[b:]
+else:
+    rep("""render();
+</script>
+</body>""", """render();
+</script>
+<script>""" + live + """</script>
+</body>""")
+# hooks: live screens take over when a key is connected (ROLE client)
+for fn, live_fn in [('appOverview', 'liveOverview'), ('appTreasury', 'liveWallet'), ('appWebhooks', 'liveWebhooks'), ('appDevelopers', 'liveDevelopers'), ('appPayments', 'liveSettlements'), ('appContacts', 'liveCounterparties')]:
+    rep('function ' + fn + '(){\n', 'function ' + fn + '(){\n  if(LIVE.me&&ROLE===\'client\') return ' + live_fn + '();\n')
+rep("""function toggleEnv(){ ENV=(ENV==='SANDBOX')?'PRODUCTION':'SANDBOX';""", """function toggleEnv(){ if(LIVE.me){ toast('Environment is bound to your API key ('+ENV.toLowerCase()+')'); return; } ENV=(ENV==='SANDBOX')?'PRODUCTION':'SANDBOX';""")
+rep("""function signOut(){ var wasOp=(ROLE==='operator'); toast('Signed out');""", """function signOut(){ var wasOp=(ROLE==='operator'); disconnectLive(); toast('Signed out');""")
+# banner only while illustrative
+rep("""'<main class="content"><div style="background:var(--panel-2);border:1px solid var(--line);border-radius:8px;padding:8px 14px;font-size:11.5px;color:var(--ink-3);margin-bottom:16px;display:flex;align-items:center;gap:8px">&#9432; Demonstration — figures are illustrative sample data. Live data arrives when this portal is connected to the AxLink API.</div>'+content+'</main></div></div>';""",
+"""'<main class="content">'+(LIVE.me?'':'<div style="background:var(--panel-2);border:1px solid var(--line);border-radius:8px;padding:8px 14px;font-size:11.5px;color:var(--ink-3);margin-bottom:16px;display:flex;align-items:center;gap:8px">&#9432; Demonstration — figures are illustrative sample data. Sign in with your institution API key to see live data.</div>')+content+'</main></div></div>';""", marker="Sign in with your institution API key")
+# sign-in: API key is the real credential today
+rep("""   '<button class="btn btn-primary" style="width:100%;justify-content:center" onclick="loginAsClient()">Sign In</button>'+""",
+"""   '<button class="btn btn-ghost" style="width:100%;justify-content:center" onclick="loginAsClient()">Explore the demo</button>'+
+   '<div style="margin:18px 0 10px;padding-top:14px;border-top:1px solid var(--line);font-size:12.5px;color:var(--ink-2)"><b>Connect with your API key</b><div style="font-size:11.5px;color:var(--ink-3);margin-top:4px">Sandbox or production key issued by AxLink operations (axlk_test_… / axlk_live_…). Kept in this tab only.</div></div>'+
+   '<div class="field"><label>API key</label><input id="ax-key" type="password" placeholder="axlk_test_…" autocomplete="off"/></div>'+
+   (axBase()?'':'<div class="field"><label>API base URL</label><input id="ax-base" placeholder="https://sandbox.api.axlink.network/api/v1"/></div>')+
+   '<button class="btn btn-primary" style="width:100%;justify-content:center" onclick="return connectWithKey(document.getElementById(\\'ax-key\\').value,(document.getElementById(\\'ax-base\\')||{}).value)">Connect</button>'+""", marker='id="ax-key"')
+open('index.html', 'w', encoding='utf-8').write(src)
+print('slice 6a applied')

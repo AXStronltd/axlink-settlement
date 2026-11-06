@@ -170,3 +170,18 @@ Files: `apps/api/src/routes/v1.routes.ts`, `packages/core/ledger/statement.servi
 | Replay ignored `reference`; reject emitted outside its transaction; `/v1/settlements/{id}` refused `transfers:read`; OpenAPI gaps | Low | All fixed |
 
 Noted, not changed: the Solana address check is base58-shape only (the custodian's whitelist is the control that matters); the `ADDRESS_IS_AXLINK_WALLET` check runs at registration.
+
+## Slice 6a — Portal connected
+
+**What.** The AxLink portal stops being a demonstration the moment an institution signs in with its API key. The API serves the page itself at `GET /portal` (one process in sandbox, same origin, no CORS); the page calls `/api/v1` with the key and renders exactly what comes back. The key lives in `sessionStorage` only (gone when the tab closes), the environment is whatever the key is bound to, and the "figures are illustrative" banner is replaced by a live strip naming the institution, environment and API base.
+
+| Piece | Where |
+|---|---|
+| Live layer | `apps/web/tools/live_portal.js` — single source, inlined into `index.html` by `align_step2.py` (slice 6a); `axApi()` is the one fetch wrapper; every screen is a view over one GET, every button one POST |
+| Screens | Overview, Wallet (`/wallets`, `/balances`, `/deposits` + Announce a deposit, New wallet, Cancel), Settlements (`/transfers` + New settlement with Idempotency-Key, Cancel), Counterparties (`/counterparties` + Register, Disable), Webhooks (`/webhook-endpoints` + deliveries, secret shown once), Developers (`/institutions/me`, `/assets`, `/ledger/entries`) |
+| Deliveries | `GET /v1/webhook-endpoints/{id}/deliveries` — recent outbox rows for the endpoint: event, attempts, last status, next retry |
+| Reference tenant | `scripts/seed-sandbox.ts` → `npm run seed:sandbox`: Galaxy Bank (`galaxy-bank-so`) with a SANDBOX environment, a `Treasury` wallet and a portal-scoped key printed once (`--new-key` for another). Idempotent |
+| Sign-in | "Connect with your API key" is the real credential; "Explore the demo" keeps the illustrative mode for prospects. A wrong key never connects and leaves nothing in storage |
+| Test | `tests/integration/portal.step2.test.ts` drives headless Chromium against the Express app: serve `/portal`, connect with the seeded key, banner gone, real wallet shown, register a counterparty / announce a deposit / attempt a settlement from the UI and verify the rows in the database and the API's error surfaced in the toast |
+
+Screens that are still illustrative in live mode (no API behind them yet): Transactions, Sub-Accounts, Balances, Compliance, Reports, Team, Settings — the sidebar is unchanged so the product shape stays visible; each flips to live as its API lands.

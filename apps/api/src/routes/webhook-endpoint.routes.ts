@@ -1,4 +1,5 @@
 /** Institution webhook endpoints (Step 2, slice 2). Scopes: webhooks:write / webhooks:read. */
+import { prisma } from '../../../../packages/core/ledger/ledger.service';
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
 import { requireInstitution, requireScope } from '../../../../packages/core/tenancy/tenancy.middleware';
@@ -14,4 +15,12 @@ router.post('/', requireScope('webhooks:write'), wrap(async (req, res) => {
 }));
 router.get('/', requireScope('webhooks:read'), wrap(async (req, res) => { const t = req.tenant!; res.json(await listEndpoints({ institutionId: t.institutionId, environmentId: t.environmentId })); }));
 router.delete('/:id', requireScope('webhooks:write'), wrap(async (req, res) => { const t = req.tenant!; await disableEndpoint(req.params.id as string, { institutionId: t.institutionId, environmentId: t.environmentId }); res.status(204).end(); }));
+/** Recent deliveries to one of the institution's endpoints: event, attempts, last status, next retry. */
+router.get('/:id/deliveries', requireScope('webhooks:read'), wrap(async (req, res) => {
+  const t = req.tenant!;
+  const ep = await prisma.webhookEndpoint.findFirst({ where: { id: req.params.id as string, institutionId: t.institutionId, environmentId: t.environmentId } });
+  if (!ep) { res.status(404).json({ error: { code: 'NOT_FOUND', message: 'endpoint not found' } }); return; }
+  const rows = await prisma.outboxEvent.findMany({ where: { channel: 'institution.webhook', targetUrl: ep.url }, orderBy: { createdAt: 'desc' }, take: 50 });
+  res.json(rows.map(r => ({ id: (r.payload as { id?: string })?.id ?? r.id, type: r.eventType, status: r.status, attempts: r.attempts, lastStatus: r.lastStatus, nextAttemptAt: r.status === 'PENDING' ? r.nextAttemptAt : null, entityType: r.entityType, entityId: r.entityId, createdAt: r.createdAt })));
+}));
 export default router;

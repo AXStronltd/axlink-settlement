@@ -24,3 +24,4 @@ coverage/
 
 # merged schema fragments
 prisma/.tmp/
+shot-*.png
