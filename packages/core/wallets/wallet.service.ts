@@ -37,6 +37,8 @@ function activeCustody(environmentKind: 'SANDBOX' | 'PRODUCTION'): CustodyProvid
   return c;
 }
 
+export const MAX_WALLETS_PER_ENVIRONMENT = Number(process.env.MAX_WALLETS_PER_ENVIRONMENT ?? 20);
+
 export interface CreateWalletInput {
   institutionId: string;
   environmentKind: 'SANDBOX' | 'PRODUCTION';
@@ -52,8 +54,11 @@ export async function createWallet(input: CreateWalletInput): Promise<Wallet & {
   if (env.institution.status !== 'ACTIVE') throw new ApiError('INSTITUTION_INACTIVE', `institution is ${env.institution.status}`, 409);
   if (env.status !== 'ACTIVE') throw new ApiError('ENVIRONMENT_DISABLED', `${input.environmentKind} environment is ${env.status}`, 409);
   // A label is unique per environment so a retried request finds the wallet instead of minting a second vault.
+  // Enforced by @@unique([environmentId, label]) as well: two concurrent creates cannot both persist.
   const dup = await prisma.wallet.findFirst({ where: { environmentId: env.id, label: input.label } });
   if (dup) throw new ApiError('WALLET_EXISTS', `a wallet labelled '${input.label}' already exists in ${input.environmentKind}`, 409, { walletId: dup.id });
+  const count = await prisma.wallet.count({ where: { environmentId: env.id } });
+  if (count >= MAX_WALLETS_PER_ENVIRONMENT) throw new ApiError('WALLET_LIMIT', `an environment may hold at most ${MAX_WALLETS_PER_ENVIRONMENT} wallets; ask operations to raise the limit`, 409);
 
   const c = activeCustody(input.environmentKind);
   const clientRef = `${input.institutionId}:${env.kind}:${input.label}`; // stable: same request → same vault name at the custodian
@@ -72,14 +77,26 @@ export async function createWallet(input: CreateWalletInput): Promise<Wallet & {
     address ??= r.address;
   }
 
-  const wallet = await prisma.wallet.create({
-    data: {
-      institutionId: input.institutionId, environmentId: env.id, label: input.label,
-      custodyProvider: c.id, custodyVaultId: vaultId, network, depositAddress: address,
-      balances: { create: assets.map(a => ({ assetId: a.id })) },
-    },
-    include: { balances: true },
-  });
+  let wallet;
+  try {
+    wallet = await prisma.wallet.create({
+      data: {
+        institutionId: input.institutionId, environmentId: env.id, label: input.label,
+        custodyProvider: c.id, custodyVaultId: vaultId, network, depositAddress: address,
+        balances: { create: assets.map(a => ({ assetId: a.id })) },
+      },
+      include: { balances: true },
+    });
+  } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+      // Lost the race with a concurrent create of the same label: the vault we just asked for is
+      // orphaned at the custodian (logged for operations), and the caller gets the wallet that won.
+      const won = await prisma.wallet.findFirst({ where: { environmentId: env.id, label: input.label } });
+      log.warn('wallet.create_race', { institutionId: input.institutionId, environmentId: env.id, label: input.label, orphanVaultId: vaultId, walletId: won?.id });
+      throw new ApiError('WALLET_EXISTS', `a wallet labelled '${input.label}' already exists in ${input.environmentKind}`, 409, { walletId: won?.id });
+    }
+    throw e;
+  }
   log.info('wallet.created', { institutionId: input.institutionId, environmentId: env.id, walletId: wallet.id, network, custodyConfigured: c.configured() });
   return wallet;
 }

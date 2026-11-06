@@ -12,6 +12,7 @@ export interface TenantContext { institutionId: string; institutionSlug: string;
 declare global { namespace Express { interface Request { tenant?: TenantContext } } }
 
 export async function requireInstitution(req: Request, _res: Response, next: NextFunction) {
+  if (req.tenant) return next(); // already authenticated by an enclosing router (/api/v1)
   const header = req.headers.authorization ?? '';
   const raw = header.startsWith('Bearer ') ? header.slice(7).trim() : '';
   const auth = raw ? await authenticateKey(raw) : null;

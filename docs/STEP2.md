@@ -115,3 +115,17 @@ Files: `apps/api/src/routes/v1.routes.ts`, `packages/core/ledger/statement.servi
 | 08 Reconciliation | `reconciliation.service.ts` (trial balance, projection drift, custody vs ledger via the ports, on-chain positions) exists; exception queue + operator screen to finish | partly done |
 | 09 Developer APIs | `/v1` contract + OpenAPI (slice 4), signed outbound webhooks (slice 2); SDKs (`packages/sdk`) to follow | partly done |
 | 10 Production Readiness | dedicated Solana node, secrets, runbooks, certification tests, formal approval — **no production deployment without authorisation** | planned |
+
+**Independent review (fresh reviewer, 838e4d8) and what changed.**
+
+| Finding | Severity | Fix |
+|---|---|---|
+| `GET /v1/ledger/entries` selected entries by the `INSTITUTION:<id>:<ASSET>` liability account, which is keyed by institution, not environment — a SANDBOX key could read PRODUCTION postings of its own institution | High | Entries are selected only through the CUSTODY accounts of the credential's environment; the INSTITUTION line is displayed when it sits on such an entry. Test: a production-style posting is invisible to the sandbox key |
+| Wallet label uniqueness was check-then-write; concurrent `POST /v1/wallets` could mint two custody vaults; no cap per environment | Medium | `@@unique([environmentId, label])` (migration `step2_wallet_label_unique`), `P2002` → 409 with the winning `walletId` and the orphan vault logged for operations; `MAX_WALLETS_PER_ENVIRONMENT` (20) |
+| `GET /v1/balances` was 2 queries per wallet per asset | Medium | One account lookup + one grouped sum |
+| `POST /v1/custody/deposit-addresses` returned 201 with a possibly-null address, ignored wallet status, and `assets: []` for a bad filter | Medium | 200 (nothing is created); 409 `WALLET_NOT_ACTIVE`, 503 `ADDRESS_NOT_ISSUED`, 400 `ASSET_NOT_ON_NETWORK` |
+| 501 placeholders ran after the settlement sub-router's scope check, so the answer depended on scopes | Low | Registered before the sub-routers |
+| A mangled cursor silently restarted at page 1 | Low | 400 `INVALID_CURSOR` |
+| Every composed route authenticated twice | Low | `requireInstitution` is a no-op when the enclosing router already set `req.tenant` |
+| Scope strings were only regex-validated at issuance (`ledger:raed` issued silently) | Low | `KNOWN_SCOPES` enum at issuance; tests and web updated to the canonical names |
+| (pre-existing) key hash compared with `!==` | Info | `timingSafeEqual` |

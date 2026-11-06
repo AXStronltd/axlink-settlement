@@ -7,6 +7,9 @@ import { createInstitution, getInstitution, listInstitutions, issueCredential, r
 import { notFound } from '../../../../packages/shared/errors';
 import { requireInstitution } from '../../../../packages/core/tenancy/tenancy.middleware';
 
+/** Every scope the API checks. Issuing an unknown scope (a typo) is refused here rather than failing silently at call time. */
+export const KNOWN_SCOPES = ['*', 'wallets:read', 'wallets:write', 'wallets:*', 'deposits:read', 'deposits:write', 'deposits:*', 'settlements:read', 'settlements:write', 'settlements:*', 'ledger:read', 'ledger:*', 'webhooks:read', 'webhooks:write', 'webhooks:*'] as const;
+
 const router = Router();
 const wrap = (fn: (req: Request, res: Response) => Promise<unknown>) => (req: Request, res: Response, next: NextFunction) => fn(req, res).catch(next);
 
@@ -18,7 +21,7 @@ router.post('/', wrap(async (req, res) => { const inst = await createInstitution
 router.get('/', wrap(async (_req, res) => { res.json(await listInstitutions()); }));
 router.get('/:id', wrap(async (req, res) => { const i = await getInstitution(req.params.id as string); if (!i) throw notFound('institution'); res.json(i); }));
 router.post('/:id/credentials', wrap(async (req, res) => {
-  const d = z.object({ environment: z.enum(['SANDBOX', 'PRODUCTION']), label: z.string().min(1).max(80), scopes: z.array(z.string().regex(/^[a-z]+:(\*|[a-z_]+)$/)).default([]) }).parse(req.body);
+  const d = z.object({ environment: z.enum(['SANDBOX', 'PRODUCTION']), label: z.string().min(1).max(80), scopes: z.array(z.enum(KNOWN_SCOPES)).default([]) }).parse(req.body);
   const r = await issueCredential(req.params.id as string, d.environment, d.label, d.scopes);
   res.status(201).json({ credential: { id: r.credential.id, prefix: r.credential.prefix, label: r.credential.label, scopes: r.credential.scopes, environment: d.environment }, apiKey: r.rawKey, note: 'The API key is shown once. Store it in the institution\'s secret manager.' });
 }));

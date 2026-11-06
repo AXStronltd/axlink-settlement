@@ -3,7 +3,7 @@
  * issue/revoke credentials. No balances, no transactions — those arrive in later steps and
  * will key off `institutionId` + `environmentId` everywhere.
  */
-import { createHash, randomBytes } from 'crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'crypto';
 import { z } from 'zod';
 import { prisma } from '../ledger/ledger.service';
 import { ApiError } from '../../shared/errors';
@@ -67,7 +67,8 @@ export async function authenticateKey(raw: string) {
   const cred = await prisma.apiCredential.findUnique({ where: { prefix: keyPrefix(raw) }, include })
     ?? await prisma.apiCredential.findUnique({ where: { prefix: raw.slice(0, LEGACY_PREFIX_LEN) }, include }); // keys issued before PREFIX_LEN=20
   if (!cred || cred.revokedAt || (cred.expiresAt && cred.expiresAt < new Date())) return null;
-  if (cred.keyHash !== hashKey(raw)) return null;
+  const expect = Buffer.from(cred.keyHash, 'hex'); const got = Buffer.from(hashKey(raw), 'hex');
+  if (expect.length !== got.length || !timingSafeEqual(expect, got)) return null;
   if (cred.environment.status !== 'ACTIVE' || cred.environment.institution.status !== 'ACTIVE') return null;
   prisma.apiCredential.update({ where: { id: cred.id }, data: { lastUsedAt: new Date() } }).catch(() => undefined);
   return { institution: cred.environment.institution, environment: cred.environment, credential: cred };

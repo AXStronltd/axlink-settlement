@@ -73,7 +73,7 @@ d('F1/F2/F3/F4 · against the live app (requires DATABASE_URL)', () => {
     const t = Date.now();
     const inst = await request(app).post('/api/institutions').set(ops).send({ slug: `rem-${tag}-${t}`, legalName: `Remediation ${tag}`, country: 'KE', kind: 'BANK' }).expect(201);
     await prisma.institution.update({ where: { id: inst.body.id }, data: { status: 'ACTIVE' } });
-    const key = await request(app).post(`/api/institutions/${inst.body.id}/credentials`).set(ops).send({ environment: 'SANDBOX', label: 'k', scopes: ['customer:read'] }).expect(201);
+    const key = await request(app).post(`/api/institutions/${inst.body.id}/credentials`).set(ops).send({ environment: 'SANDBOX', label: 'k', scopes: ['wallets:read'] }).expect(201);
     return { id: inst.body.id as string, key: key.body.apiKey as string };
   }
   async function makeDeposit(institutionId: string | null, symbol = 'USDT') {

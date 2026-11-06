@@ -51,9 +51,9 @@ db('/api/v1 institution contract', () => {
     expect((await request(app).get(`/api/v1/wallets/${w.body.id}`).set(A.auth).expect(200)).body.id).toBe(w.body.id);
     expect((await request(app).get(`/api/wallets/${w.body.id}`).set(A.auth).expect(200)).body.id).toBe(w.body.id); // alias still answers
 
-    const addr = await request(app).post('/api/v1/custody/deposit-addresses').set(A.auth).send({ walletId: w.body.id }).expect(201);
+    const addr = await request(app).post('/api/v1/custody/deposit-addresses').set(A.auth).send({ walletId: w.body.id }).expect(200);
     expect(addr.body).toMatchObject({ walletId: w.body.id, network: 'solana-mainnet', address: w.body.depositAddress, assets: ['USDC_SOL', 'USDT_SOL'] });
-    expect((await request(app).post('/api/v1/custody/deposit-addresses').set(A.auth).send({ walletId: w.body.id, asset: 'USDT_SOL' }).expect(201)).body.assets).toEqual(['USDT_SOL']);
+    expect((await request(app).post('/api/v1/custody/deposit-addresses').set(A.auth).send({ walletId: w.body.id, asset: 'USDT_SOL' }).expect(200)).body.assets).toEqual(['USDT_SOL']);
 
     const bal = await request(app).get('/api/v1/balances').set(A.auth).expect(200);
     expect(bal.body.balances.map((b: any) => [b.asset, b.available])).toEqual([['USDC_SOL', '0'], ['USDT_SOL', '0']]);
@@ -96,6 +96,7 @@ db('/api/v1 institution contract', () => {
     expect(p1.body.entries).toHaveLength(1); expect(p1.body.nextCursor).toBeTruthy();
     const p2 = await request(app).get(`/api/v1/ledger/entries?limit=1&cursor=${encodeURIComponent(p1.body.nextCursor)}`).set(A.auth).expect(200);
     expect(p2.body.entries).toHaveLength(1); expect(p2.body.entries[0].id).not.toBe(p1.body.entries[0].id); expect(p2.body.nextCursor).toBeNull();
+    expect((await request(app).get('/api/v1/ledger/entries?cursor=garbage').set(A.auth).expect(400)).body.error.code).toBe('INVALID_CURSOR');
     expect((await request(app).get('/api/v1/ledger/entries?asset=USDT_SOL').set(A.auth).expect(200)).body.entries.map((x: any) => x.entityId)).toEqual([d2.id]);
     expect((await request(app).get(`/api/v1/ledger/entries?entityId=${d1.id}`).set(A.auth).expect(200)).body.entries).toHaveLength(1);
 
@@ -104,5 +105,44 @@ db('/api/v1 institution contract', () => {
     const noLedger = await institution('n', ['wallets:read']);
     await request(app).get('/api/v1/ledger/entries').set(noLedger.auth).expect(403);
     await request(app).post('/api/v1/wallets').set(noLedger.auth).send({ label: 'x' }).expect(403);
+  });
+
+  it('review fixes: a SANDBOX key never sees PRODUCTION postings through the shared INSTITUTION account; wallet label race; address and 501 edge cases', async () => {
+    const A = await institution('x');
+    const w = (await request(app).post('/api/v1/wallets').set(A.auth).send({ label: 'Sbx' }).expect(201)).body;
+    // Simulate a production-environment posting for the same institution: a custody account of a vault that is
+    // NOT one of this environment's wallets, against the institution's liability account.
+    const { post } = await import('../../packages/core/ledger/journal.service');
+    const { AccountCode } = await import('../../packages/core/ledger/accounts');
+    const { Prisma } = await import('@prisma/client');
+    await prisma.$transaction((tx: any) => post(tx, { postingKey: `prod-${randomUUID()}`, eventType: 'DEPOSIT', entityType: 'DepositInstruction', entityId: 'prod-instr', narrative: 'PRODUCTION receipt', lines: [
+      { account: AccountCode.custody(`vault_prod_${randomUUID().slice(0, 6)}`, 'USDC_SOL'), currency: 'USDC_SOL', amount: new Prisma.Decimal(99), usdAmount: new Prisma.Decimal(99) },
+      { account: AccountCode.institution(A.id, 'USDC_SOL'), currency: 'USDC_SOL', amount: new Prisma.Decimal(-99), usdAmount: new Prisma.Decimal(-99) },
+    ] }));
+    expect((await request(app).get('/api/v1/ledger/entries').set(A.auth).expect(200)).body.entries).toEqual([]);
+    expect((await request(app).get('/api/v1/balances').set(A.auth).expect(200)).body.balances.every((b: any) => b.available === '0')).toBe(true);
+
+    // concurrent creates of the same label: exactly one wallet, the others 409 pointing at it
+    const rs = await Promise.all([1, 2, 3, 4].map(() => request(app).post('/api/v1/wallets').set(A.auth).send({ label: 'Race' })));
+    expect(rs.map(r => r.status).sort()).toEqual([201, 409, 409, 409]);
+    const winner = rs.find(r => r.status === 201)!.body.id;
+    for (const r of rs.filter(r => r.status === 409)) expect(r.body.error.details.walletId).toBe(winner);
+    expect((await prisma.wallet.count({ where: { label: 'Race', institutionId: A.id } }))).toBe(1);
+
+    // deposit address: suspended wallet → 409; missing address → 503; asset not on network → 400; happy path 200
+    await prisma.wallet.update({ where: { id: w.id }, data: { status: 'SUSPENDED' } });
+    expect((await request(app).post('/api/v1/custody/deposit-addresses').set(A.auth).send({ walletId: w.id }).expect(409)).body.error.code).toBe('WALLET_NOT_ACTIVE');
+    await prisma.wallet.update({ where: { id: w.id }, data: { status: 'ACTIVE', depositAddress: null } });
+    expect((await request(app).post('/api/v1/custody/deposit-addresses').set(A.auth).send({ walletId: w.id }).expect(503)).body.error.code).toBe('ADDRESS_NOT_ISSUED');
+    await prisma.wallet.update({ where: { id: w.id }, data: { depositAddress: 'addr' } });
+    expect((await request(app).post('/api/v1/custody/deposit-addresses').set(A.auth).send({ walletId: w.id }).expect(200)).body.address).toBe('addr');
+
+    // 501 placeholders answer 501 for a key with no settlement scopes at all
+    const narrow = await institution('nw', ['wallets:read']);
+    await request(app).post('/api/v1/settlements').set(narrow.auth).send({}).expect(501);
+    await request(app).post('/api/v1/transfers').set(narrow.auth).send({}).expect(501);
+    // unknown scope strings are refused at issuance
+    const inst = await request(app).post('/api/institutions').set(ops).send({ slug: `v1-sc-${randomUUID().slice(0, 8)}`, legalName: 'Sc', country: 'KE', kind: 'BANK' }).expect(201);
+    await request(app).post(`/api/institutions/${inst.body.id}/credentials`).set(ops).send({ environment: 'SANDBOX', label: 'k', scopes: ['ledger:raed'] }).expect(400);
   });
 });

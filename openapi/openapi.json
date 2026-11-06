@@ -419,7 +419,8 @@
             "type": "string"
           },
           "address": {
-            "type": "string"
+            "type": "string",
+            "nullable": false
           },
           "assets": {
             "type": "array",
@@ -568,6 +569,42 @@
                 "type": "string"
               }
             }
+          }
+        }
+      },
+      "InstitutionMe": {
+        "type": "object",
+        "properties": {
+          "institution": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "slug": {
+                "type": "string"
+              }
+            }
+          },
+          "environment": {
+            "type": "string",
+            "enum": [
+              "SANDBOX",
+              "PRODUCTION"
+            ]
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "alias of scopes (blueprint wording)"
           }
         }
       }
@@ -1409,7 +1446,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/InstitutionMe"
                 }
               }
             }
@@ -1491,10 +1528,13 @@
             "description": "Credential lacks wallets:write"
           },
           "409": {
-            "description": "A wallet with this label already exists in the environment"
+            "description": "Label already exists in the environment (details.walletId), wallet limit reached, or deployment bound to the other custody environment"
           },
           "503": {
             "description": "Production custody not configured on this deployment"
+          },
+          "400": {
+            "description": "Validation"
           }
         },
         "requestBody": {
@@ -1611,8 +1651,14 @@
           }
         ],
         "responses": {
-          "201": {
-            "description": "Receiving address",
+          "401": {
+            "description": "Missing or invalid API key"
+          },
+          "403": {
+            "description": "Credential lacks wallets:read"
+          },
+          "200": {
+            "description": "Receiving address (nothing is created; the wallet already holds it)",
             "content": {
               "application/json": {
                 "schema": {
@@ -1621,11 +1667,17 @@
               }
             }
           },
-          "401": {
-            "description": "Missing or invalid API key"
+          "400": {
+            "description": "Asset not available on the wallet's network / validation"
           },
-          "403": {
-            "description": "Credential lacks wallets:read"
+          "404": {
+            "description": "Wallet not found"
+          },
+          "409": {
+            "description": "Wallet is not ACTIVE"
+          },
+          "503": {
+            "description": "Custodian has not issued an address yet; retry"
           }
         },
         "requestBody": {
@@ -1757,6 +1809,9 @@
           },
           "404": {
             "description": "Wallet not found in this institution/environment"
+          },
+          "401": {
+            "description": "Missing or invalid API key"
           }
         }
       },
@@ -1788,6 +1843,12 @@
         "responses": {
           "200": {
             "description": "Instructions"
+          },
+          "401": {
+            "description": "Missing or invalid API key"
+          },
+          "403": {
+            "description": "Credential lacks the required scope"
           }
         }
       }
@@ -1826,6 +1887,12 @@
           },
           "404": {
             "description": "Not found"
+          },
+          "401": {
+            "description": "Missing or invalid API key"
+          },
+          "403": {
+            "description": "Credential lacks the required scope"
           }
         }
       }
@@ -1857,6 +1924,12 @@
           },
           "409": {
             "description": "Not pending"
+          },
+          "401": {
+            "description": "Missing or invalid API key"
+          },
+          "403": {
+            "description": "Credential lacks the required scope"
           }
         }
       }
@@ -1895,6 +1968,12 @@
           },
           "404": {
             "description": "Not found"
+          },
+          "401": {
+            "description": "Missing or invalid API key"
+          },
+          "403": {
+            "description": "Credential lacks the required scope"
           }
         }
       }
@@ -1946,6 +2025,12 @@
         "responses": {
           "201": {
             "description": "Endpoint with one-time secret"
+          },
+          "401": {
+            "description": "Missing or invalid API key"
+          },
+          "403": {
+            "description": "Credential lacks the required scope"
           }
         }
       },
@@ -1962,6 +2047,12 @@
         "responses": {
           "200": {
             "description": "Endpoints"
+          },
+          "401": {
+            "description": "Missing or invalid API key"
+          },
+          "403": {
+            "description": "Credential lacks the required scope"
           }
         }
       }
@@ -1993,6 +2084,12 @@
           },
           "404": {
             "description": "Not found"
+          },
+          "401": {
+            "description": "Missing or invalid API key"
+          },
+          "403": {
+            "description": "Credential lacks the required scope"
           }
         }
       }
@@ -2024,6 +2121,9 @@
           },
           "403": {
             "description": "Credential lacks ledger:read"
+          },
+          "400": {
+            "description": "INVALID_CURSOR or validation"
           }
         },
         "parameters": [

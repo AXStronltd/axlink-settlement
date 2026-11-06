@@ -17,6 +17,7 @@
  */
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
+import { ApiError } from '../../../../packages/shared/errors';
 import { requireInstitution, requireScope } from '../../../../packages/core/tenancy/tenancy.middleware';
 import { ASSETS, NETWORKS } from '../../../../packages/core/assets/registry';
 import { createWallet, getWallet, serializeWallet } from '../../../../packages/core/wallets/wallet.service';
@@ -57,13 +58,21 @@ const DepositAddress = z.object({ walletId: z.string().min(1), asset: z.enum(['U
 router.post('/custody/deposit-addresses', requireScope('wallets:read'), wrap(async (req, res) => {
   const t = req.tenant!; const b = DepositAddress.parse(req.body);
   const w = await getWallet(b.walletId, { institutionId: t.institutionId, environmentId: t.environmentId });
+  if (w.status !== 'ACTIVE') throw new ApiError('WALLET_NOT_ACTIVE', `wallet is ${w.status}; it cannot receive`, 409);
+  if (!w.depositAddress) throw new ApiError('ADDRESS_NOT_ISSUED', 'the custodian has not issued a receiving address for this wallet yet; retry shortly', 503);
   const assets = Object.values(ASSETS).filter(a => a.supported && a.network === w.network && (!b.asset || a.id === b.asset)).map(a => a.id);
-  res.status(201).json({ walletId: w.id, network: w.network, address: w.depositAddress, assets, custody: { provider: w.custodyProvider, vaultId: w.custodyVaultId }, note: 'Send only the listed assets on the listed network to this address. Announce each deposit with POST /v1/deposits to receive a tracking id.' });
+  if (assets.length === 0) throw new ApiError('ASSET_NOT_ON_NETWORK', `${b.asset} is not available on ${w.network}`, 400);
+  res.json({ walletId: w.id, network: w.network, address: w.depositAddress, assets, custody: { provider: w.custodyProvider, vaultId: w.custodyVaultId }, note: 'Send only the listed assets on the listed network to this address. Announce each deposit with POST /v1/deposits to receive a tracking id.' });
 }));
 
 router.get('/balances', requireScope('wallets:read'), wrap(async (req, res) => {
   const t = req.tenant!; res.json(await institutionBalances({ institutionId: t.institutionId, environmentId: t.environmentId }));
 }));
+
+// Outbound settlement is the next slice; the contract names the routes now so integrators can plan.
+// Registered before the settlement sub-router so the answer is 501 whatever the credential's scopes.
+const notYet = (_req: Request, res: Response) => { res.status(501).json({ error: { code: 'NOT_YET_AVAILABLE', message: 'Outbound settlement (POST /v1/transfers, POST /v1/settlements) ships in the next slice; deposits, balances, ledger and webhooks are live.' } }); };
+router.post('/transfers', notYet); router.get('/transfers/:id', notYet); router.post('/settlements', notYet);
 
 router.use('/deposits', depositInstructionRoutes);
 router.use('/settlements', settlementStatusRoutes);
@@ -74,9 +83,5 @@ router.get('/ledger/entries', requireScope('ledger:read'), wrap(async (req, res)
   const t = req.tenant!; const q = Entries.parse(req.query);
   res.json(await listInstitutionEntries({ institutionId: t.institutionId, environmentId: t.environmentId }, q));
 }));
-
-// Outbound settlement is the next slice; the contract names the routes now so integrators can plan.
-const notYet = (_req: Request, res: Response) => { res.status(501).json({ error: { code: 'NOT_YET_AVAILABLE', message: 'Outbound settlement (POST /v1/transfers, POST /v1/settlements) ships in the next slice; deposits, balances, ledger and webhooks are live.' } }); };
-router.post('/transfers', notYet); router.get('/transfers/:id', notYet); router.post('/settlements', notYet);
 
 export default router;

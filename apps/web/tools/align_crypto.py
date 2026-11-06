@@ -88,7 +88,7 @@ rep("""  {name:'Production · Server',prefix:'ax_live_8f72…',created:'Apr 12, 
   {name:'Sandbox · Test',prefix:'ax_test_3d44…',created:'Apr 12, 2026',last:'1 hr ago',scope:'full (sandbox)'},
   {name:'Webhooks · Ledger',prefix:'ax_whk_9c11…',created:'Mar 28, 2026',last:'12 min ago',scope:'read, events'}""",
     """  {name:'Sandbox · integration',prefix:'axlk_test_3d44…',created:'Nov 6, 2026',last:'2 min ago',scope:'settlement:*, custody:read'},
-  {name:'Sandbox · read-only reporting',prefix:'axlk_test_9c11…',created:'Nov 6, 2026',last:'1 hr ago',scope:'settlement:read'},
+  {name:'Sandbox · read-only reporting',prefix:'axlk_test_9c11…',created:'Nov 6, 2026',last:'1 hr ago',scope:'settlements:read'},
   {name:'Production · server',prefix:'axlk_live_— (issued at go-live)',created:'—',last:'—',scope:'disabled until go-live'}""")
 
 # ── Wallet page (was Funds / NDD Reserve) ─────────────────────────────────────

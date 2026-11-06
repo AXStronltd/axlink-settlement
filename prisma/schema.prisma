@@ -846,6 +846,7 @@ model Wallet {
   depositInstructions DepositInstruction[]
 
   @@unique([custodyProvider, custodyVaultId])
+  @@unique([environmentId, label])
   @@index([institutionId])
   @@index([environmentId])
 }
