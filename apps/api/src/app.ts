@@ -26,6 +26,7 @@ import walletRoutes      from './routes/wallet.routes';
 import depositInstructionRoutes from './routes/deposit-instruction.routes';
 import settlementStatusRoutes   from './routes/settlement-status.routes';
 import webhookEndpointRoutes    from './routes/webhook-endpoint.routes';
+import v1Routes                 from './routes/v1.routes';
 import { loadConfig } from '../../../packages/shared/config';
 import { log, requestContext } from '../../../packages/shared/logger';
 import { errorHandler, notFoundHandler } from '../../../packages/shared/errors';
@@ -59,7 +60,10 @@ app.use(openapiRouter());
 // Institutions (tenants) and API environments — operator-administered in Step 1
 app.use('/api/institutions', institutionRoutes);
 app.use('/api/wallets', walletRoutes);
-// Step 2 institution API. Mounted before the legacy /api/deposits and provider /api/webhooks routers.
+// Step 2 institution API. `/api/v1` is the canonical contract (blueprint names); the routes below
+// are aliases of the same services, kept for anything already integrated. Mounted before the legacy
+// /api/deposits and provider /api/webhooks routers.
+app.use('/api/v1', v1Routes);
 app.use('/api/deposits/instructions', depositInstructionRoutes);
 app.use('/api/settlements', settlementStatusRoutes);
 app.use('/api/webhooks/endpoints', webhookEndpointRoutes);

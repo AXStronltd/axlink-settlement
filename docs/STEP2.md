@@ -81,3 +81,37 @@
 | Proof `slot` fell back to `0` when neither call reported one | Info | Throws `PROOF_UNAVAILABLE` (retryable) instead of recording a bogus slot |
 
 Noted, not changed: `usd-corridor.service.ts` (frozen Leg B) still reaches custody through the runtime seam rather than the registry — a replaced custody adapter does not reach the corridor engine. It is retired with Leg B, not migrated.
+
+## Slice 4 — `/api/v1` institution contract (Architecture Blueprint names)
+
+**What.** The bank-facing API now exists under `/api/v1` with exactly the route names the AxLink Architecture Blueprint publishes, so the document a client reads and the API it calls agree. The older `/api/wallets`, `/api/deposits/instructions`, `/api/settlements`, `/api/webhooks/endpoints` routes stay mounted as aliases of the same services; nothing already integrated breaks.
+
+| Route | Scope | Backed by |
+|---|---|---|
+| `GET /v1/institutions/me` | any | tenancy context + `permissions` |
+| `GET /v1/assets` | any | `packages/core/assets/registry.ts` (supported assets, networks, finality) |
+| `POST /v1/wallets` · `GET /v1/wallets` · `GET /v1/wallets/{id}` | `wallets:write` / `wallets:read` | `wallet.service` — an institution now provisions its own wallet in the environment its credential is bound to (operator creation under `/api/institutions/{id}/wallets` remains) |
+| `POST /v1/custody/deposit-addresses` | `wallets:read` | the wallet's one receiving address, with the assets it accepts |
+| `GET /v1/balances` | `wallets:read` | `statement.service.institutionBalances` — journal-derived, per asset, with the per-wallet split |
+| `POST/GET /v1/deposits`, `GET /v1/deposits/{id}`, `POST /v1/deposits/{id}/cancel` | `deposits:*` | deposit instructions (slice 2) |
+| `GET /v1/settlements/{id}` | `settlements:read` | settlement status with proof (slice 2) |
+| `GET /v1/ledger/entries` | `ledger:read` | `statement.service.listInstitutionEntries` — journal entries touching this institution's `CUSTODY:<vault>:*` and `INSTITUTION:<id>:*` accounts, **only those lines**, newest first, cursor-paged (`postedAt|id`), filters `asset`, `entityType`, `entityId` |
+| `POST/GET/DELETE /v1/webhook-endpoints` | `webhooks:*` | signed institution webhooks (slice 2) |
+| `POST /v1/transfers`, `GET /v1/transfers/{id}`, `POST /v1/settlements` | — | **501 `NOT_YET_AVAILABLE`** until outbound settlement (slice 5); named now so integrators can plan |
+
+Files: `apps/api/src/routes/v1.routes.ts`, `packages/core/ledger/statement.service.ts`, `openapi/openapi.json` (version `2.2.0-step2`, tag `v1`), tests `tests/integration/v1.step2.test.ts` (2: every route answers + aliases + 501s; ledger view after two settled deposits — two lines each, tenant B sees nothing, paging, filters, scopes). Front end: Developers page base URL is `/api/v1`, endpoint table is the blueprint list with `next` badges on the two outbound routes (`align_step2.py`, slice 4).
+
+### Blueprint phases → repository slices
+
+| Blueprint phase | Where it lives | Status |
+|---|---|---|
+| 01 Foundation & Security | Step 1 (`docs/REMEDIATION-STEP1.md`): fail-closed webhooks, exactly-once provider events, tenant guard, Decimal arithmetic | done, independently reviewed |
+| 02 API & Tenant Isolation | Step 1 institutions + scoped credentials; Step 2 slice 4 `/v1` contract; idempotency via `postingKey`/`ProviderEvent` uniqueness | done |
+| 03 Registry & Ledger | `packages/core/assets/registry.ts`, `packages/core/ledger/*` (balanced journal, projections reconciled) | done |
+| 04 Institutional Custody | Step 2 slice 1 wallets + slice 3 Fireblocks adapter on the custody port | done |
+| 05 Stablecoin Deposits | Step 2 slice 2 deposit instructions, custody receipt → Solana finality proof, mint + amount check, signed webhooks | done |
+| 06 Transfer Engine | Step 2 slice 5 — `POST /v1/transfers`: counterparties (whitelisted, screened), policy checks, balance reservation, custody transfer, finality proof, retries | next |
+| 07 B2B Settlement | Step 2 slice 5/6 — `POST /v1/settlements` between participating institutions on the network | planned |
+| 08 Reconciliation | `reconciliation.service.ts` (trial balance, projection drift, custody vs ledger via the ports, on-chain positions) exists; exception queue + operator screen to finish | partly done |
+| 09 Developer APIs | `/v1` contract + OpenAPI (slice 4), signed outbound webhooks (slice 2); SDKs (`packages/sdk`) to follow | partly done |
+| 10 Production Readiness | dedicated Solana node, secrets, runbooks, certification tests, formal approval — **no production deployment without authorisation** | planned |

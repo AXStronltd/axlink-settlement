@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "AxLink API",
-    "version": "2.1.0-step1",
-    "description": "AxLink \u2014 provider-agnostic institutional settlement network. Step 1 documents the platform foundation (health, readiness, institutions, credentials). Financial endpoints are documented as they are built, one milestone at a time."
+    "version": "2.2.0-step2",
+    "description": "AxLink \u2014 provider-agnostic institutional settlement network. `/v1/*` is the institution contract (Architecture Blueprint names). Older paths under /api are aliases of the same services. Leg A: USDC and USDT on Solana in regulated custody; fiat legs are out of scope."
   },
   "servers": [
     {
@@ -381,6 +381,193 @@
             ],
             "format": "date-time",
             "description": "Custody confirmation"
+          }
+        }
+      },
+      "Asset": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "USDC_SOL"
+          },
+          "symbol": {
+            "type": "string"
+          },
+          "network": {
+            "type": "string",
+            "example": "solana-mainnet"
+          },
+          "contract": {
+            "type": "string"
+          },
+          "decimals": {
+            "type": "integer"
+          },
+          "issuer": {
+            "type": "string"
+          }
+        }
+      },
+      "DepositAddress": {
+        "type": "object",
+        "properties": {
+          "walletId": {
+            "type": "string"
+          },
+          "network": {
+            "type": "string"
+          },
+          "address": {
+            "type": "string"
+          },
+          "assets": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "custody": {
+            "type": "object",
+            "properties": {
+              "provider": {
+                "type": "string"
+              },
+              "vaultId": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "Balances": {
+        "type": "object",
+        "properties": {
+          "institutionId": {
+            "type": "string"
+          },
+          "asOf": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "balances": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "asset": {
+                  "type": "string"
+                },
+                "symbol": {
+                  "type": "string"
+                },
+                "network": {
+                  "type": "string"
+                },
+                "available": {
+                  "type": "string",
+                  "description": "exact decimal string, journal-derived"
+                },
+                "wallets": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "walletId": {
+                        "type": "string"
+                      },
+                      "available": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "LedgerEntry": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "postedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "eventType": {
+            "type": "string"
+          },
+          "entityType": {
+            "type": "string"
+          },
+          "entityId": {
+            "type": "string"
+          },
+          "narrative": {
+            "type": "string"
+          },
+          "reversesId": {
+            "type": "string",
+            "nullable": true
+          },
+          "lines": {
+            "type": "array",
+            "description": "only the lines on accounts this institution owns",
+            "items": {
+              "type": "object",
+              "properties": {
+                "account": {
+                  "type": "string",
+                  "example": "CUSTODY:<vaultId>:USDC_SOL"
+                },
+                "asset": {
+                  "type": "string"
+                },
+                "amount": {
+                  "type": "string",
+                  "description": "signed; positive = debit"
+                },
+                "memo": {
+                  "type": "string",
+                  "nullable": true
+                }
+              }
+            }
+          }
+        }
+      },
+      "LedgerEntries": {
+        "type": "object",
+        "properties": {
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LedgerEntry"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "NotYetAvailable": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "example": "NOT_YET_AVAILABLE"
+              },
+              "message": {
+                "type": "string"
+              }
+            }
           }
         }
       }
@@ -1201,6 +1388,781 @@
           },
           "401": {
             "description": "Operator key required"
+          }
+        }
+      }
+    },
+    "/v1/institutions/me": {
+      "get": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "Identify the calling institution, environment and permissions",
+        "security": [
+          {
+            "institutionKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Institution context",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key"
+          }
+        }
+      }
+    },
+    "/v1/assets": {
+      "get": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "Supported assets and networks",
+        "security": [
+          {
+            "institutionKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Assets",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "assets": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Asset"
+                      }
+                    },
+                    "networks": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key"
+          }
+        }
+      }
+    },
+    "/v1/wallets": {
+      "post": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "Provision an institutional wallet (custody vault) in the credential's environment",
+        "security": [
+          {
+            "institutionKey": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Wallet created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Wallet"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key"
+          },
+          "403": {
+            "description": "Credential lacks wallets:write"
+          },
+          "409": {
+            "description": "A wallet with this label already exists in the environment"
+          },
+          "503": {
+            "description": "Production custody not configured on this deployment"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "label"
+                ],
+                "properties": {
+                  "label": {
+                    "type": "string"
+                  },
+                  "network": {
+                    "type": "string",
+                    "enum": [
+                      "solana-mainnet"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "List the institution's wallets",
+        "security": [
+          {
+            "institutionKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Wallets",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Wallet"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key"
+          },
+          "403": {
+            "description": "Credential lacks wallets:read"
+          }
+        }
+      }
+    },
+    "/v1/wallets/{id}": {
+      "get": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "One wallet with journal-derived balances",
+        "security": [
+          {
+            "institutionKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Wallet",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Wallet"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key"
+          },
+          "403": {
+            "description": "Credential lacks wallets:read"
+          },
+          "404": {
+            "description": "Not found (never reveals another tenant's wallet)"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/v1/custody/deposit-addresses": {
+      "post": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "Request the receiving address of a wallet (one address serves USDC and USDT on Solana)",
+        "security": [
+          {
+            "institutionKey": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Receiving address",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DepositAddress"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key"
+          },
+          "403": {
+            "description": "Credential lacks wallets:read"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "walletId"
+                ],
+                "properties": {
+                  "walletId": {
+                    "type": "string"
+                  },
+                  "asset": {
+                    "type": "string",
+                    "enum": [
+                      "USDC_SOL",
+                      "USDT_SOL"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/balances": {
+      "get": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "Institution balances by asset across the environment's wallets",
+        "security": [
+          {
+            "institutionKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Balances",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Balances"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key"
+          },
+          "403": {
+            "description": "Credential lacks wallets:read"
+          }
+        }
+      }
+    },
+    "/v1/deposits": {
+      "post": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "Announce an incoming deposit to one of your wallets",
+        "security": [
+          {
+            "institutionKey": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "walletId",
+                  "asset",
+                  "amount"
+                ],
+                "properties": {
+                  "walletId": {
+                    "type": "string"
+                  },
+                  "asset": {
+                    "type": "string",
+                    "enum": [
+                      "USDC_SOL",
+                      "USDT_SOL"
+                    ]
+                  },
+                  "amount": {
+                    "type": "string",
+                    "example": "12.5"
+                  },
+                  "reference": {
+                    "type": "string",
+                    "maxLength": 140
+                  },
+                  "ttlHours": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 720,
+                    "default": 72
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Instruction",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Settlement"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unsupported asset, invalid amount, network mismatch"
+          },
+          "403": {
+            "description": "Missing deposits:write"
+          },
+          "404": {
+            "description": "Wallet not found in this institution/environment"
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "List instructions (newest first, max 100)",
+        "security": [
+          {
+            "institutionKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "PENDING",
+                "SETTLED",
+                "CANCELLED",
+                "EXPIRED"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Instructions"
+          }
+        }
+      }
+    },
+    "/v1/deposits/{id}": {
+      "get": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "One instruction",
+        "security": [
+          {
+            "institutionKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Instruction",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Settlement"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/v1/deposits/{id}/cancel": {
+      "post": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "Cancel a PENDING instruction",
+        "security": [
+          {
+            "institutionKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cancelled"
+          },
+          "409": {
+            "description": "Not pending"
+          }
+        }
+      }
+    },
+    "/v1/settlements/{id}": {
+      "get": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "Status of any settlement you own, with custody proof and on-chain finality stated separately",
+        "security": [
+          {
+            "institutionKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Settlement",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Settlement"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/v1/webhook-endpoints": {
+      "post": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "Register a signed webhook endpoint (secret returned once)",
+        "description": "Deliveries carry `X-AxLink-Signature: t=<unix seconds>,v1=<hex HMAC-SHA256(secret, t + \".\" + body)>` and `X-AxLink-Event-Id`. Events: deposit.received (custody confirmed, status PROCESSING), deposit.settled (on-chain finalized, COMPLETED), deposit.rejected (a receipt could not be credited; needs attention), deposit.expired. Retries on 5xx/408/429/timeouts at 1m, 5m, 30m, 2h, 12h; other 4xx are final; redirects are never followed. URLs must be public https hosts.",
+        "security": [
+          {
+            "institutionKey": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "url"
+                ],
+                "properties": {
+                  "url": {
+                    "type": "string",
+                    "format": "uri"
+                  },
+                  "events": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "*",
+                        "deposit.received",
+                        "deposit.settled",
+                        "deposit.rejected",
+                        "deposit.expired"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Endpoint with one-time secret"
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "List endpoints in this environment",
+        "security": [
+          {
+            "institutionKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Endpoints"
+          }
+        }
+      }
+    },
+    "/v1/webhook-endpoints/{id}": {
+      "delete": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "Disable an endpoint",
+        "security": [
+          {
+            "institutionKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Disabled"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/v1/ledger/entries": {
+      "get": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "Authorised journal history: entries touching this institution's custody and liability accounts, newest first",
+        "security": [
+          {
+            "institutionKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Entries",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LedgerEntries"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key"
+          },
+          "403": {
+            "description": "Credential lacks ledger:read"
+          }
+        },
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "nextCursor from the previous page"
+          },
+          {
+            "name": "asset",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "USDC_SOL",
+                "USDT_SOL"
+              ]
+            }
+          },
+          {
+            "name": "entityType",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "entityId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/v1/transfers": {
+      "post": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "Initiate a stablecoin transfer (next slice)",
+        "security": [
+          {
+            "institutionKey": []
+          }
+        ],
+        "responses": {
+          "501": {
+            "description": "Not yet available \u2014 outbound settlement ships in the next slice",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotYetAvailable"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key"
+          }
+        }
+      }
+    },
+    "/v1/transfers/{id}": {
+      "get": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "Transfer status (next slice)",
+        "security": [
+          {
+            "institutionKey": []
+          }
+        ],
+        "responses": {
+          "501": {
+            "description": "Not yet available \u2014 outbound settlement ships in the next slice",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotYetAvailable"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/v1/settlements": {
+      "post": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "Initiate an institutional settlement (next slice)",
+        "security": [
+          {
+            "institutionKey": []
+          }
+        ],
+        "responses": {
+          "501": {
+            "description": "Not yet available \u2014 outbound settlement ships in the next slice",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotYetAvailable"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key"
           }
         }
       }

@@ -111,3 +111,42 @@ rep("""   pageHead('Providers','Every provider is an adapter behind a port. The 
 """   pageHead('Providers','Every provider is an adapter behind a port. Nothing under the core names a vendor; swapping one is one adapter registered at boot. This table is GET /api/settlement/providers (operator key): role, adapter, configured or sandbox stub, live health. Fiat payout rails are Leg B and are not registered in this phase.')+""")
 open('index.html', 'w', encoding='utf-8').write(src)
 print('slice 3 applied')
+
+# ── Slice 4: /api/v1 institution contract (Architecture Blueprint names) — Developers page ──
+src = open('index.html', encoding='utf-8').read()
+rep("""  var base=(ENV==='PRODUCTION')?'https://api.axlink.network/api':'https://sandbox.api.axlink.network/api';""",
+"""  var base=(ENV==='PRODUCTION')?'https://api.axlink.network/api/v1':'https://sandbox.api.axlink.network/api/v1';""")
+rep("""\\"scopes\\": [\\"wallets:read\\", \\"deposits:write\\", \\"settlements:read\\", \\"webhooks:write\\"]\\n}";""",
+"""\\"scopes\\": [\\"wallets:read\\", \\"wallets:write\\", \\"deposits:write\\", \\"deposits:read\\", \\"settlements:read\\", \\"ledger:read\\", \\"webhooks:write\\"]\\n}";""")
+rep("""  var ep=[
+    ['GET','/institutions/me','Identify the calling institution and environment','live'],
+    ['GET','/health · /ready','Liveness and readiness','live'],
+    ['GET','/wallets','Wallets: vault, deposit address, balances','live'],
+    ['GET','/wallets/{id}/balances','Exact balance per asset, from the journal','live'],
+    ['POST','/deposits/instructions','Announce a deposit: address + tracking id','live'],
+    ['GET','/settlements/{id}','PROCESSING · COMPLETED · FAILED, with proof','live'],
+    ['POST','/settlements','Settle to a whitelisted counterparty (USDC or USDT) or a fiat beneficiary','planned'],
+    ['POST','/counterparties','Register a counterparty wallet (screened, then approved)','planned'],
+    ['POST','/payouts','Local fiat payout where the receiver cannot hold the asset','planned'],
+    ['GET','/liquidity/quote','Indicative USDC/USDT ↔ fiat rate, 30 s lock','planned'],
+    ['POST','/webhooks/endpoints','Signed webhooks: deposit.received · settled · rejected · expired','live']
+  ]""",
+"""  var ep=[
+    ['GET','/institutions/me','Institution profile, environment and permissions','live'],
+    ['GET','/assets','Supported assets and networks (USDC_SOL, USDT_SOL on solana-mainnet)','live'],
+    ['POST','/wallets','Provision an institutional wallet (custody vault) · GET lists them','live'],
+    ['POST','/custody/deposit-addresses','Request the receiving address of a wallet','live'],
+    ['GET','/balances','Institution balances by asset, from the journal','live'],
+    ['POST','/deposits','Announce a deposit: tracking id + address · GET status and history','live'],
+    ['GET','/settlements/{id}','PROCESSING · COMPLETED · FAILED, with on-chain proof','live'],
+    ['GET','/ledger/entries','Authorised ledger history (your custody and liability lines), cursor-paged','live'],
+    ['POST','/webhook-endpoints','Signed webhooks: deposit.received · settled · rejected · expired','live'],
+    ['POST','/transfers','Initiate a stablecoin transfer to a whitelisted counterparty','next'],
+    ['POST','/settlements','Initiate an institutional settlement','next']
+  ]""", marker="['POST','/custody/deposit-addresses'")
+rep("""(e[3]==='live'?'background:rgba(46,230,197,.12);color:var(--teal)':'')""",
+"""(e[3]==='live'?'background:rgba(46,230,197,.12);color:var(--teal)':(e[3]==='next'?'background:rgba(255,196,64,.14);color:#e0a92a':''))""")
+rep("""  var depositShape="POST "+base+"/deposits/instructions   (scope deposits:write)""",
+"""  var depositShape="POST "+base+"/deposits   (scope deposits:write)""")
+open('index.html', 'w', encoding='utf-8').write(src)
+print('slice 4 applied')

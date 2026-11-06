@@ -1,0 +1,82 @@
+/**
+ * /api/v1 — the institution API contract (Step 2, slice 4), named exactly as the AxLink
+ * Architecture Blueprint names it. This is the surface a bank integrates against; the older
+ * `/api/wallets`, `/api/deposits/instructions`, `/api/settlements`, `/api/webhooks/endpoints`
+ * routes stay mounted as aliases of the same services so nothing already integrated breaks.
+ *
+ *   GET  /v1/institutions/me             who am I, environment, permissions
+ *   GET  /v1/assets                       supported assets and networks
+ *   POST /v1/wallets · GET /v1/wallets · GET /v1/wallets/:id   (wallets:write / wallets:read)
+ *   POST /v1/custody/deposit-addresses    receiving address for a wallet
+ *   GET  /v1/balances                     balances by asset across the environment's wallets
+ *   POST /v1/deposits · GET /v1/deposits · GET /v1/deposits/:id · POST /v1/deposits/:id/cancel
+ *   GET  /v1/settlements/:id              status and proof
+ *   GET  /v1/ledger/entries               authorised journal history (ledger:read)
+ *   POST /v1/webhook-endpoints · GET · DELETE /:id
+ *   POST /v1/transfers · POST /v1/settlements   501 until outbound settlement (slice 5)
+ */
+import { Router, type Request, type Response, type NextFunction } from 'express';
+import { z } from 'zod';
+import { requireInstitution, requireScope } from '../../../../packages/core/tenancy/tenancy.middleware';
+import { ASSETS, NETWORKS } from '../../../../packages/core/assets/registry';
+import { createWallet, getWallet, serializeWallet } from '../../../../packages/core/wallets/wallet.service';
+import { institutionBalances, listInstitutionEntries } from '../../../../packages/core/ledger/statement.service';
+import walletRoutes from './wallet.routes';
+import depositInstructionRoutes from './deposit-instruction.routes';
+import settlementStatusRoutes from './settlement-status.routes';
+import webhookEndpointRoutes from './webhook-endpoint.routes';
+
+const router = Router();
+const wrap = (fn: (req: Request, res: Response) => Promise<void>) => (req: Request, res: Response, next: NextFunction) => fn(req, res).catch(next);
+
+router.use(requireInstitution);
+
+router.get('/institutions/me', (req, res) => {
+  const t = req.tenant!;
+  res.json({ institution: { id: t.institutionId, slug: t.institutionSlug }, environment: t.environmentKind, scopes: t.scopes, permissions: t.scopes });
+});
+
+router.get('/assets', (_req, res) => {
+  res.json({
+    assets: Object.values(ASSETS).filter(a => a.supported).map(a => ({ id: a.id, symbol: a.symbol, network: a.network, contract: a.contract, decimals: a.decimals, issuer: a.tokenIssuer })),
+    networks: Object.values(NETWORKS).map(n => ({ id: n.id, family: n.family, finality: n.finality })),
+  });
+});
+
+// Wallets: an institution provisions its own wallet in the environment its credential is bound to.
+const CreateWallet = z.object({ label: z.string().min(1).max(80), network: z.literal('solana-mainnet').optional() });
+router.post('/wallets', requireScope('wallets:write'), wrap(async (req, res) => {
+  const t = req.tenant!; const b = CreateWallet.parse(req.body);
+  const w = await createWallet({ institutionId: t.institutionId, environmentKind: t.environmentKind, label: b.label, network: b.network });
+  res.status(201).json(await serializeWallet({ ...w, environment: { kind: t.environmentKind } }));
+}));
+router.use('/wallets', walletRoutes);
+
+// One receiving address serves every supported asset on the wallet's network.
+const DepositAddress = z.object({ walletId: z.string().min(1), asset: z.enum(['USDC_SOL', 'USDT_SOL']).optional() });
+router.post('/custody/deposit-addresses', requireScope('wallets:read'), wrap(async (req, res) => {
+  const t = req.tenant!; const b = DepositAddress.parse(req.body);
+  const w = await getWallet(b.walletId, { institutionId: t.institutionId, environmentId: t.environmentId });
+  const assets = Object.values(ASSETS).filter(a => a.supported && a.network === w.network && (!b.asset || a.id === b.asset)).map(a => a.id);
+  res.status(201).json({ walletId: w.id, network: w.network, address: w.depositAddress, assets, custody: { provider: w.custodyProvider, vaultId: w.custodyVaultId }, note: 'Send only the listed assets on the listed network to this address. Announce each deposit with POST /v1/deposits to receive a tracking id.' });
+}));
+
+router.get('/balances', requireScope('wallets:read'), wrap(async (req, res) => {
+  const t = req.tenant!; res.json(await institutionBalances({ institutionId: t.institutionId, environmentId: t.environmentId }));
+}));
+
+router.use('/deposits', depositInstructionRoutes);
+router.use('/settlements', settlementStatusRoutes);
+router.use('/webhook-endpoints', webhookEndpointRoutes);
+
+const Entries = z.object({ limit: z.coerce.number().int().min(1).max(200).optional(), cursor: z.string().max(120).optional(), asset: z.enum(['USDC_SOL', 'USDT_SOL']).optional(), entityType: z.string().max(40).optional(), entityId: z.string().max(80).optional() });
+router.get('/ledger/entries', requireScope('ledger:read'), wrap(async (req, res) => {
+  const t = req.tenant!; const q = Entries.parse(req.query);
+  res.json(await listInstitutionEntries({ institutionId: t.institutionId, environmentId: t.environmentId }, q));
+}));
+
+// Outbound settlement is the next slice; the contract names the routes now so integrators can plan.
+const notYet = (_req: Request, res: Response) => { res.status(501).json({ error: { code: 'NOT_YET_AVAILABLE', message: 'Outbound settlement (POST /v1/transfers, POST /v1/settlements) ships in the next slice; deposits, balances, ledger and webhooks are live.' } }); };
+router.post('/transfers', notYet); router.get('/transfers/:id', notYet); router.post('/settlements', notYet);
+
+export default router;
