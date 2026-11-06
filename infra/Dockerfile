@@ -76,4 +76,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
 
 # The Fireblocks signing key arrives as base64 in an env var (App Platform has
 # no file mounts) and is written to disk before the process starts.
-CMD ["sh", "-c", "/app/scripts/write-fireblocks-key.sh && exec node dist/apps/api/src/index.js"]
+CMD ["sh", "-c", "/app/scripts/write-fireblocks-key.sh && npx prisma migrate deploy && exec node dist/apps/api/src/index.js"]
