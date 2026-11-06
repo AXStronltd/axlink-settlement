@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "AxLink API",
-    "version": "2.3.0-step2",
+    "version": "2.4.0-step2",
     "description": "AxLink \u2014 provider-agnostic institutional settlement network. `/v1/*` is the institution contract (Architecture Blueprint names). Older paths under /api are aliases of the same services. Leg A: USDC and USDT on Solana in regulated custody; fiat legs are out of scope."
   },
   "servers": [
@@ -621,7 +621,8 @@
             "type": "string"
           },
           "address": {
-            "type": "string"
+            "type": "string",
+            "nullable": true
           },
           "status": {
             "type": "string",
@@ -646,6 +647,18 @@
           "createdAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "EXTERNAL",
+              "NETWORK"
+            ]
+          },
+          "participant": {
+            "type": "string",
+            "nullable": true,
+            "description": "NETWORK: the participant institution slug"
           }
         }
       },
@@ -2400,7 +2413,7 @@
         "tags": [
           "v1"
         ],
-        "summary": "Initiate an outbound settlement of USDC or USDT to an ACTIVE counterparty. Policy: available balance (journal minus transfers awaiting approval), per-transfer limit, counterparty and wallet ACTIVE. SANDBOX auto-approves under a limit; PRODUCTION always waits for an operator and requires OUTBOUND_SETTLEMENT_ENABLED.",
+        "summary": "Initiate an outbound settlement of USDC or USDT to an ACTIVE counterparty. Policy: available balance (journal minus transfers awaiting approval), per-transfer limit, counterparty and wallet ACTIVE. SANDBOX auto-approves under a limit; PRODUCTION always waits for an operator and requires OUTBOUND_SETTLEMENT_ENABLED. NETWORK counterparty: vault-to-vault inside AxLink custody; the receiving participant is credited at SETTLED and notified with settlement.received.",
         "security": [
           {
             "institutionKey": []
@@ -2658,7 +2671,7 @@
         "tags": [
           "v1"
         ],
-        "summary": "Register a receiving address. SANDBOX: ACTIVE at once. PRODUCTION: PENDING_APPROVAL until an operator attests custody whitelisting.",
+        "summary": "Register a counterparty: an external address (whitelisted at the custodian; SANDBOX active at once, PRODUCTION after operator approval) or a network participant by slug (another AxLink institution; active at once, settles inside custody)",
         "security": [
           {
             "institutionKey": []
@@ -2685,7 +2698,10 @@
             "description": "INVALID_ADDRESS, ADDRESS_IS_AXLINK_WALLET, validation"
           },
           "409": {
-            "description": "COUNTERPARTY_EXISTS (details.counterpartyId)"
+            "description": "COUNTERPARTY_EXISTS, PARTICIPANT_NOT_READY (no active wallet in this environment)"
+          },
+          "404": {
+            "description": "PARTICIPANT_NOT_FOUND"
           }
         },
         "requestBody": {
@@ -2695,15 +2711,19 @@
               "schema": {
                 "type": "object",
                 "required": [
-                  "label",
-                  "address"
+                  "label"
                 ],
                 "properties": {
                   "label": {
                     "type": "string"
                   },
                   "address": {
-                    "type": "string"
+                    "type": "string",
+                    "description": "external address (exactly one of address or participant)"
+                  },
+                  "participant": {
+                    "type": "string",
+                    "description": "participant slug (exactly one of address or participant)"
                   },
                   "network": {
                     "type": "string",
@@ -3235,6 +3255,143 @@
             "description": "Endpoint not found"
           }
         }
+      }
+    },
+    "/settlement/exceptions": {
+      "get": {
+        "tags": [
+          "Operations"
+        ],
+        "summary": "Operator: exception queue \u2014 one open item per (kind, subject, asset); ?status=OPEN|ACKNOWLEDGED|RESOLVED|ALL, ?severity, ?kind, ?institutionId",
+        "security": [
+          {
+            "opsKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        }
+      }
+    },
+    "/settlement/exceptions/{id}/acknowledge": {
+      "post": {
+        "tags": [
+          "Operations"
+        ],
+        "summary": "Operator: acknowledge (seen, being worked)",
+        "security": [
+          {
+            "opsKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "409": {
+            "description": "NOT_OPEN / ALREADY_RESOLVED"
+          },
+          "400": {
+            "description": "resolution note required"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "by": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/settlement/exceptions/{id}/resolve": {
+      "post": {
+        "tags": [
+          "Operations"
+        ],
+        "summary": "Operator: resolve with a required note; the item re-opens as a new entry if the break recurs",
+        "security": [
+          {
+            "opsKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "409": {
+            "description": "NOT_OPEN / ALREADY_RESOLVED"
+          },
+          "400": {
+            "description": "resolution note required"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "resolution"
+                ],
+                "properties": {
+                  "by": {
+                    "type": "string"
+                  },
+                  "resolution": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
       }
     }
   }

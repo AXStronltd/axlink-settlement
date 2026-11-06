@@ -29,7 +29,8 @@ import { providers } from '../../providers/registry/provider-registry';
 import { proveSettlement, proofsFor, ProofMismatchError, SettlementNotFinalError } from '../proof/proof.service';
 import { ApiError } from '../../shared/errors';
 import { log } from '../../shared/logger';
-import { getCounterparty } from './counterparty.service';
+import { getCounterparty, settlementWalletFor } from './counterparty.service';
+import { raiseException } from '../operations/exception.service';
 
 export interface Scope { institutionId: string; environmentId: string; environmentKind: 'SANDBOX' | 'PRODUCTION' }
 const where = (s: { institutionId: string; environmentId: string }) => ({ institutionId: s.institutionId, environmentId: s.environmentId });
@@ -126,6 +127,15 @@ async function approveInTx(tx: Prisma.TransactionClient, t: SettlementTransfer, 
   const [cp, w] = await Promise.all([tx.counterparty.findUnique({ where: { id: t.counterpartyId } }), tx.wallet.findUnique({ where: { id: t.walletId } })]);
   if (!cp || cp.status !== 'ACTIVE') throw new ApiError('COUNTERPARTY_NOT_ACTIVE', `counterparty is ${cp?.status ?? 'missing'}`, 409);
   if (!w || w.status !== 'ACTIVE') throw new ApiError('WALLET_NOT_ACTIVE', `wallet is ${w?.status ?? 'missing'}`, 409);
+  // NETWORK: fix the receiving participant's wallet now, so the destination cannot drift between approval and submission.
+  let receivingWalletId: string | null = null;
+  if (cp.kind === 'NETWORK') {
+    const env = await tx.apiEnvironment.findUnique({ where: { id: t.environmentId }, select: { kind: true } });
+    const rw = cp.participantInstitutionId ? await settlementWalletFor(cp.participantInstitutionId, env!.kind, tx) : null;
+    if (!rw) throw new ApiError('PARTICIPANT_NOT_READY', 'the receiving participant has no active wallet in this environment', 409);
+    if (rw.id === t.walletId) throw new ApiError('PARTICIPANT_IS_SELF', 'source and destination wallet are the same', 400);
+    receivingWalletId = rw.id;
+  }
   const entry = await post(tx, {
     eventType: 'SETTLEMENT', entityType: 'SettlementTransfer', entityId: t.id, postingKey: `SettlementTransfer:${t.id}:debit`,
     narrative: `Outbound settlement ${t.assetId} ${t.amount.toFixed()} to counterparty ${t.counterpartyId} for institution ${t.institutionId}`,
@@ -136,7 +146,7 @@ async function approveInTx(tx: Prisma.TransactionClient, t: SettlementTransfer, 
   });
   await applyWalletCredit(tx, t.walletId, t.assetId, t.amount.negated());
   await assertNotOverdrawn(tx, wallet, t.assetId);
-  return tx.settlementTransfer.update({ where: { id: t.id }, data: { status: 'APPROVED', approvedBy: by, approvedAt: new Date(), journalEntryId: entry.id, nextAttemptAt: new Date() } });
+  return tx.settlementTransfer.update({ where: { id: t.id }, data: { status: 'APPROVED', approvedBy: by, approvedAt: new Date(), journalEntryId: entry.id, receivingWalletId, nextAttemptAt: new Date() } });
 }
 
 export async function approveTransfer(id: string, by: string) {
@@ -233,6 +243,12 @@ export async function submitApprovedTransfers(limit = 50): Promise<{ submitted: 
         const existing = await custody.findTransferByClientRef(t.id);
         if (existing) { r = existing; log.warn('transfer.recovered_from_custody', { transferId: t.id, providerTxId: existing.providerTxId }); }
       }
+      if (!r && t.counterparty.kind === 'NETWORK') {
+        // Vault to vault inside AxLink custody: the receiving wallet was fixed at approval.
+        const rw = t.receivingWalletId ? await prisma.wallet.findUnique({ where: { id: t.receivingWalletId } }) : null;
+        if (!rw || rw.status !== 'ACTIVE') { await failTransfer(t.id, `refused before submission: receiving participant wallet is ${rw?.status ?? 'missing'}`, undefined, t.attempts, 'SUBMITTING'); out.failed++; continue; }
+        r = await custody.transferInternal({ clientRef: t.id, fromVaultId: t.wallet.custodyVaultId, toVaultId: rw.custodyVaultId, asset: { symbol: asset.symbol, chain: asset.network }, amount: t.amount.toFixed() });
+      }
       r ??= await custody.transferExternal({ clientRef: t.id, fromVaultId: t.wallet.custodyVaultId, toAddress: t.counterparty.address, asset: { symbol: asset.symbol, chain: asset.network }, amount: t.amount.toFixed(), memo: t.reference ?? `AxLink ${t.id}` });
       if (custody.configured() && /_sandbox_/.test(r.providerTxId)) throw Object.assign(new Error(`custodian returned a sandbox transaction id on a configured workspace: ${r.providerTxId}`), { retryable: false });
       const at = new Date();
@@ -275,6 +291,7 @@ export async function applyCustodyStatus(providerTxId: string, s: { status: 'PEN
     // Broadcast already happened (a signature exists): funds may have moved. Flag for a person; never reverse here.
     const u = await db.settlementTransfer.update({ where: { id: t.id }, data: { failureReason: 'custody reported FAILED after broadcast; on-chain outcome must be verified by operations'.slice(0, 500), txHash: s.txHash ?? t.txHash } });
     await emit(u, 'transfer.failed', { attention: true, status: 'PROCESSING', reason: u.failureReason }, tx);
+    await raiseException({ kind: 'TRANSFER_ATTENTION', severity: 'CRITICAL', subject: t.id, currency: t.assetId, expected: t.amount, detail: { reason: u.failureReason, txHash: u.txHash, stage: t.status }, institutionId: t.institutionId, entityType: 'SettlementTransfer', entityId: t.id }, db);
     return 'updated';
   }
   if (s.status === 'CONFIRMED' && s.final && t.status === 'SUBMITTED') {
@@ -324,8 +341,10 @@ export async function finalizeConfirmedTransfers(limit = 50): Promise<{ settled:
     const asset = getAsset(t.assetId);
     try {
       let finality: 'ON_CHAIN_FINALIZED' | 'SANDBOX_SIMULATED'; let slot: string | null = null;
+      const receiving = t.receivingWalletId ? await prisma.wallet.findUnique({ where: { id: t.receivingWalletId } }) : null;
+      const recipient = t.counterparty.kind === 'NETWORK' ? receiving?.depositAddress ?? undefined : t.counterparty.address;
       if (t.txHash) {
-        const r = await proveSettlement({ entityType: 'SettlementTransfer', entityId: t.id, signature: t.txHash, asset: asset.id, expectedAmount: t.amount, toAddress: t.counterparty.address, requireRecipient: true });
+        const r = await proveSettlement({ entityType: 'SettlementTransfer', entityId: t.id, signature: t.txHash, asset: asset.id, expectedAmount: t.amount, toAddress: recipient, requireRecipient: true });
         if (r.status === 'PENDING_BROADCAST') { out.pending++; continue; }
         finality = 'ON_CHAIN_FINALIZED'; slot = r.proof?.slot?.toString() ?? null;
       } else if (!providers.custody().configured()) {
@@ -334,7 +353,25 @@ export async function finalizeConfirmedTransfers(limit = 50): Promise<{ settled:
       await prisma.$transaction(async tx => {
         const c = await tx.settlementTransfer.updateMany({ where: { id: t.id, status: 'CONFIRMED' }, data: { status: 'SETTLED', settledAt: new Date(), failureReason: null } });
         if (c.count !== 1) return;
-        await emit({ ...t, status: 'SETTLED' }, 'transfer.settled', { finality, slot, counterpartyAddress: t.counterparty.address }, tx);
+        if (t.counterparty.kind === 'NETWORK' && receiving) {
+          // Credit the receiving participant now: custody + / its liability −, same entity, its own posting key.
+          // The custody-deposit path refuses vault-sourced receipts, so this is the only credit for a network move.
+          const credit = await post(tx, {
+            eventType: 'SETTLEMENT', entityType: 'SettlementTransfer', entityId: t.id, postingKey: `SettlementTransfer:${t.id}:credit`,
+            narrative: `Network settlement received ${t.assetId} ${t.amount.toFixed()} from institution ${t.institutionId} (transfer ${t.id})`,
+            lines: [
+              { account: AccountCode.custody(receiving.custodyVaultId, t.assetId), currency: t.assetId, amount: t.amount, usdAmount: t.amount },
+              { account: AccountCode.institution(receiving.institutionId, t.assetId), currency: t.assetId, amount: t.amount.negated(), usdAmount: t.amount.negated() },
+            ],
+          });
+          await applyWalletCredit(tx, receiving.id, t.assetId, t.amount);
+          await tx.settlementTransfer.update({ where: { id: t.id }, data: { creditEntryId: credit.id } });
+          const { emitInstitutionEvent } = await import('../../core/webhooks/webhook-endpoint.service');
+          await emitInstitutionEvent(tx, { institutionId: receiving.institutionId, environmentId: receiving.environmentId }, 'settlement.received' as never,
+            { transferId: t.id, kind: 'NETWORK_SETTLEMENT', status: 'COMPLETED', walletId: receiving.id, asset: t.assetId, amount: t.amount.toFixed(), reference: t.reference, from: { institutionId: t.institutionId }, finality, txHash: t.txHash } as Prisma.InputJsonValue,
+            { entityType: 'SettlementTransfer', entityId: t.id });
+        }
+        await emit({ ...t, status: 'SETTLED' }, 'transfer.settled', { finality, slot, counterpartyAddress: t.counterparty.kind === 'NETWORK' ? null : t.counterparty.address, participant: t.counterparty.kind === 'NETWORK' ? t.counterparty.address.replace(/^network:/, '') : null }, tx);
       });
       out.settled++;
     } catch (e) {
@@ -346,6 +383,7 @@ export async function finalizeConfirmedTransfers(limit = 50): Promise<{ settled:
         await prisma.$transaction(async tx => {
           const u = await tx.settlementTransfer.update({ where: { id: t.id }, data: { failureReason: `on-chain proof failed: ${err.message}`.slice(0, 500) } });
           await emit(u, 'transfer.failed', { attention: true, status: 'PROCESSING', reason: u.failureReason }, tx);
+          await raiseException({ kind: 'TRANSFER_ATTENTION', severity: 'CRITICAL', subject: t.id, currency: t.assetId, expected: t.amount, detail: { reason: u.failureReason, txHash: t.txHash, stage: 'CONFIRMED' }, institutionId: t.institutionId, entityType: 'SettlementTransfer', entityId: t.id }, tx);
         });
         log.error('transfer.proof_failed', { transferId: t.id, message: err.message });
         continue;

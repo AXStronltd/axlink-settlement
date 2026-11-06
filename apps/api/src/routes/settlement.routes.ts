@@ -126,6 +126,26 @@ router.post('/counterparties/:id/reject', wrap(async (req, res) => {
   res.json(serializeCounterparty(await rejectCounterparty(param(req.params.id), by, typeof req.body?.reason === 'string' ? req.body.reason : 'no reason given')));
 }));
 
+// ── Operator exception queue (Step 2, slice 6b) ───────────────────────────────
+router.get('/exceptions', wrap(async (req, res) => {
+  const { listExceptions, serializeException, exceptionSummary } = await import('../../../../packages/settlement/operations/exception.service');
+  const q = req.query as Record<string, string | undefined>;
+  const status = (['OPEN', 'ACKNOWLEDGED', 'RESOLVED', 'ALL'] as const).find(s => s === (q.status ?? 'OPEN').toUpperCase());
+  if (!status) { res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'status must be OPEN, ACKNOWLEDGED, RESOLVED or ALL' } }); return; }
+  const rows = await listExceptions({ status, severity: q.severity?.toUpperCase(), kind: q.kind?.toUpperCase(), institutionId: q.institutionId, limit: q.limit ? Number(q.limit) : undefined });
+  res.json({ summary: await exceptionSummary(), exceptions: rows.map(serializeException) });
+}));
+router.post('/exceptions/:id/acknowledge', wrap(async (req, res) => {
+  const { acknowledgeException, serializeException } = await import('../../../../packages/settlement/operations/exception.service');
+  const by = typeof req.body?.by === 'string' && req.body.by.trim() ? `operator:${req.body.by.trim().slice(0, 80)}` : 'operator';
+  res.json(serializeException(await acknowledgeException(param(req.params.id), by)));
+}));
+router.post('/exceptions/:id/resolve', wrap(async (req, res) => {
+  const { resolveException, serializeException } = await import('../../../../packages/settlement/operations/exception.service');
+  const by = typeof req.body?.by === 'string' && req.body.by.trim() ? `operator:${req.body.by.trim().slice(0, 80)}` : 'operator';
+  res.json(serializeException(await resolveException(param(req.params.id), by, typeof req.body?.resolution === 'string' ? req.body.resolution : '')));
+}));
+
 // ── Books ─────────────────────────────────────────────────────────────────────
 
 router.get(

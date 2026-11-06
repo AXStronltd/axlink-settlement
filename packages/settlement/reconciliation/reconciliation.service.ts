@@ -27,6 +27,9 @@ import { assetForSymbolOnNetwork, isAssetId, ASSETS, fromMinorUnits } from '../.
 
 export type BreakSeverity = 'INFO' | 'WARN' | 'CRITICAL';
 
+/** Kinds this service raises; a FULL run that no longer sees one of them auto-closes its queue item. */
+const RECON_KINDS = ['TRIAL_BALANCE', 'UNBALANCED_ENTRY', 'PROJECTION_DRIFT', 'CUSTODY_MISMATCH', 'ONCHAIN_MISMATCH', 'ORPHAN_LEG', 'UNPROVEN_SETTLEMENT', 'SUSPENSE_NONZERO', 'NEGATIVE_CUSTODY'];
+
 interface Break {
   kind: string;
   severity: BreakSeverity;
@@ -95,6 +98,15 @@ export async function runReconciliation(
         data: { status, finishedAt: new Date(), breakCount: breaks.length, summary: summary as Prisma.InputJsonValue },
       });
     });
+
+    // Operator queue: one open item per break subject, bumped on recurrence, auto-closed when a run no longer sees it.
+    const { raiseException, autoCloseNotSeenSince } = await import('../operations/exception.service');
+    const seen = new Set<string>();
+    for (const b of breaks) {
+      seen.add(`${b.kind}|${b.subject}|${b.currency ?? ''}`);
+      await raiseException({ kind: b.kind, severity: b.severity, subject: b.subject, currency: b.currency, expected: b.expected, actual: b.actual, detail: b.detail, runId: run.id });
+    }
+    if (kind === 'FULL') summary['exceptionsAutoClosed'] = await autoCloseNotSeenSince(RECON_KINDS, run.id, seen);
 
     if (critical > 0) {
       console.error(`[recon] ${critical} CRITICAL break(s) in run ${run.id} — books are not trustworthy until resolved`);

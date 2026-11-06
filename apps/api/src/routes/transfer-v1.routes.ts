@@ -15,7 +15,7 @@ const scopeOf = (req: Request) => { const t = req.tenant!; return { institutionI
 
 export const counterpartyRoutes = Router();
 counterpartyRoutes.use(requireInstitution);
-const RegisterCp = z.object({ label: z.string().min(1).max(80), address: z.string().min(16).max(128), network: z.literal('solana-mainnet').optional(), note: z.string().max(500).optional() });
+const RegisterCp = z.object({ label: z.string().min(1).max(80), address: z.string().min(16).max(128).optional(), participant: z.string().min(2).max(64).regex(/^[a-z0-9-]+$/i).optional(), network: z.literal('solana-mainnet').optional(), note: z.string().max(500).optional() }).refine(b => !!b.address !== !!b.participant, { message: 'exactly one of address (external) or participant (network) is required' });
 counterpartyRoutes.post('/', requireScope('counterparties:write'), wrap(async (req, res) => {
   const cp = await registerCounterparty(scopeOf(req), RegisterCp.parse(req.body));
   res.status(201).json({ ...serializeCounterparty(cp), note: cp.status === 'ACTIVE' ? cp.note : 'Pending operator approval: the address must be whitelisted at the custodian before it can receive settlements.' });

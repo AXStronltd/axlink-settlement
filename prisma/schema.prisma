@@ -956,7 +956,12 @@ model Counterparty {
   environment    ApiEnvironment     @relation(fields: [environmentId], references: [id])
   label          String
   network        String             // registry NetworkId
-  address        String
+  /// EXTERNAL: an address outside AxLink custody (whitelisted at the custodian). NETWORK: another
+  /// AxLink institution; the destination is that participant's settlement wallet in the same
+  /// environment, resolved at settlement time, and the move stays inside custody.
+  kind           String             @default("EXTERNAL")
+  address        String             // EXTERNAL: the chain address; NETWORK: "network:<participant slug>"
+  participantInstitutionId String?
   status         CounterpartyStatus @default(PENDING_APPROVAL)
   approvedBy     String?            // operator id/label, or "sandbox-auto"
   approvedAt     DateTime?
@@ -1001,6 +1006,9 @@ model SettlementTransfer {
   approvedBy      String?
   approvedAt      DateTime?
   journalEntryId  String?        // the CUSTODY−/INSTITUTION+ posting; reversed on failure
+  /// NETWORK settlements: the receiving participant's wallet, fixed at approval, and the credit posting at SETTLED
+  receivingWalletId String?
+  creditEntryId   String?
   providerTxId    String?        @unique
   txHash          String?
   submittedAt     DateTime?
@@ -1016,4 +1024,43 @@ model SettlementTransfer {
   @@index([institutionId, environmentId, status])
   @@index([status, nextAttemptAt])
   @@index([walletId, assetId, status])
+}
+
+// ── Operator exception queue (Step 2, slice 6b) ───────────────────────────────
+// One open item per (kind, subject, currency): reconciliation re-runs bump `occurrences` and
+// `lastSeenAt` instead of piling up rows; a transfer that needs a person raises one directly.
+// Resolution is recorded with who and why; the item re-opens if the break recurs.
+enum ExceptionStatus {
+  OPEN
+  ACKNOWLEDGED
+  RESOLVED
+}
+
+model OperationalException {
+  id            String          @id @default(cuid())
+  kind          String          // CUSTODY_MISMATCH | NEGATIVE_CUSTODY | PROJECTION_DRIFT | UNPROVEN_SETTLEMENT | TRANSFER_ATTENTION | …
+  severity      String          // INFO | WARN | CRITICAL
+  subject       String          // account code, entity id, address…
+  currency      String?
+  expected      Decimal?        @db.Decimal(28, 10)
+  actual        Decimal?        @db.Decimal(28, 10)
+  detail        Json?
+  institutionId String?
+  entityType    String?
+  entityId      String?
+  status        ExceptionStatus @default(OPEN)
+  occurrences   Int             @default(1)
+  firstSeenAt   DateTime        @default(now())
+  lastSeenAt    DateTime        @default(now())
+  acknowledgedBy String?
+  acknowledgedAt DateTime?
+  resolvedBy    String?
+  resolvedAt    DateTime?
+  resolution    String?
+  lastRunId     String?
+
+  // Uniqueness of OPEN items is a partial index in the migration (Prisma cannot express it): one open item per (kind, subject, currency)
+  @@index([kind, subject, currency, status])
+  @@index([status, severity, lastSeenAt])
+  @@index([institutionId, status])
 }

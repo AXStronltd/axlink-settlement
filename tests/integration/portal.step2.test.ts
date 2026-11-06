@@ -73,7 +73,7 @@ db('portal connected to the API', () => {
     await page.click('button:text-is("+ New settlement")');
     await page.fill('#ls-amount', '5');
     await page.click('button:text-is("Create settlement")');
-    await page.waitForFunction(() => /available/.test(document.getElementById('toast')?.textContent ?? ''), null, { timeout: 10_000 });
+    await page.waitForFunction(() => /available/.test((globalThis as any).document.getElementById('toast')?.textContent ?? ''), null, { timeout: 10_000 });
     expect(await prisma.settlementTransfer.count({ where: { walletId: seededWalletId } })).toBe(transfersBefore);
 
     // Developers screen shows the real credential; sign-out clears the key
@@ -84,6 +84,36 @@ db('portal connected to the API', () => {
     await page.evaluate(() => (globalThis as any).signOut());
     expect(await page.evaluate(() => sessionStorage.getItem('AX_API_KEY'))).toBeNull();
     expect(errors).toEqual([]);
+    await page.close();
+  }, 60_000);
+
+  it('operator console: the operator key opens the exception queue; an exception can be acknowledged and resolved from the UI; the key clears on sign-out', async () => {
+    const ex = await import('../../packages/settlement/operations/exception.service');
+    const { Prisma } = await import('@prisma/client');
+    const subject = `CUSTODY:vault_ui_${randomUUID().slice(0, 8)}:USDC_SOL`;
+    const raised = await ex.raiseException({ kind: 'CUSTODY_MISMATCH', severity: 'CRITICAL', subject, currency: 'USDC_SOL', expected: new Prisma.Decimal(5), actual: new Prisma.Decimal(4) });
+    const page = await browser.newPage();
+    await page.goto(`${origin}/portal#/signin`);
+    await page.click('text=Operator sign-in');
+    await page.fill('#ax-ops', process.env.OPS_API_KEY!);
+    await page.click('button:has-text("Connect operator console")');
+    await page.waitForSelector('text=Operator console · live', { timeout: 15_000 });
+    await page.waitForSelector(`[title="${subject}"]`, { timeout: 10_000 });
+    expect(await page.evaluate(() => sessionStorage.getItem('AX_OPS_KEY'))).toBe(process.env.OPS_API_KEY);
+    const row = page.locator('tr', { has: page.locator(`[title="${subject}"]`) });
+    await row.locator('button:text-is("Acknowledge")').click();
+    await page.waitForFunction((id: string) => !!(globalThis as any).OPS.exceptions?.find((x: any) => x.id === id && x.status === 'ACKNOWLEDGED'), raised.id, { timeout: 10_000 });
+    await row.locator('button:text-is("Resolve")').click();
+    await page.fill('#ox-note', 'checked with custodian; hold released');
+    await page.click('.modal button:text-is("Resolve")');
+    await page.waitForFunction((id: string) => !(globalThis as any).OPS.exceptions?.find((x: any) => x.id === id), raised.id, { timeout: 10_000 });
+    const after = await prisma.operationalException.findUnique({ where: { id: raised.id } });
+    expect(after).toMatchObject({ status: 'RESOLVED', resolution: 'checked with custodian; hold released', resolvedBy: 'operator' });
+    // Approvals and Providers answer live too
+    await page.evaluate(() => (globalThis as any).go('#/app/approvals')); await page.waitForSelector('text=GET /api/settlement/transfers/pending');
+    await page.evaluate(() => (globalThis as any).go('#/app/providers')); await page.waitForSelector('text=sandbox stub');
+    await page.evaluate(() => (globalThis as any).signOut());
+    expect(await page.evaluate(() => sessionStorage.getItem('AX_OPS_KEY'))).toBeNull();
     await page.close();
   }, 60_000);
 

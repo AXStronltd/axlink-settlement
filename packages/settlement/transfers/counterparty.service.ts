@@ -17,7 +17,46 @@ import { log } from '../../shared/logger';
 export interface Scope { institutionId: string; environmentId: string }
 const where = (s: Scope) => ({ institutionId: s.institutionId, environmentId: s.environmentId }); // strip extra keys (environmentKind) before Prisma
 
-export async function registerCounterparty(scope: Scope & { environmentKind: 'SANDBOX' | 'PRODUCTION' }, input: { label: string; network?: NetworkId; address: string; note?: string }) {
+export interface RegisterCounterpartyInput { label: string; network?: NetworkId; address?: string; participant?: string; note?: string }
+
+/**
+ * NETWORK counterparty: another AxLink institution. The destination is that participant's settlement
+ * wallet in the same environment, resolved when a settlement is approved — a move that never leaves
+ * AxLink custody. It needs no custodian whitelisting, so it is ACTIVE at once in every environment;
+ * the participant must itself be ACTIVE and hold an ACTIVE wallet in this environment kind.
+ */
+async function registerNetworkCounterparty(scope: Scope & { environmentKind: 'SANDBOX' | 'PRODUCTION' }, input: RegisterCounterpartyInput) {
+  const slug = (input.participant ?? '').trim().toLowerCase();
+  const participant = await prisma.institution.findUnique({ where: { slug }, select: { id: true, slug: true, status: true } });
+  if (!participant || participant.status !== 'ACTIVE') throw new ApiError('PARTICIPANT_NOT_FOUND', `no active AxLink participant '${slug}'`, 404);
+  if (participant.id === scope.institutionId) throw new ApiError('PARTICIPANT_IS_SELF', 'an institution cannot register itself as a counterparty', 400);
+  const wallet = await settlementWalletFor(participant.id, scope.environmentKind);
+  if (!wallet) throw new ApiError('PARTICIPANT_NOT_READY', `'${slug}' has no active ${scope.environmentKind} wallet yet`, 409);
+  const address = `network:${participant.slug}`;
+  try {
+    const cp = await prisma.counterparty.create({ data: {
+      institutionId: scope.institutionId, environmentId: scope.environmentId, label: input.label, network: wallet.network, kind: 'NETWORK', address, participantInstitutionId: participant.id,
+      note: input.note ?? null, status: 'ACTIVE', approvedBy: 'network', approvedAt: new Date(), custodyWhitelisted: false,
+    } });
+    log.info('counterparty.registered', { institutionId: scope.institutionId, counterpartyId: cp.id, kind: 'NETWORK', participant: slug });
+    return cp;
+  } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+      const dup = await prisma.counterparty.findFirst({ where: { environmentId: scope.environmentId, address } });
+      throw new ApiError('COUNTERPARTY_EXISTS', `'${slug}' is already a counterparty in this environment`, 409, { counterpartyId: dup?.id });
+    }
+    throw e;
+  }
+}
+
+/** The wallet that receives network settlements for an institution in one environment kind: its oldest ACTIVE wallet there. */
+export async function settlementWalletFor(institutionId: string, environmentKind: 'SANDBOX' | 'PRODUCTION', db: Prisma.TransactionClient | typeof prisma = prisma) {
+  return db.wallet.findFirst({ where: { institutionId, status: 'ACTIVE', environment: { kind: environmentKind, status: 'ACTIVE' } }, orderBy: { createdAt: 'asc' } });
+}
+
+export async function registerCounterparty(scope: Scope & { environmentKind: 'SANDBOX' | 'PRODUCTION' }, input: RegisterCounterpartyInput) {
+  if (input.participant) return registerNetworkCounterparty(scope, input);
+  if (!input.address) throw new ApiError('VALIDATION_ERROR', 'address (external) or participant (network) is required', 400);
   const network = input.network ?? 'solana-mainnet';
   if (!NETWORKS[network]) throw new ApiError('UNSUPPORTED_NETWORK', `network ${network} is not supported`, 400);
   const address = input.address.trim();
@@ -79,5 +118,5 @@ export async function rejectCounterparty(id: string, by: string, reason: string)
 }
 
 export function serializeCounterparty(c: Counterparty) {
-  return { id: c.id, label: c.label, network: c.network, address: c.address, status: c.status, approvedAt: c.approvedAt, custodyWhitelisted: c.custodyWhitelisted, note: c.note, createdAt: c.createdAt };
+  return { id: c.id, label: c.label, kind: c.kind, network: c.network, address: c.kind === 'NETWORK' ? null : c.address, participant: c.kind === 'NETWORK' ? c.address.replace(/^network:/, '') : null, status: c.status, approvedAt: c.approvedAt, custodyWhitelisted: c.custodyWhitelisted, note: c.note, createdAt: c.createdAt };
 }

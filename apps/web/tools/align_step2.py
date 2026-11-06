@@ -283,3 +283,15 @@ rep("""  el.innerHTML='<span style="color:var(--teal)">'+(ic||'✓')+'</span><sp
 """  el.innerHTML='<span style="color:var(--teal)">'+(ic||'✓')+'</span><span></span>'; el.lastChild.textContent=String(msg);""")
 open('index.html', 'w', encoding='utf-8').write(src)
 print('slice 6a applied')
+
+# ── Slice 6b: operator console — Alerts = exception queue, Approvals, Providers go live with the operator key ──
+src = open('index.html', encoding='utf-8').read()
+for fn, live_fn in [('appAlerts', 'opsAlerts'), ('appApprovals', 'opsApprovals'), ('appProviders', 'opsProviders')]:
+    rep('function ' + fn + '(){\n', 'function ' + fn + '(){\n  if(OPS.on&&ROLE===\'operator\') return ' + live_fn + '();\n')
+rep("""AxLink staff? <span style="color:var(--ink-2);cursor:pointer;font-weight:600" onclick="loginAsOperator()">Operator sign-in</span></div>'+""",
+"""AxLink staff? <span style="color:var(--ink-2);cursor:pointer;font-weight:600" onclick="document.getElementById(\\'ops-box\\').style.display=\\'\\'">Operator sign-in</span></div>'+
+   '<div id="ops-box" style="display:none;margin-top:10px"><div class="field"><label>Operator key</label><input id="ax-ops" type="password" placeholder="OPS_API_KEY" autocomplete="off"/></div><button class="btn btn-ghost" style="width:100%;justify-content:center" onclick="return connectAsOperator(document.getElementById(\\'ax-ops\\').value)">Connect operator console</button><div style="text-align:center;margin-top:8px;font-size:11.5px;color:var(--ink-3);cursor:pointer" onclick="loginAsOperator()">or explore the operator demo</div></div>'+""", marker='id="ops-box"')
+rep("""function signOut(){ var wasOp=(ROLE==='operator'); disconnectLive(); toast('Signed out');""", """function signOut(){ var wasOp=(ROLE==='operator'); disconnectLive(); disconnectOps(); toast('Signed out');""", marker="disconnectOps(); toast('Signed out')")
+rep("""'<main class="content">'+(LIVE.me?'':""", """'<main class="content">'+((LIVE.me||OPS.on)?'':""", marker="(LIVE.me||OPS.on)")
+open('index.html', 'w', encoding='utf-8').write(src)
+print('slice 6b applied')
