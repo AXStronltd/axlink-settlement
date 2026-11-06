@@ -70,7 +70,8 @@ app.disable('x-powered-by');
 app.use(requestContext);
 
 app.use(express.json({
-  verify: (req: Request & { rawBody?: string }, _res, buf) => {
+  verify: (req: Request & { rawBody?: string; rawBodyBuffer?: Buffer }, _res, buf) => {
+    req.rawBodyBuffer = Buffer.from(buf);
     req.rawBody = buf.toString();
   },
 } as Parameters<typeof express.json>[0]));
@@ -146,6 +147,12 @@ if (process.env.DEMO_ENABLED === 'true' && process.env.NODE_ENV !== 'production'
 // /settlement/proof/* is intentionally public — a proof only we can read is
 // not a proof. Everything else requires OPS_API_KEY.
 app.use('/api/settlement', settlementRoutes);
+
+// Frozen Leg B callback handlers include unauthenticated refund paths. Do not
+// expose them while developing Leg A; a future approved Leg B step must secure them.
+app.use(['/api/webhooks/brainrock', '/api/webhooks/daraja', '/api/webhooks/choicebank'], (_req, res) => {
+  res.status(503).json({ error: 'Legacy fiat callbacks are disabled in Leg A', code: 'LEG_B_DISABLED' });
+});
 
 // Webhooks — inbound callbacks from rails and custody
 app.use('/api/webhooks', webhookRoutes);

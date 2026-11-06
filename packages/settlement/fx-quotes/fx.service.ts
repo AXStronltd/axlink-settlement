@@ -1,4 +1,7 @@
 import { Prisma } from '@prisma/client';
+
+// Exact intermediates for database decimals; posting paths reject excess scale instead of rounding.
+Prisma.Decimal.set({ precision: 80, rounding: Prisma.Decimal.ROUND_HALF_EVEN });
 // AxLink FX Engine — AXSTRON-managed conversion layer.
 //
 // USD is the internal value unit. All cross-currency conversions route through USD.
@@ -37,6 +40,7 @@ function usdUnitsFor(currency: string): number {
 
 function normalise(c: string): string {
   return c.toUpperCase()
+    .replace('USDC_SOL', 'USDC')
     .replace('USDT_SOL', 'USDT')
     .replace('USDT_TRX', 'USDT')
     .replace('USDT_ERC20', 'USDT');

@@ -46,6 +46,8 @@ export class EventIgnored extends Error {
   constructor(public readonly outcome: EventOutcome) { super(outcome.reason ?? 'ignored'); }
 }
 
+class DuplicateEventClaim extends Error {}
+
 function isUniqueViolation(e: unknown): boolean {
   return e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002';
 }
@@ -65,7 +67,10 @@ export async function processOnce<T>(
   try {
     const applied = await prisma.$transaction(async (tx) => {
       // Claim first. A concurrent duplicate waits here until this transaction commits or aborts.
-      const row = await tx.providerEvent.create({ data: { ...base, status: 'PROCESSED' } });
+      const row = await tx.providerEvent.create({ data: { ...base, status: 'PROCESSED' } }).catch(e => {
+        if (isUniqueViolation(e)) throw new DuplicateEventClaim();
+        throw e;
+      });
       // Any throw below (EventIgnored included) aborts the transaction: the claim, the posting and
       // the status change all disappear together.
       const { outcome, result } = await apply(tx);
@@ -74,7 +79,7 @@ export async function processOnce<T>(
     }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
     return { duplicate: false, ...applied };
   } catch (e) {
-    if (isUniqueViolation(e)) {
+    if (e instanceof DuplicateEventClaim) {
       log.info('provider_event.duplicate', { provider: event.provider, eventId: event.eventId });
       return { duplicate: true };
     }

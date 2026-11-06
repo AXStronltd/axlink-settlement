@@ -19,6 +19,8 @@ const schema = z.object({
   OPS_API_KEY: z.string().min(16).optional(),
   SIMULATOR_ENABLED: bool,
   ALLOW_UNVERIFIED_WEBHOOKS: bool, // F2: local dev only; refused in production
+  FIREBLOCKS_WORKSPACE_ID: z.string().optional(),
+  FIREBLOCKS_WEBHOOK_JWKS_URL: z.enum(['https://keys.fireblocks.io/.well-known/jwks.json', 'https://eu-keys.fireblocks.io/.well-known/jwks.json', 'https://eu2-keys.fireblocks.io/.well-known/jwks.json', 'https://sandbox-keys.fireblocks.io/.well-known/jwks.json']).optional(),
   FIREBLOCKS_WEBHOOK_PUBLIC_KEY: z.string().optional(), B2BINPAY_CALLBACK_SECRET: z.string().optional(),
   DEMO_ENABLED: bool,
   SETTLEMENT_WORKER_ENABLED: z.enum(['true', 'false']).default('true').transform(v => v === 'true'),
@@ -47,14 +49,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ConfigReport {
   const cfg = r.data;
   if (cfg.NODE_ENV === 'production') {
     const prodProblems: string[] = [];
+    if (!cfg.FIREBLOCKS_WORKSPACE_ID || PLACEHOLDER.test(cfg.FIREBLOCKS_WORKSPACE_ID)) prodProblems.push('FIREBLOCKS_WORKSPACE_ID is required in production');
     if (!cfg.OPS_API_KEY) prodProblems.push('OPS_API_KEY is required in production');
     if (cfg.SIMULATOR_ENABLED) prodProblems.push('SIMULATOR_ENABLED must be false in production');
     if (cfg.DEMO_ENABLED) prodProblems.push('DEMO_ENABLED must be false in production');
     if (cfg.ALLOW_UNVERIFIED_WEBHOOKS) prodProblems.push('ALLOW_UNVERIFIED_WEBHOOKS must be false in production');
     // F2: a crypto-settlement webhook that cannot be verified is refused at runtime (503); in production
     // that is an outage, so the keys are required at boot.
-    if (!cfg.FIREBLOCKS_WEBHOOK_PUBLIC_KEY || PLACEHOLDER.test(cfg.FIREBLOCKS_WEBHOOK_PUBLIC_KEY)) prodProblems.push('FIREBLOCKS_WEBHOOK_PUBLIC_KEY is required in production');
-    if (!cfg.B2BINPAY_CALLBACK_SECRET || PLACEHOLDER.test(cfg.B2BINPAY_CALLBACK_SECRET)) prodProblems.push('B2BINPAY_CALLBACK_SECRET is required in production');
+    if (!cfg.FIREBLOCKS_WEBHOOK_JWKS_URL && (!cfg.FIREBLOCKS_WEBHOOK_PUBLIC_KEY || PLACEHOLDER.test(cfg.FIREBLOCKS_WEBHOOK_PUBLIC_KEY))) prodProblems.push('FIREBLOCKS_WEBHOOK_PUBLIC_KEY is required in production');
+    if ([cfg.B2BINPAY_CLIENT_ID, cfg.B2BINPAY_CLIENT_SECRET].some(v => v && !PLACEHOLDER.test(v)) && (!cfg.B2BINPAY_CALLBACK_SECRET || PLACEHOLDER.test(cfg.B2BINPAY_CALLBACK_SECRET))) prodProblems.push('B2BINPAY_CALLBACK_SECRET is required in production');
     if (prodProblems.length) throw new ConfigError(prodProblems);
   }
   const sandboxProviders = PROVIDER_KEYS.filter(k => { const v = cfg[k]; return !v || PLACEHOLDER.test(String(v)); }).map(String);

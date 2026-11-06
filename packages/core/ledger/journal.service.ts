@@ -21,7 +21,7 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from './ledger.service';
 import { resolveAccount, isDebitNormal, type AccountType } from './accounts';
-import { toUSD } from '../../settlement/fx-quotes/fx.service';
+import { toUSDDecimal } from '../../settlement/fx-quotes/fx.service';
 
 type TxClient = Prisma.TransactionClient;
 
@@ -84,7 +84,7 @@ export class UnbalancedPostingError extends Error {
 }
 
 /** Anything below this is rounding noise from an FX conversion, not a real hole. */
-const EPSILON = new Prisma.Decimal('0.0000000001');
+const EPSILON = new Prisma.Decimal(0);
 
 function dec(v: Prisma.Decimal | number | string): Prisma.Decimal {
   return v instanceof Prisma.Decimal ? v : new Prisma.Decimal(v);
@@ -101,6 +101,8 @@ export function assertBalanced(postingKey: string, lines: PostingLine[]): void {
   const residual = new Map<string, Prisma.Decimal>();
 
   for (const line of lines) {
+    const amount = dec(line.amount);
+    if (!amount.isFinite() || amount.decimalPlaces() > 10 || amount.abs().gte('1000000000000000000')) throw new RangeError('Journal amount exceeds Decimal(28,10)');
     const ccy = line.currency.toUpperCase();
     residual.set(ccy, (residual.get(ccy) ?? new Prisma.Decimal(0)).add(dec(line.amount)));
   }
@@ -145,7 +147,7 @@ export async function post(tx: TxClient, req: PostingRequest): Promise<{ id: str
           ? dec(line.usdAmount)
           : currency === 'USD'
             ? amount
-            : new Prisma.Decimal(await toUSD(amount.toNumber(), currency));
+            : toUSDDecimal(amount, currency);
 
       const account = await resolveAccount(tx, line.account, {
         currency,

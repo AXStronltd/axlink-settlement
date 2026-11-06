@@ -6,8 +6,7 @@
  * configured the endpoint fails CLOSED (503, nothing processed) — the old "skip verification in
  * dev mode" behaviour let an unauthenticated POST mint ledger balance.
  *
- * Local development without provider keys uses `ALLOW_UNVERIFIED_WEBHOOKS=true`, which the config
- * validator refuses in production (see src/platform/config.ts).
+ * Signature admission cannot be bypassed in any environment; sandbox tests use test keys.
  */
 import type { Request, Response } from 'express';
 import { log } from '../shared/logger';
@@ -31,10 +30,6 @@ export function admitWebhook(opts: {
 }): WebhookVerdict {
   const { provider } = opts;
   if (!opts.secretConfigured) {
-    if (isUnverifiedAllowed()) {
-      log.warn('webhook.unverified', { provider, reason: 'ALLOW_UNVERIFIED_WEBHOOKS (non-production only)' });
-      return { ok: true };
-    }
     log.error('webhook.rejected', { provider, reason: 'verification key not configured' });
     return { ok: false, status: 503, code: 'WEBHOOK_NOT_CONFIGURED', message: `${provider} webhook verification is not configured; event refused` };
   }

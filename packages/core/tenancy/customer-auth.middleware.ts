@@ -1,26 +1,17 @@
 /**
- * Legacy customer API protection (remediation F4).
- *
- * The customer routes (`/api/users`, `/api/transfers`, `/api/withdrawals`, `/api/deposits`,
- * `/api/orchestrator`, `/api/quote`) predate tenancy and were reachable by anyone. They now
- * require one of two actors:
- *
- *   - an OPERATOR (`OPS_API_KEY`) — full access, for the internal dashboard and support;
- *   - an INSTITUTION credential — scoped to that institution's own customers.
- *
- * Tenant isolation is enforced centrally, not per handler: `tenantGuard` resolves every entity
- * id a request names (user ids in params/query/body, and transfer/withdrawal/deposit ids) to its
- * owning user and refuses the request with 404 when any of them belongs to another institution.
- * 404, not 403: an institution must not learn that another institution's id exists.
- *
- * Legacy rows with `institutionId = null` are reachable only by the operator until backfilled.
+ * Fail-closed admission for legacy customer APIs (F4).
+ * These records have institution ownership but no environment key. All institution
+ * credentials are denied, including sandbox and wildcard credentials. Operators
+ * retain reads and non-production user provisioning only; financial mutations
+ * are disabled until separately approved, environment-scoped APIs exist.
+ * The ownership guard below is retained as defense in depth for future approved wiring.
  */
 import type { Request, Response, NextFunction } from 'express';
 import { timingSafeEqual } from 'crypto';
 import { prisma } from '../ledger/ledger.service';
 import { authenticateKey } from '../institutions/institution.service';
 import { config } from '../../shared/config';
-import { unauthorized, notFound } from '../../shared/errors';
+import { unauthorized, notFound, forbidden } from '../../shared/errors';
 import { log } from '../../shared/logger';
 
 export type Actor = { kind: 'ops' } | { kind: 'institution'; institutionId: string };
@@ -38,13 +29,23 @@ export async function requireCustomerActor(req: Request, _res: Response, next: N
   const header = req.headers.authorization ?? '';
   const raw = header.startsWith('Bearer ') ? header.slice(7).trim() : '';
   if (!raw) return next(unauthorized('Authentication required: operator key or institution API key'));
-  if (isOpsKey(raw)) { req.actor = { kind: 'ops' }; return next(); }
+  if (isOpsKey(raw)) {
+    // The legacy transfer/FX/payout handlers are not a verified Leg A API.
+    // Keep read access and local user provisioning for the preserved dashboard,
+    // but do not expose unsafe financial mutations while their replacements await approval.
+    const path = (req.baseUrl + req.path).replace(/\/$/, '');
+    const localProvisioning = req.method === 'POST' && path === '/api/users' && process.env.NODE_ENV !== 'production';
+    if (!['GET', 'HEAD'].includes(req.method) && !localProvisioning) {
+      return next(Object.assign(new Error('Legacy financial mutation endpoint disabled in Leg A'), { code: 'LEGACY_FINANCIAL_API_DISABLED', statusCode: 503 }));
+    }
+    req.actor = { kind: 'ops' }; return next();
+  }
   const auth = await authenticateKey(raw);
   if (!auth) return next(unauthorized('Invalid API key'));
-  req.actor = { kind: 'institution', institutionId: auth.institution.id };
-  req.tenant = { institutionId: auth.institution.id, institutionSlug: auth.institution.slug, environmentId: auth.environment.id, environmentKind: auth.environment.kind, scopes: auth.credential.scopes, credentialId: auth.credential.id };
-  log.setInstitution(auth.institution.id);
-  next();
+  // Even sandbox reads are unsafe: legacy rows do not carry an API environment.
+  // Disable institution access instead of inventing isolation without a data boundary.
+  return next(forbidden('Legacy institutional APIs are disabled until environment-scoped ownership is available'));
+
 }
 
 const USER_ID_KEYS = ['userId', 'senderId', 'receiverId'] as const;

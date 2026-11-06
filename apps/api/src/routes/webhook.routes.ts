@@ -1,11 +1,13 @@
 import { Router, Request, Response } from 'express';
 import { admitWebhook, isSecretConfigured, rejectWebhook } from '../../../../packages/webhooks/webhook-policy';
 import { verifyWebhookSignature, TRANSFER_STATUS } from '../../../../packages/providers/liquidity/b2binpay/b2binpay';
-import { verifyFireblocksWebhook, TX_STATUS } from '../../../../packages/providers/custody/fireblocks/fireblocks';
+import { TX_STATUS } from '../../../../packages/providers/custody/fireblocks/fireblocks';
 import { prisma, credit } from '../../../../packages/core/ledger/ledger.service';
 import { processOnce, EventIgnored } from '../../../../packages/webhooks/provider-event.service';
 import { applyCustodyDeposit } from '../../../../packages/webhooks/custody-deposit';
 import { legByExternalKey, mergeLegPayload, confirmLeg, isTerminal } from '../../../../packages/settlement/orchestration/leg.service';
+
+import { fireblocksVerificationConfigured, verifyFireblocksRequest } from '../../../../packages/providers/custody/fireblocks/fireblocks-webhook';
 
 const router = Router();
 
@@ -120,25 +122,47 @@ router.post(['/fireblocks', '/fireboks'], async (req: Request, res: Response) =>
   const signature = (req.headers['fireblocks-signature'] as string | undefined) ?? '';
   const rawBody = (req as Request & { rawBody?: string }).rawBody ?? '';
 
-  const verdict = admitWebhook({ provider: 'fireblocks', secretConfigured: isSecretConfigured(process.env.FIREBLOCKS_WEBHOOK_PUBLIC_KEY), signaturePresent: !!signature, verify: () => verifyFireblocksWebhook(rawBody, signature) });
+  const jws = typeof req.headers['fireblocks-webhook-signature'] === 'string' ? req.headers['fireblocks-webhook-signature'] : undefined;
+  const original = (req as Request & { rawBodyBuffer?: Buffer }).rawBodyBuffer ?? Buffer.alloc(0);
+  const verified = await verifyFireblocksRequest(original, signature, jws);
+  const verdict = admitWebhook({ provider: 'fireblocks', secretConfigured: fireblocksVerificationConfigured(), signaturePresent: !!signature || !!jws, verify: () => verified });
   if (!verdict.ok) { rejectWebhook(res, verdict); return; }
 
-  const payload = req.body as {
+  // JSON numeric amounts must retain their original decimal lexeme. Node 22+
+  // provides the primitive source to the reviver; older runtimes fail closed for numbers.
+  const payload = JSON.parse(rawBody, (key: string, value: unknown, context?: { source?: string }) =>
+    (key === 'amount' || key === 'netAmount') && typeof value === 'number' ? (context?.source ?? null) : value,
+  ) as {
     type?: string;
+    eventType?: string;
+    workspaceId?: string;
+    tenantId?: string;
     data?: {
       id?: string;
       status?: string;
       assetId?: string;
-      amount?: number;
+      amount?: number | string;
+      operation?: string;
+      netAmount?: number | string;
+      amountInfo?: { netAmount?: string };
+      network?: string;
+      contract?: string;
       fee?: number;
       txHash?: string;
       externalTxId?: string;
-      source?: { id?: string; name?: string };
-      destination?: { id?: string; name?: string };
+      source?: { id?: string; name?: string; type?: string };
+      destination?: { id?: string; name?: string; type?: string };
     };
   };
 
-  const event       = payload.type ?? 'UNKNOWN';
+  const expectedWorkspace = process.env.FIREBLOCKS_WORKSPACE_ID;
+  if (!expectedWorkspace || /^your_/i.test(expectedWorkspace)) {
+    res.status(503).json({ code: 'WEBHOOK_WORKSPACE_NOT_CONFIGURED', error: 'Custody workspace binding is not configured' }); return;
+  }
+  if ((payload.workspaceId ?? payload.tenantId) !== expectedWorkspace) {
+    res.status(401).json({ code: 'WEBHOOK_WORKSPACE_MISMATCH', error: 'Webhook workspace does not match' }); return;
+  }
+  const event       = payload.eventType ?? payload.type ?? 'UNKNOWN';
   const tx          = payload.data;
   const statusLabel = TX_STATUS[tx?.status ?? ''] ?? tx?.status ?? 'unknown';
 
@@ -150,12 +174,13 @@ router.post(['/fireblocks', '/fireboks'], async (req: Request, res: Response) =>
   // F1: exactly once per (tx id, status) via ProviderEvent uniqueness, in one transaction.
   // F3: the asset is resolved from the registry by network + contract; USDC and USDT both settle;
   //     anything else is recorded as IGNORED and never credits.
-  if (statusLabel === 'completed' && tx?.id) {
+  if ((event === 'TRANSACTION_STATUS_UPDATED' || event === 'transaction.status.updated') && statusLabel === 'completed' && tx?.id) {
     const r = await processOnce(
       { provider: 'fireblocks', eventId: `${tx.id}:${tx.status ?? 'COMPLETED'}`, kind: event, rawBody },
       (t) => applyCustodyDeposit(t, {
         provider: 'fireblocks', providerAssetId: tx.assetId, destinationVaultId: tx.destination?.id,
-        externalTxId: tx.externalTxId, providerTxId: tx.id, amount: tx.amount,
+        externalTxId: tx.externalTxId, providerTxId: tx.id, amount: tx.amountInfo?.netAmount ?? tx.netAmount, operation: tx.operation,
+        destinationType: tx.destination?.type, sourceType: tx.source?.type, sourceVaultId: tx.source?.id, network: tx.network, contract: tx.contract,
       }),
     );
     if (r.duplicate) { res.status(200).json({ received: true, duplicate: true }); return; }
