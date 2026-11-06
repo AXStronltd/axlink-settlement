@@ -56,7 +56,7 @@ A working crypto-rail settlement service, further along than its README suggests
 | # | Severity | Finding | Status |
 |---|---|---|---|
 | S1 | **Critical** | `POST /api/network/banks/register` was unauthenticated: anyone could register a member bank and receive an API key. | **Fixed in Step 1** — now requires `OPS_API_KEY`. |
-| S2 | **Critical** | The customer API (`/api/users`, `/api/transfers`, `/api/withdrawals`, `/api/deposits/*`, `/api/orchestrator/*`, `/api/quote`) has **no authentication and no tenant scoping**: any caller can read any user, move any balance. | **Open — Step 2.** The tenancy middleware now exists (`requireInstitution`, `requireScope`); applying it changes the behaviour of every existing route and the frontend, so it is scoped, not slipped in. Until then these routes must not be exposed beyond a private network. |
+| S2 | **Critical** | The customer API (`/api/users`, `/api/transfers`, `/api/withdrawals`, `/api/deposits/*`, `/api/orchestrator/*`, `/api/quote`) has **no authentication and no tenant scoping**: any caller can read any user, move any balance. | **Fixed in the remediation branch (F4)** — `core/tenancy/customer-auth.middleware.ts`: operator key or institution credential required; institutions confined to their own customers (`User.institutionId`). Legacy rows with no institution are operator-only until backfilled. See `docs/REMEDIATION-STEP1.md`. |
 | S3 | High | Member-bank API keys were generated with `Math.random` (not a CSPRNG). | **Fixed** — `crypto.randomBytes`. Existing keys should be re-issued. |
 | S4 | High | `Bank.webhookSecret` stored in plaintext. | Open — Step 2 (move to hashed `ApiEnvironment.webhookSecretHash`; raw secret shown once). |
 | S5 | Medium | Member-bank key hash is unpeppered SHA-256 (fine for 128-bit random keys, weak if a key is ever low-entropy). | Mitigated for new institution keys (`API_KEY_PEPPER`); legacy `Bank` keys unchanged. |
@@ -64,11 +64,14 @@ A working crypto-rail settlement service, further along than its README suggests
 | S7 | Medium | `/api/health` exposed the callback base URL; `X-Powered-By` header on. | **Fixed**. |
 | S8 | Low | Demo and simulator routes can be enabled by env in non-production; nothing prevented `NODE_ENV=production` with them on except a code check. | **Fixed** — config validation refuses the combination at boot. |
 | S9 | Low | No rate limiting on any endpoint. | Open — Step 2 (per-credential limits on institution routes). |
+| S11 | **Critical** | Fireblocks/B2BinPay/Brainrock/Choice webhooks skipped signature verification when the key was unset. | **Fixed (F2)** — fail closed (503) via `platform/webhook-policy.ts`; keys required in production. |
+| S12 | **Critical** | A replayed or concurrent Fireblocks completion credited the deposit again. | **Fixed (F1)** — `ProviderEvent(provider,eventId)` unique claim in the same transaction as the posting. |
+| S13 | High | USDC completions were silently dropped (USDT-only filter). | **Fixed (F3)** — asset resolved from the registry by network + contract. |
 | S10 | Info | `redis` dependency unused; `kafkajs` optional. | Leave; remove `redis` in a later cleanup. |
 
 ## 4. Outstanding issues (not addressed in Step 1 by design)
 
-- S2, S4, S9 above.
+- S4, S9 above (S2 fixed in remediation).
 - 76 `console.*` call sites to migrate to the structured logger.
 - `frontend/src/api.ts` hand-copies 14 backend types (RESTRUCTURE.md's "common/" defect) — should be generated from OpenAPI once the financial endpoints are documented.
 - README/CLAUDE.md say the baseline migration is missing; it is present. Corrected in README.

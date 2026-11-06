@@ -227,3 +227,15 @@ d('F1/F2/F3/F4 · against the live app (requires DATABASE_URL)', () => {
     });
   });
 });
+
+describe('F2 · configuration refuses an unverifiable production', () => {
+  it('production without the webhook keys, or with ALLOW_UNVERIFIED_WEBHOOKS, fails to boot', async () => {
+    const { loadConfig } = await import('../platform/config');
+    const base = { NODE_ENV: 'production', DATABASE_URL: 'postgresql://x', API_BASE_URL: 'https://api.axlink.test/api', OPS_API_KEY: 'k'.repeat(32), SIMULATOR_ENABLED: 'false', DEMO_ENABLED: 'false' } as NodeJS.ProcessEnv;
+    expect(() => loadConfig(base)).toThrow(/FIREBLOCKS_WEBHOOK_PUBLIC_KEY is required in production/);
+    expect(() => loadConfig(base)).toThrow(/B2BINPAY_CALLBACK_SECRET is required in production/);
+    const withKeys = { ...base, FIREBLOCKS_WEBHOOK_PUBLIC_KEY: '-----BEGIN PUBLIC KEY-----x', B2BINPAY_CALLBACK_SECRET: 's'.repeat(20) };
+    expect(() => loadConfig(withKeys)).not.toThrow();
+    expect(() => loadConfig({ ...withKeys, ALLOW_UNVERIFIED_WEBHOOKS: 'true' })).toThrow(/ALLOW_UNVERIFIED_WEBHOOKS must be false in production/);
+  });
+});
