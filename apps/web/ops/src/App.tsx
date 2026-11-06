@@ -7,6 +7,7 @@ import Deposits from './components/Deposits'
 import Withdrawals from './components/Withdrawals'
 import Simulator from './components/Simulator'
 import LiveDemo from './components/LiveDemo'
+import { getStoredOpsKey, storeOpsKey } from './api'
 
 type Page = 'dashboard' | 'users' | 'wallet' | 'transfers' | 'deposits' | 'withdrawals' | 'simulator' | 'livedemo'
 
@@ -21,8 +22,53 @@ const NAV: { id: Page; label: string; icon: string }[] = [
   { id: 'livedemo',    label: 'Live Demo',    icon: '◈' },
 ]
 
+function LoginModal({ onLogin }: { onLogin: () => void }) {
+  const [key, setKey] = useState('')
+  const [error, setError] = useState('')
+
+  function submit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!key.trim()) { setError('Enter your operator key'); return }
+    storeOpsKey(key.trim())
+    onLogin()
+  }
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-950">
+      <div className="w-full max-w-sm">
+        <div className="text-center mb-8">
+          <div className="text-xs font-mono text-brand-400 mb-1 tracking-widest">AXSTRON</div>
+          <div className="text-xl font-semibold text-white">AxLink Settlement</div>
+          <div className="text-sm text-gray-500 mt-1">Ops Dashboard</div>
+        </div>
+        <form onSubmit={submit} className="bg-gray-900 border border-gray-800 rounded-xl p-6 space-y-4">
+          <div>
+            <label className="block text-xs font-medium text-gray-400 mb-1.5">Operator Key (OPS_API_KEY)</label>
+            <input
+              type="password"
+              className="input"
+              placeholder="Enter your operator key"
+              value={key}
+              onChange={e => { setKey(e.target.value); setError('') }}
+              autoFocus
+            />
+            {error && <p className="text-red-400 text-xs mt-1">{error}</p>}
+          </div>
+          <button type="submit" className="btn-primary w-full">Sign in</button>
+          <div className="text-center">
+            <span className="text-xs text-gray-600 font-mono">Sandbox mode · no credentials required</span>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
 export default function App() {
   const [page, setPage] = useState<Page>('dashboard')
+  const [authed, setAuthed] = useState(() => !!getStoredOpsKey())
+
+  if (!authed) return <LoginModal onLogin={() => setAuthed(true)} />
 
   return (
     <div className="min-h-screen flex">
