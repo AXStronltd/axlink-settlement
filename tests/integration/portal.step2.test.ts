@@ -12,20 +12,23 @@ process.env.OPS_API_KEY ??= 'test-ops-key-0123456789abcdef';
 process.env.API_BASE_URL ??= 'http://localhost:4000/api';
 process.env.WEBHOOK_ALLOW_INSECURE_URLS = 'true';
 
-const db = process.env.DATABASE_URL ? describe : describe.skip;
+const chromiumPath = process.env.PLAYWRIGHT_CHROMIUM_PATH ?? (fs.existsSync('/opt/pw-browsers/chromium') ? '/opt/pw-browsers/chromium' : undefined);
+let chromiumUsable = !!chromiumPath;
+if (!chromiumUsable) { try { require.resolve('playwright'); chromiumUsable = true; } catch { /* no playwright */ } }
+if (!chromiumUsable) console.warn('portal.step2: no Chromium/Playwright available — skipping the browser test');
+const db = process.env.DATABASE_URL && chromiumUsable ? describe : describe.skip;
 
 db('portal connected to the API', () => {
-  let server: http.Server; let origin: string; let browser: import('playwright').Browser; let apiKey: string; let prisma: any;
+  let server: http.Server; let origin: string; let browser: import('playwright').Browser; let apiKey: string; let prisma: any; let seededWalletId: string;
   beforeAll(async () => {
     const { app } = await import('../../apps/api/src/index'); ({ prisma } = await import('../../packages/core/ledger/ledger.service'));
     const { seedSandbox } = await import('../../scripts/seed-sandbox');
-    const seeded = await seedSandbox({ newKey: true }); apiKey = seeded.apiKey!;
+    const seeded = await seedSandbox({ newKey: true }); apiKey = seeded.apiKey!; seededWalletId = seeded.walletId;
     server = http.createServer(app); await new Promise<void>(r => server.listen(0, '127.0.0.1', r));
     origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
     const { chromium } = await import('playwright');
     // The container ships a Chromium at /opt/pw-browsers/chromium (same as apps/web/tools/render_check.js); CI can override.
-    const executablePath = process.env.PLAYWRIGHT_CHROMIUM_PATH ?? (fs.existsSync('/opt/pw-browsers/chromium') ? '/opt/pw-browsers/chromium' : undefined);
-    browser = await chromium.launch({ executablePath, args: ['--no-sandbox'] });
+    browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });
   }, 60_000);
   afterAll(async () => { await browser?.close(); server?.close(); });
 
@@ -36,7 +39,7 @@ db('portal connected to the API', () => {
     await expect(page.title()).resolves.toMatch(/AxLink/);
     await page.fill('#ax-key', apiKey);
     await page.click('button:has-text("Connect")');
-    await page.waitForSelector('text=Live · galaxy-bank-so · sandbox', { timeout: 15_000 });
+    await page.waitForSelector('text=Live · axlink-reference · sandbox', { timeout: 15_000 });
     expect(await page.locator('text=Demonstration — figures are illustrative').count()).toBe(0);
 
     // Wallet screen shows the seeded wallet from GET /v1/wallets
@@ -47,10 +50,12 @@ db('portal connected to the API', () => {
     // Register a counterparty through the UI → POST /v1/counterparties → ACTIVE (sandbox)
     await page.evaluate(() => (globalThis as any).go('#/app/contacts'));
     await page.click('button:text-is("+ Register counterparty")');
-    await page.fill('#lc-label', 'Partner Bank'); await page.fill('#lc-addr', randomUUID().replace(/-/g, '').replace(/[0lIO]/g, 'a').padEnd(44, 'b').slice(0, 44));
+    const cpLabel = `Partner <b>${randomUUID().slice(0, 6)}</b>`; // unique per run, and carries markup to prove escaping
+    await page.fill('#lc-label', cpLabel); await page.fill('#lc-addr', randomUUID().replace(/-/g, '').replace(/[0lIO]/g, 'a').padEnd(44, 'b').slice(0, 44));
     await page.click('.modal button:has-text("Register"), #modal button:has-text("Register"), button:text-is("Register")');
-    await page.waitForSelector('text=Partner Bank', { timeout: 10_000 });
-    const cps = await prisma.counterparty.findMany({ where: { label: 'Partner Bank' } }); expect(cps.length).toBeGreaterThan(0);
+    await page.waitForSelector(`text=${cpLabel}`, { timeout: 10_000 });
+    expect(await prisma.counterparty.count({ where: { label: cpLabel } })).toBe(1);
+    expect(await page.locator('td b').count()).toBe(0); // the <b> in the label rendered as text, not as an element
 
     // Announce a deposit through the UI → POST /v1/deposits → tracking id shown
     await page.evaluate(() => (globalThis as any).go('#/app/treasury'));
@@ -64,17 +69,17 @@ db('portal connected to the API', () => {
 
     // Settlement from the UI with an insufficient balance → the API's error is surfaced, nothing created
     await page.evaluate(() => (globalThis as any).go('#/app/payments'));
+    const transfersBefore = await prisma.settlementTransfer.count({ where: { walletId: seededWalletId } });
     await page.click('button:text-is("+ New settlement")');
     await page.fill('#ls-amount', '5');
     await page.click('button:text-is("Create settlement")');
-    await page.waitForSelector('#toast.show');
-    expect(await page.locator('#toast').innerText()).toMatch(/available/);
-    expect(await prisma.settlementTransfer.count({ where: { reference: 'INV-UI-1' } })).toBe(0);
+    await page.waitForFunction(() => /available/.test(document.getElementById('toast')?.textContent ?? ''), null, { timeout: 10_000 });
+    expect(await prisma.settlementTransfer.count({ where: { walletId: seededWalletId } })).toBe(transfersBefore);
 
     // Developers screen shows the real credential; sign-out clears the key
     await page.evaluate(() => (globalThis as any).go('#/app/developers'));
     await page.waitForSelector('text=Who am I');
-    expect(await page.locator('pre').first().innerText()).toContain('"slug": "galaxy-bank-so"');
+    expect(await page.locator('pre').first().innerText()).toContain('"slug": "axlink-reference"');
     expect(await page.evaluate(() => sessionStorage.getItem('AX_API_KEY'))).toBe(apiKey);
     await page.evaluate(() => (globalThis as any).signOut());
     expect(await page.evaluate(() => sessionStorage.getItem('AX_API_KEY'))).toBeNull();

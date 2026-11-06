@@ -56,8 +56,16 @@ app.use(express.json({
 // The AxLink portal (apps/web/index.html) served by the API itself, so a sandbox deployment is one
 // process: the page talks to /api/v1 on the same origin with an institution API key (no CORS, no
 // separate host). A CDN deployment of the same file points at the API with its own base URL.
-const webDir = path.resolve(process.cwd(), 'apps', 'web');
-app.get(['/portal', '/portal/'], (_req, res) => { res.sendFile(path.join(webDir, 'index.html')); });
+const portalFile = process.env.PORTAL_FILE ?? path.resolve(__dirname, '..', '..', 'web', 'index.html');
+app.get(['/portal', '/portal/'], (_req, res) => {
+  // The page is inline-script-heavy, so 'unsafe-inline' stays; connect-src 'self' means an injected
+  // script could not ship an API key anywhere else, and frame-ancestors 'none' stops clickjacking.
+  res.set({
+    'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+    'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'X-Frame-Options': 'DENY', 'Cache-Control': 'no-store',
+  });
+  res.sendFile(portalFile, err => { if (err) res.status(503).json({ error: { code: 'PORTAL_UNAVAILABLE', message: 'portal file not found on this deployment (PORTAL_FILE)' } }); });
+});
 
 // Health (liveness), readiness (DB + migrations), OpenAPI
 app.use(healthRouter());

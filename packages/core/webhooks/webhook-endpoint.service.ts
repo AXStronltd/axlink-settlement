@@ -49,7 +49,7 @@ export async function emitInstitutionEvent(tx: Prisma.TransactionClient, scope: 
     await enqueue(tx, {
       channel: 'institution.webhook', eventType: type, targetUrl: ep.url, targetSecret: ep.secretCiphertext,
       payload: { id: eventId, type, createdAt: new Date().toISOString(), environment: undefined, data } as Prisma.InputJsonValue,
-      ...entity, maxAttempts: 6,
+      ...entity, webhookEndpointId: ep.id, maxAttempts: 6,
     });
   }
   return eventId;

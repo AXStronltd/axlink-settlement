@@ -597,12 +597,15 @@ model OutboxEvent {
 
   entityType    String?
   entityId      String?
+  /// institution.webhook rows: the endpoint this delivery belongs to — the tenant boundary for delivery history
+  webhookEndpointId String?
 
   createdAt     DateTime  @default(now())
   deliveredAt   DateTime?
 
   @@index([status, nextAttemptAt])
   @@index([entityType, entityId])
+  @@index([webhookEndpointId, createdAt])
 }
 
 // ── Provider attempt log ──────────────────────────────────────────────────────

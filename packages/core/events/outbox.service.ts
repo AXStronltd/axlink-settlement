@@ -35,6 +35,7 @@ export interface OutboxEnqueue {
   entityType?: string;
   entityId?: string;
   maxAttempts?: number;
+  webhookEndpointId?: string;
 }
 
 /**
@@ -55,6 +56,7 @@ export async function enqueue(tx: Prisma.TransactionClient, event: OutboxEnqueue
       payload: event.payload,
       entityType: event.entityType ?? null,
       entityId: event.entityId ?? null,
+      webhookEndpointId: event.webhookEndpointId ?? null,
       maxAttempts: event.maxAttempts ?? 8,
     },
   });

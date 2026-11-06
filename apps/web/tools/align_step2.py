@@ -278,5 +278,8 @@ rep("""   '<button class="btn btn-primary" style="width:100%;justify-content:cen
    '<div class="field"><label>API key</label><input id="ax-key" type="password" placeholder="axlk_test_…" autocomplete="off"/></div>'+
    (axBase()?'':'<div class="field"><label>API base URL</label><input id="ax-base" placeholder="https://sandbox.api.axlink.network/api/v1"/></div>')+
    '<button class="btn btn-primary" style="width:100%;justify-content:center" onclick="return connectWithKey(document.getElementById(\\'ax-key\\').value,(document.getElementById(\\'ax-base\\')||{}).value)">Connect</button>'+""", marker='id="ax-key"')
+# toast renders its message as text, never HTML: API error messages reach it
+rep("""  el.innerHTML='<span style="color:var(--teal)">'+(ic||'✓')+'</span><span>'+msg+'</span>';""",
+"""  el.innerHTML='<span style="color:var(--teal)">'+(ic||'✓')+'</span><span></span>'; el.lastChild.textContent=String(msg);""")
 open('index.html', 'w', encoding='utf-8').write(src)
 print('slice 6a applied')

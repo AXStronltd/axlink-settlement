@@ -20,7 +20,8 @@ router.get('/:id/deliveries', requireScope('webhooks:read'), wrap(async (req, re
   const t = req.tenant!;
   const ep = await prisma.webhookEndpoint.findFirst({ where: { id: req.params.id as string, institutionId: t.institutionId, environmentId: t.environmentId } });
   if (!ep) { res.status(404).json({ error: { code: 'NOT_FOUND', message: 'endpoint not found' } }); return; }
-  const rows = await prisma.outboxEvent.findMany({ where: { channel: 'institution.webhook', targetUrl: ep.url }, orderBy: { createdAt: 'desc' }, take: 50 });
+  // Scoped by endpoint id, never by URL: two institutions may share an ingress URL and must not see each other's history.
+  const rows = await prisma.outboxEvent.findMany({ where: { channel: 'institution.webhook', webhookEndpointId: ep.id }, orderBy: { createdAt: 'desc' }, take: 50 });
   res.json(rows.map(r => ({ id: (r.payload as { id?: string })?.id ?? r.id, type: r.eventType, status: r.status, attempts: r.attempts, lastStatus: r.lastStatus, nextAttemptAt: r.status === 'PENDING' ? r.nextAttemptAt : null, entityType: r.entityType, entityId: r.entityId, createdAt: r.createdAt })));
 }));
 export default router;

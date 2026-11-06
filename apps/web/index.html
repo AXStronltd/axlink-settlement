@@ -548,7 +548,7 @@ DATA.apiKeys=[
 function toast(msg,ic){
   var el=document.getElementById('toast');
   if(!el){el=document.createElement('div');el.id='toast';document.body.appendChild(el);}
-  el.innerHTML='<span style="color:var(--teal)">'+(ic||'✓')+'</span><span>'+msg+'</span>';
+  el.innerHTML='<span style="color:var(--teal)">'+(ic||'✓')+'</span><span></span>'; el.lastChild.textContent=String(msg);
   el.classList.add('show');
   clearTimeout(window._tt);window._tt=setTimeout(function(){el.classList.remove('show');},2600);
 }
@@ -2047,46 +2047,61 @@ render();
    a view over one GET, every button is one POST, and the environment is whatever the key is bound to.
    The key lives in sessionStorage only (gone when the tab closes); it is never written to localStorage. */
 var LIVE={me:null,wallets:[],balances:null,deposits:[],transfers:[],counterparties:[],endpoints:[],deliveries:{},assets:null,error:null,loading:false};
+/* Every string that comes back from the API is HTML-escaped at the boundary (liveSan), before it is
+   stored in LIVE. Labels, references, webhook URLs, error messages and operator reasons are all typed
+   by someone — a same-tenant key holder, an operator, a custody provider — and the treasury officer
+   viewing this page holds a broader key than any of them. Rendering is string concatenation, so the
+   boundary is where safety lives; ids are cuids and survive escaping unchanged. */
+function liveEsc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+/* For toasts (rendered as text, not HTML) take the escaping back off. */
+function liveUnesc(s){ return String(s==null?'':s).replace(/&(amp|lt|gt|quot|#39);/g,function(m,c){ return {amp:'&',lt:'<',gt:'>',quot:'"','#39':"'"}[c]; }); }
+function liveSan(v){ if(typeof v==='string') return liveEsc(v); if(Array.isArray(v)) return v.map(liveSan); if(v&&typeof v==='object'){ var o={}; for(var k in v) if(Object.prototype.hasOwnProperty.call(v,k)) o[k]=liveSan(v[k]); return o; } return v; }
 function axBase(){
-  try{ var b=sessionStorage.getItem('AX_API_BASE'); if(b) return b; }catch(e){}
+  // Served from the API (/portal): always same origin, a stored base is ignored. Elsewhere: an https
+  // base the user typed (or http://localhost for development) — never a URL parameter.
   if(location.pathname.indexOf('/portal')===0) return location.origin+'/api/v1';
+  try{ var b=sessionStorage.getItem('AX_API_BASE'); if(b&&axBaseOk(b)) return b; }catch(e){}
   return null;
 }
+function axBaseOk(b){ return /^https:\/\/[^\s\/]+(\/[^\s]*)?$/.test(b)||/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/[^\s]*)?$/.test(b); }
 function axKey(){ try{ return sessionStorage.getItem('AX_API_KEY')||''; }catch(e){ return ''; } }
 function axApi(method,path,body,headers){
   var base=axBase(); if(!base) return Promise.reject(new Error('No API base configured'));
   var h={'Authorization':'Bearer '+axKey()}; if(body) h['Content-Type']='application/json'; if(headers) for(var k in headers) h[k]=headers[k];
   return fetch(base+path,{method:method,headers:h,body:body?JSON.stringify(body):undefined}).then(function(r){
     return r.text().then(function(t){ var j=null; try{ j=t?JSON.parse(t):null; }catch(e){}
-      if(!r.ok){ var err=new Error((j&&j.error&&j.error.message)||('HTTP '+r.status)); err.code=(j&&j.error&&j.error.code)||('HTTP_'+r.status); err.status=r.status; err.details=j&&j.error&&j.error.details; throw err; }
-      return j; });
+      if(!r.ok){ var err=new Error((j&&j.error&&j.error.message)||('HTTP '+r.status)); /* shown via toast (text node) or escaped at LIVE.error */ err.code=liveEsc((j&&j.error&&j.error.code)||('HTTP_'+r.status)); err.status=r.status; err.details=liveSan(j&&j.error&&j.error.details); throw err; }
+      return liveSan(j); });
   });
 }
 function axIdem(){ try{ return crypto.randomUUID(); }catch(e){ return 'idem-'+Date.now()+'-'+Math.random().toString(36).slice(2); } }
 function connectWithKey(key,base){
   key=(key||'').trim(); if(!key){ toast('Paste your API key','!'); return false; }
-  try{ sessionStorage.setItem('AX_API_KEY',key); if(base) sessionStorage.setItem('AX_API_BASE',base.replace(/\/$/,'')); }catch(e){}
-  if(!axBase()){ toast('No API base: open the portal from the API (/portal) or set the base URL','!'); return false; }
-  axApi('GET','/institutions/me').then(function(me){
+  base=(base||'').trim().replace(/\/$/,'');
+  if(base&&!axBaseOk(base)){ toast('API base must be https:// (or http://localhost for development)','!'); return false; }
+  // Nothing is stored until the key has authenticated: a wrong key or base leaves no trace.
+  var probe=base||axBase(); if(!probe){ toast('No API base: open the portal from the API (/portal) or set the base URL','!'); return false; }
+  fetch(probe+'/institutions/me',{headers:{'Authorization':'Bearer '+key}}).then(function(r){ return r.text().then(function(t){ var j=null; try{ j=t?JSON.parse(t):null; }catch(e){} if(!r.ok) throw new Error((j&&j.error&&j.error.message)||('HTTP '+r.status)); return liveSan(j); }); }).then(function(me){
+    try{ sessionStorage.setItem('AX_API_KEY',key); if(base) sessionStorage.setItem('AX_API_BASE',base); }catch(e){}
     LIVE.me=me; LIVE.error=null; ROLE='client'; ENV=me.environment;
-    toast('Connected · '+me.institution.slug+' · '+me.environment.toLowerCase());
+    toast('Connected · '+liveUnesc(me.institution.slug)+' · '+me.environment.toLowerCase());
     go('#/app'); refreshLive();
-  }).catch(function(e){ LIVE.me=null; toast('Could not connect: '+e.message,'!'); try{ sessionStorage.removeItem('AX_API_KEY'); }catch(x){} });
+  }).catch(function(e){ LIVE.me=null; toast('Could not connect: '+e.message,'!'); });
   return false;
 }
-function disconnectLive(){ LIVE={me:null,wallets:[],balances:null,deposits:[],transfers:[],counterparties:[],endpoints:[],deliveries:{},assets:null,error:null,loading:false}; try{ sessionStorage.removeItem('AX_API_KEY'); }catch(e){} }
+function disconnectLive(){ LIVE={me:null,wallets:[],balances:null,deposits:[],transfers:[],counterparties:[],endpoints:[],deliveries:{},assets:null,error:null,loading:false}; try{ sessionStorage.removeItem('AX_API_KEY'); sessionStorage.removeItem('AX_API_BASE'); }catch(e){} }
 function refreshLive(){
   if(!LIVE.me) return Promise.resolve();
   LIVE.loading=true;
   var gets=[['wallets','/wallets'],['balances','/balances'],['deposits','/deposits'],['transfers','/transfers'],['counterparties','/counterparties'],['endpoints','/webhook-endpoints'],['assets','/assets']];
-  return Promise.all(gets.map(function(g){ return axApi('GET',g[1]).then(function(v){ LIVE[g[0]]=v; }).catch(function(e){ if(e.status!==403) LIVE.error=e.message; LIVE[g[0]]=Array.isArray(LIVE[g[0]])?[]:null; }); }))
+  return Promise.all(gets.map(function(g){ return axApi('GET',g[1]).then(function(v){ LIVE[g[0]]=v; }).catch(function(e){ if(e.status!==403) LIVE.error=liveEsc(e.message); LIVE[g[0]]=Array.isArray(LIVE[g[0]])?[]:null; }); }))
    .then(function(){ return Promise.all((LIVE.endpoints||[]).map(function(ep){ return axApi('GET','/webhook-endpoints/'+ep.id+'/deliveries').then(function(d){ LIVE.deliveries[ep.id]=d; }).catch(function(){}); })); })
    .then(function(){ LIVE.loading=false; render(); });
 }
 function liveAmt(a){ return a===undefined||a===null?'—':String(a); }
 function liveWhen(iso){ if(!iso) return '—'; var d=new Date(iso); var s=(Date.now()-d.getTime())/1000; if(s<60) return 'just now'; if(s<3600) return Math.floor(s/60)+' min ago'; if(s<86400) return Math.floor(s/3600)+' hr ago'; return d.toISOString().slice(0,10); }
-function liveBadge(st){ return '<span class="badge badge-'+(st==='COMPLETED'||st==='ACTIVE'||st==='SETTLED'?'completed':st==='FAILED'||st==='DISABLED'||st==='REJECTED'||st==='CANCELLED'||st==='EXPIRED'?'failed':'pending')+'">'+st+'</span>'; }
-function liveHead(){ return '<div style="background:rgba(46,230,197,.08);border:1px solid rgba(46,230,197,.25);border-radius:8px;padding:8px 14px;font-size:11.5px;color:var(--ink-2);margin-bottom:16px;display:flex;align-items:center;gap:8px;justify-content:space-between"><span>&#9679; Live · '+LIVE.me.institution.slug+' · '+LIVE.me.environment.toLowerCase()+' · '+axBase()+(LIVE.error?' · <span style="color:#f87171">'+LIVE.error+'</span>':'')+'</span><span><button class="btn btn-ghost btn-sm" onclick="refreshLive();toast(\'Refreshing\')">Refresh</button></span></div>'; }
+function liveBadge(st){ return '<span class="badge badge-'+(st==='COMPLETED'||st==='ACTIVE'||st==='SETTLED'?'completed':st==='FAILED'||st==='DISABLED'||st==='REJECTED'||st==='CANCELLED'||st==='EXPIRED'||st==='ABANDONED'?'failed':'pending')+'">'+st+'</span>'; }
+function liveHead(){ return '<div style="background:rgba(46,230,197,.08);border:1px solid rgba(46,230,197,.25);border-radius:8px;padding:8px 14px;font-size:11.5px;color:var(--ink-2);margin-bottom:16px;display:flex;align-items:center;gap:8px;justify-content:space-between"><span>&#9679; Live · '+LIVE.me.institution.slug+' · '+LIVE.me.environment.toLowerCase()+' · '+liveEsc(axBase())+(LIVE.error?' · <span style="color:#f87171">'+LIVE.error+'</span>':'')+'</span><span><button class="btn btn-ghost btn-sm" onclick="refreshLive();toast(\'Refreshing\')">Refresh</button></span></div>'; }
 /* ---- screens ---- */
 function liveOverview(){
   var b=LIVE.balances?LIVE.balances.balances:[];
@@ -2109,7 +2124,7 @@ function liveWallet(){
 function liveOpenCreateWallet(){
   openModal('<h3 style="font-size:19px;margin-bottom:14px">New wallet</h3><div class="field"><label>Label</label><input id="lw-label" placeholder="Treasury"/></div><div class="hint" style="margin-bottom:12px">POST /v1/wallets — a custody vault on solana-mainnet with one deposit address for USDC and USDT.</div><div style="display:flex;gap:10px"><button class="btn btn-ghost" style="flex:1;justify-content:center" onclick="closeModal()">Cancel</button><button class="btn btn-primary" style="flex:1;justify-content:center" onclick="liveCreateWallet()">Create</button></div>');
 }
-function liveCreateWallet(){ var label=(document.getElementById('lw-label').value||'').trim(); axApi('POST','/wallets',{label:label}).then(function(w){ closeModal(); toast('Wallet '+w.label+' created'); refreshLive(); }).catch(function(e){ toast(e.message,'!'); }); }
+function liveCreateWallet(){ var label=(document.getElementById('lw-label').value||'').trim(); axApi('POST','/wallets',{label:label}).then(function(w){ closeModal(); toast('Wallet '+liveUnesc(w.label)+' created'); refreshLive(); }).catch(function(e){ toast(e.message,'!'); }); }
 function liveOpenDeposit(){
   var ws=LIVE.wallets||[]; if(!ws.length){ toast('Create a wallet first','!'); return; }
   openModal('<h3 style="font-size:19px;margin-bottom:14px">Announce a deposit</h3>'+
@@ -2153,13 +2168,13 @@ function liveCounterparties(){
 function liveOpenCounterparty(){
   openModal('<h3 style="font-size:19px;margin-bottom:14px">Register counterparty</h3><div class="field"><label>Label</label><input id="lc-label" placeholder="Partner Bank"/></div><div class="field"><label>Solana address</label><input id="lc-addr" placeholder="base58 address"/></div><div class="field"><label>Note (optional)</label><input id="lc-note" placeholder="Settlement account at Partner Bank"/><div class="hint">POST /v1/counterparties — AxLink\'s own custody wallets are refused here.</div></div><div style="display:flex;gap:10px"><button class="btn btn-ghost" style="flex:1;justify-content:center" onclick="closeModal()">Cancel</button><button class="btn btn-primary" style="flex:1;justify-content:center" onclick="liveRegisterCounterparty()">Register</button></div>');
 }
-function liveRegisterCounterparty(){ var body={label:(document.getElementById('lc-label').value||'').trim(),address:(document.getElementById('lc-addr').value||'').trim()}; var n=(document.getElementById('lc-note').value||'').trim(); if(n) body.note=n; axApi('POST','/counterparties',body).then(function(c){ closeModal(); toast('Counterparty '+c.label+' · '+c.status); refreshLive(); }).catch(function(e){ toast(e.message,'!'); }); }
+function liveRegisterCounterparty(){ var body={label:(document.getElementById('lc-label').value||'').trim(),address:(document.getElementById('lc-addr').value||'').trim()}; var n=(document.getElementById('lc-note').value||'').trim(); if(n) body.note=n; axApi('POST','/counterparties',body).then(function(c){ closeModal(); toast('Counterparty '+liveUnesc(c.label)+' · '+c.status); refreshLive(); }).catch(function(e){ toast(e.message,'!'); }); }
 function liveDisableCounterparty(id){ axApi('DELETE','/counterparties/'+id).then(function(){ toast('Counterparty disabled'); refreshLive(); }).catch(function(e){ toast(e.message,'!'); }); }
 function liveWebhooks(){
   var eps=LIVE.endpoints||[];
   var epRows=eps.map(function(ep){ return '<tr><td class="mono" style="font-size:12px;color:var(--teal)">'+ep.url+'</td><td style="color:var(--ink-2)">'+(ep.events||[]).join(', ')+'</td><td>'+liveBadge(ep.status)+'</td><td style="color:var(--ink-3)">'+liveWhen(ep.createdAt)+'</td><td>'+(ep.status==='ACTIVE'?'<button class="btn btn-ghost btn-sm" onclick="liveDisableEndpoint(\''+ep.id+'\')">Disable</button>':'')+'</td></tr>'; }).join('')||'<tr><td colspan="5" style="color:var(--ink-3)">No endpoint yet — add one to receive signed events.</td></tr>';
   var dl=[]; eps.forEach(function(ep){ (LIVE.deliveries[ep.id]||[]).forEach(function(d){ dl.push(d); }); }); dl.sort(function(a,b){ return a.createdAt<b.createdAt?1:-1; });
-  var dRows=dl.slice(0,50).map(function(d){ return '<tr><td class="txid">'+d.id+'</td><td>'+d.type+'</td><td style="color:var(--ink-2)">'+(d.lastStatus||'—')+(d.status==='PENDING'&&d.nextAttemptAt?' → retry '+liveWhen(d.nextAttemptAt).replace(' ago',''):'')+'</td><td style="color:var(--ink-3)">'+liveWhen(d.createdAt)+'</td><td>'+liveBadge(d.status==='DELIVERED'?'COMPLETED':d.status==='DEAD'||d.status==='FAILED'?'FAILED':'PROCESSING')+'</td></tr>'; }).join('')||'<tr><td colspan="5" style="color:var(--ink-3)">No deliveries yet.</td></tr>';
+  var dRows=dl.slice(0,50).map(function(d){ return '<tr><td class="txid">'+d.id+'</td><td>'+d.type+'</td><td style="color:var(--ink-2)">'+(d.lastStatus||'—')+(d.status==='PENDING'&&d.nextAttemptAt?' → retry '+liveWhen(d.nextAttemptAt).replace(' ago',''):'')+'</td><td style="color:var(--ink-3)">'+liveWhen(d.createdAt)+'</td><td>'+liveBadge(d.status==='DELIVERED'?'COMPLETED':d.status==='ABANDONED'||d.status==='FAILED'?'FAILED':'PROCESSING')+'</td></tr>'; }).join('')||'<tr><td colspan="5" style="color:var(--ink-3)">No deliveries yet.</td></tr>';
   return appShell('#/app/webhooks', liveHead()+pageHead('Webhooks','Signed event deliveries for '+LIVE.me.environment.toLowerCase()+' — GET /v1/webhook-endpoints. Events: deposit.received · settled · rejected · expired · transfer.submitted · settled · failed.','<button class="btn btn-primary btn-sm" onclick="liveOpenEndpoint()">+ Add endpoint</button>')+
    tableCard('Endpoints',['URL','Events','Status','Created',''],epRows)+tableCard('Recent deliveries',['Event','Type','Response','When','Status'],dRows));
 }

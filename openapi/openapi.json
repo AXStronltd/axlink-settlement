@@ -3149,6 +3149,93 @@
           }
         ]
       }
+    },
+    "/v1/webhook-endpoints/{id}/deliveries": {
+      "get": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "Recent deliveries to one of your endpoints: event, attempts, last HTTP status, next retry (no payloads, no secrets)",
+        "security": [
+          {
+            "institutionKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deliveries, newest first (50)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "type": {
+                        "type": "string"
+                      },
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "PENDING",
+                          "DELIVERING",
+                          "DELIVERED",
+                          "FAILED",
+                          "ABANDONED"
+                        ]
+                      },
+                      "attempts": {
+                        "type": "integer"
+                      },
+                      "lastStatus": {
+                        "type": "integer",
+                        "nullable": true
+                      },
+                      "nextAttemptAt": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                      },
+                      "entityType": {
+                        "type": "string"
+                      },
+                      "entityId": {
+                        "type": "string"
+                      },
+                      "createdAt": {
+                        "type": "string",
+                        "format": "date-time"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key"
+          },
+          "403": {
+            "description": "Credential lacks webhooks:read"
+          },
+          "404": {
+            "description": "Endpoint not found"
+          }
+        }
+      }
     }
   }
 }

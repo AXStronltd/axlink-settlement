@@ -180,8 +180,20 @@ Noted, not changed: the Solana address check is base58-shape only (the custodian
 | Live layer | `apps/web/tools/live_portal.js` — single source, inlined into `index.html` by `align_step2.py` (slice 6a); `axApi()` is the one fetch wrapper; every screen is a view over one GET, every button one POST |
 | Screens | Overview, Wallet (`/wallets`, `/balances`, `/deposits` + Announce a deposit, New wallet, Cancel), Settlements (`/transfers` + New settlement with Idempotency-Key, Cancel), Counterparties (`/counterparties` + Register, Disable), Webhooks (`/webhook-endpoints` + deliveries, secret shown once), Developers (`/institutions/me`, `/assets`, `/ledger/entries`) |
 | Deliveries | `GET /v1/webhook-endpoints/{id}/deliveries` — recent outbox rows for the endpoint: event, attempts, last status, next retry |
-| Reference tenant | `scripts/seed-sandbox.ts` → `npm run seed:sandbox`: Galaxy Bank (`galaxy-bank-so`) with a SANDBOX environment, a `Treasury` wallet and a portal-scoped key printed once (`--new-key` for another). Idempotent |
+| Reference tenant | `scripts/seed-sandbox.ts` → `npm run seed:sandbox`: AxLink Reference Institution (`axlink-reference`) with a SANDBOX environment, a `Treasury` wallet and a portal-scoped key printed once (`--new-key` for another). Idempotent |
 | Sign-in | "Connect with your API key" is the real credential; "Explore the demo" keeps the illustrative mode for prospects. A wrong key never connects and leaves nothing in storage |
 | Test | `tests/integration/portal.step2.test.ts` drives headless Chromium against the Express app: serve `/portal`, connect with the seeded key, banner gone, real wallet shown, register a counterparty / announce a deposit / attempt a settlement from the UI and verify the rows in the database and the API's error surfaced in the toast |
 
 Screens that are still illustrative in live mode (no API behind them yet): Transactions, Sub-Accounts, Balances, Compliance, Reports, Team, Settings — the sidebar is unchanged so the product shape stays visible; each flips to live as its API lands.
+
+**Independent review (fresh reviewer, eb5c91b, browser-security lens) and what changed.**
+
+| Finding | Severity | Fix |
+|---|---|---|
+| Stored XSS: the live layer concatenated API values (labels, references, webhook URLs, operator reasons, custody error text) into HTML unescaped — a same-tenant key holder could plant a script that the treasury officer's broader key would then execute | High | Every string from the API is HTML-escaped at the boundary (`liveSan` in `axApi`) before it is stored; `toast()` renders its message as a text node; the strip and `title` attributes use escaped values. Test: a counterparty label containing `<b>` renders as text |
+| Delivery history was matched by URL — two institutions sharing an ingress URL could read each other's rows | Medium | `OutboxEvent.webhookEndpointId` (migration `step2_outbox_endpoint_scope`) set at emit time; deliveries scoped by endpoint id |
+| Seed script could run against production, re-activated a suspended institution, printed a broad key to any stdout | Medium | Refuses `NODE_ENV=production`; never re-activates; prints the key only on a terminal (or `--print-key`); tenant renamed to `axlink-reference` — an internal stand-in, not a client |
+| No security headers on `/portal`; file path cwd-relative | Medium | CSP (`connect-src 'self'` — an injected script could not ship a key elsewhere; `frame-ancestors 'none'`), `nosniff`, `Referrer-Policy: no-referrer`, `Cache-Control: no-store`; path resolved from the module, overridable with `PORTAL_FILE`, 503 if missing |
+| Browser test failed hard without Chromium | Medium | Skips with a logged reason when no browser is available |
+| Key stored before validation; user-typed base unvalidated and overriding the `/portal` origin | Low | Nothing is stored until `/institutions/me` succeeds; base must be `https://` (or `http://localhost`); ignored when served from `/portal` |
+| Delivery status `ABANDONED` mis-rendered; deliveries route missing from OpenAPI; test assertions weaker than described | Low | Fixed |
