@@ -1,9 +1,9 @@
 # AxLink Settlement — working notes
 
-**Owner scope: Leg A, Step 1.** Read [docs/SCOPE.md](docs/SCOPE.md), [AGENTS.md](AGENTS.md) and
+**Owner scope: Leg A. Step 1 closed on `main` (`44e1a18`); Step 2 in progress, slice by slice, back end and front end aligned in the same commit.** Read [docs/SCOPE.md](docs/SCOPE.md), [AGENTS.md](AGENTS.md) and
 [docs/WORKING-TOGETHER.md](docs/WORKING-TOGETHER.md) (Claude builds slices and merges; Codex reviews independently; GitHub PRs are the only channel).
 Leg A ends at verified digital asset receipt by the receiving institution; fiat payouts, local FX and
-liquidity are Leg B. Preserve the front end; Step 2 needs explicit owner approval.
+liquidity are Leg B. The AxLink front end (`apps/web`) is aligned to the API on every slice: `apps/web/tools/align_step2.py` is the re-runnable record of each change; `node scripts/check-web.js` and `node apps/web/tools/render_check.js` must stay green.
 
 Crypto-rail settlement service. Express + Prisma/Postgres backend (`apps/api` + `packages/`), AxLink front end (`apps/web`, with the ops dashboard at `apps/web/ops`). Layout: `docs/STRUCTURE.md`.
 Users see fiat only; USDT on Solana via Fireblocks is the internal settlement layer.

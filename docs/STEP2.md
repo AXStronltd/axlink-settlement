@@ -33,4 +33,6 @@
 
 **Results at this slice:** `tsc` clean · vitest 18 files, 271 passed (3 consecutive runs) · harness 10/10 · builds OK · site 61 routes.
 
+**Front end aligned (same commit):** Developers page lists `GET /wallets` and `GET /wallets/{id}/balances` as live with the real response shape; the Wallet screen shows balances by asset in the API's terms (`USDC_SOL`, `USDT_SOL`, exact decimal strings) beside the deposit address. Applied by `apps/web/tools/align_step2.py` (idempotent).
+
 **Not in this slice (next):** wallets created through the API still need a linked legacy `User` row to settle a deposit instruction (the instruction model is slice 2's job); per-wallet settlement asset selection on the leg path; institution self-service wallet creation (portal); production custody go-live checklist. Backfilled legacy vaults are SANDBOX wallets: a production deployment rejects receipts into them until the operator moves them, by design.
