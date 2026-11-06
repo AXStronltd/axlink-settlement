@@ -39,7 +39,6 @@ services:
     runtime: static
     buildCommand: echo "static"
     staticPublishPath: apps/web
-    plan: starter
     headers:
       - path: /*
         name: Cache-Control
@@ -51,7 +50,6 @@ services:
     buildCommand: npm install && npm run build
     rootDir: apps/web/ops
     staticPublishPath: apps/web/ops/dist
-    plan: starter
     headers:
       - path: /*
         name: Cache-Control
