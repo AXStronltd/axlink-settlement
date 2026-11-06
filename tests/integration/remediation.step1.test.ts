@@ -11,7 +11,7 @@ import { Prisma } from '@prisma/client';
 process.env.OPS_API_KEY ??= 'test-ops-key-0123456789abcdef';
 process.env.API_BASE_URL ??= 'http://localhost:4000/api';
 process.env.FIREBLOCKS_WORKSPACE_ID = 'test-workspace';
-process.env.B2BINPAY_CALLBACK_SECRET ??= 'b2b-test-callback-secret';
+process.env.B2BINPAY_CALLBACK_SECRET = 'b2b-test-callback-secret'; // tests own this value (a .env placeholder would read as unconfigured)
 
 // Fireblocks signs webhooks with RSA-SHA512 over the raw body. Generate a key pair for the test.
 const { publicKey, privateKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });

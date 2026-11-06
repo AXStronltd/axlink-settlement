@@ -165,14 +165,15 @@ db('wallets', () => {
     const user = await prisma.user.create({ data: { email: `${id}@example.test`, name: 'X', vaultId: w.body.custody.vaultId, institutionId: A.id } });
     const dep = await prisma.bankDeposit.create({ data: { userId: user.id, trackingId: `dep_${id}`, currency: 'USDT', amount: '1', usdAmount: '1', usdtAmount: '1', status: 'PENDING_FIREBLOCKS', bankName: 'sandbox', settlementAssetId: 'USDT_SOL' } });
     const ev = { provider: 'fireblocks' as const, operation: 'TRANSFER', destinationType: 'VAULT_ACCOUNT', providerAssetId: 'USDT_SOL', destinationVaultId: w.body.custody.vaultId, externalTxId: dep.trackingId, providerTxId: id, amount: '1' };
-    // Pretend this deployment holds real production custody credentials.
+    // Pretend this deployment holds real production custody credentials (and is not the Fireblocks sandbox workspace, whatever .env says).
+    const savedSandbox = process.env.FIREBLOCKS_SANDBOX; process.env.FIREBLOCKS_SANDBOX = 'false';
     setWalletCustody({ provider: 'fireblocks', configured: () => true, createVault: async () => ({ vaultId: 'x' }), createDepositAddress: async () => ({ address: 'x' }) });
     try {
       const r = await processOnce({ provider: 'fireblocks', eventId: id, rawBody: 'x' }, tx => applyCustodyDeposit(tx, ev));
       expect(r.outcome?.status).toBe('REJECTED'); expect(r.outcome?.reason).toMatch(/custody is PRODUCTION but wallet is SANDBOX/);
       // and sandbox wallets cannot be created on a production-bound deployment
       await request(app).post(`/api/institutions/${A.id}/wallets`).set(ops).send({ environment: 'SANDBOX', label: 'S2' }).expect(409);
-    } finally { setWalletCustody(null); }
+    } finally { setWalletCustody(null); if (savedSandbox === undefined) delete process.env.FIREBLOCKS_SANDBOX; else process.env.FIREBLOCKS_SANDBOX = savedSandbox; }
     expect((await prisma.bankDeposit.findUnique({ where: { id: dep.id } })).status).toBe('PENDING_FIREBLOCKS');
   });
 
