@@ -367,3 +367,13 @@ curl http://localhost:4000/api/health
 fireblocks_secret.key
 fireblocks.csr
 ```
+
+## Step 1 — platform foundation (2026-11-06)
+
+Added without changing any financial behaviour: validated configuration (`src/platform/config.ts`),
+structured JSON logging with request ids, a standard error envelope, `/api/ready` readiness,
+OpenAPI at `/api/openapi.json`, institution / API-environment / credential models with a migration,
+operator-administered institution endpoints under `/api/institutions`, tenancy middleware (not yet
+applied to legacy routes), the five provider port interfaces (`src/providers/ports`), the AxLink
+front end preserved in `apps/web/`, and HTTP tests. Read `docs/AUDIT-STEP1.md` first; the migration
+baseline the earlier notes call "missing" is present (`prisma/migrations/00000000000000_init`).

@@ -11,7 +11,10 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "simulate": "ts-node src/simulator/cli.ts",
-    "dev:console": "./scripts/dev-up.sh"
+    "dev:console": "./scripts/dev-up.sh",
+    "typecheck": "tsc --noEmit",
+    "check:web": "node scripts/check-web.js",
+    "verify": "npm run typecheck && npm run check:web && vitest run"
   },
   "keywords": [],
   "author": "",
@@ -27,15 +30,18 @@
     "pg": "^8.21.0",
     "prisma": "^7.8.0",
     "redis": "^6.0.0",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "zod": "^3.24.2"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
     "@types/node": "^25.9.1",
     "@types/pg": "^8.20.0",
     "@types/redis": "^4.0.10",
+    "@types/supertest": "^6.0.3",
     "@vitest/coverage-v8": "^4.1.8",
     "playwright": "^1.60.0",
+    "supertest": "^7.1.0",
     "ts-node": "^10.9.2",
     "vitest": "^4.1.8"
   },

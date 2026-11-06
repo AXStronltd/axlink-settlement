@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { requireBankAuth, generateApiKey } from '../middleware/auth.middleware';
+import { requireOps } from '../platform/ops-auth';
 import { prisma } from '../core/ledger.service';
 import { initiateInterbankTransfer, getBankStatement } from '../core/interbank.service';
 import { createQuote } from '../core/quote.service';
@@ -11,7 +12,7 @@ const router = Router();
 // ── Bank registration (admin/internal — not authenticated by bank API key) ───
 // POST /api/network/banks/register
 
-router.post('/banks/register', async (req: Request, res: Response): Promise<void> => {
+router.post('/banks/register', requireOps, async (req: Request, res: Response): Promise<void> => {
   const { name, networkId, vaultId, webhookUrl, webhookSecret, dailyLimitUsd, corridorLimits } = req.body as {
     name: string;
     networkId: string;          // "AXLK-KE-001"

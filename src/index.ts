@@ -21,6 +21,12 @@ import networkRoutes     from './routes/network.routes';
 import treasuryRoutes   from './routes/treasury.routes';
 import depositRoutes    from './routes/deposit.routes';
 import settlementRoutes from './routes/settlement.routes';
+import institutionRoutes from './routes/institution.routes';
+import { loadConfig } from './platform/config';
+import { log, requestContext } from './platform/logger';
+import { errorHandler, notFoundHandler } from './platform/errors';
+import { healthRouter } from './platform/health';
+import { openapiRouter } from './platform/openapi';
 
 
 // Register liquidity providers (B2BinPay, Brainrock FX, AxLink internal)
@@ -51,26 +57,17 @@ if (process.env.OUTBOX_WORKER_ENABLED !== 'false') {
 }
 
 
-// Fail fast on missing required env vars
-const REQUIRED_ENV = ['DATABASE_URL', 'API_BASE_URL'];
-const missing = REQUIRED_ENV.filter(k => !process.env[k]);
-if (missing.length) {
-  console.error(`[startup] Missing required env vars: ${missing.join(', ')}`);
-  process.exit(1);
-}
+// Validate configuration before anything else; every problem is reported at once.
+let cfgReport: ReturnType<typeof loadConfig>;
+try { cfgReport = loadConfig(); }
+catch (e) { console.error(`[startup] ${(e as Error).message}`); process.exit(1); }
+if (cfgReport.sandboxProviders.length) log.warn('startup.sandbox_mode', { unsetCredentials: cfgReport.sandboxProviders });
 
-const PLACEHOLDER = ['your_', 'YOUR_'];
-const placeholders = [
-  'FIREBLOCKS_API_KEY', 'B2BINPAY_CLIENT_ID', 'B2BINPAY_CLIENT_SECRET',
-  'FIREBLOCKS_TREASURY_VAULT', 'BRAINROCK_API_KEY', 'BRAINROCK_TREASURY_ACCOUNT_ID',
-  'CHOICE_BANK_API_KEY', 'DARAJA_CONSUMER_KEY', 'DARAJA_CONSUMER_SECRET',
-].filter(k => { const v = process.env[k] ?? ''; return !v || PLACEHOLDER.some(p => v.startsWith(p)); });
-if (placeholders.length) {
-  console.warn(`[startup] Sandbox mode — unset credentials: ${placeholders.join(', ')}`);
-}
+export const app = express();
+const PORT = cfgReport.config.PORT;
 
-const app = express();
-const PORT = process.env.PORT || 4000;
+app.disable('x-powered-by');
+app.use(requestContext);
 
 app.use(express.json({
   verify: (req: Request & { rawBody?: string }, _res, buf) => {
@@ -78,16 +75,12 @@ app.use(express.json({
   },
 } as Parameters<typeof express.json>[0]));
 
-// Health
-app.get(['/health', '/api/health'], (_req, res) => {
-  res.json({
-    status: 'ok',
-    service: 'axlink-settlement',
-    timestamp: new Date().toISOString(),
-    sandbox: process.env.B2BINPAY_SANDBOX === 'true',
-    callbackBase: process.env.API_BASE_URL,
-  });
-});
+// Health (liveness), readiness (DB + migrations), OpenAPI
+app.use(healthRouter());
+app.use(openapiRouter());
+
+// Institutions (tenants) and API environments — operator-administered in Step 1
+app.use('/api/institutions', institutionRoutes);
 
 app.get(['/', '/api'], (_req, res) => {
   const base = process.env.API_BASE_URL ?? `http://localhost:${PORT}/api`;
@@ -160,53 +153,10 @@ app.use('/api/webhooks', brainrockRoutes);
 app.use('/api/webhooks', darajaRoutes);
 app.use('/api/webhooks', choicebankRoutes);
 
-// Global error handler
-app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
-  const msg = err instanceof Error ? err.message : String(err);
+// 404 for unknown routes, then the standard error envelope
+app.use(notFoundHandler);
+app.use(errorHandler);
 
-  // Payment validation rejections return 422, not 500
-  if (err && typeof err === 'object' && (err as Record<string, unknown>).code === 'PAYMENT_REJECTED') {
-    res.status(422).json({ error: msg, code: 'PAYMENT_REJECTED' });
-    return;
-  }
-
-  // Smart router rate protection returns 422 with clear reason
-  if (err && typeof err === 'object' && (err as Record<string, unknown>).code === 'RATE_PROTECTION_TRIGGERED') {
-    res.status(422).json({ error: msg, code: 'RATE_PROTECTION_TRIGGERED' });
-    return;
-  }
-
-  // Bank network structured errors — use their own statusCode
-  const BANK_ERR_CODES = new Set([
-    'DAILY_LIMIT_EXCEEDED', 'CORRIDOR_LIMIT_EXCEEDED', 'UNKNOWN_RECEIVER_BANK',
-    'RECEIVER_BANK_SUSPENDED', 'SELF_TRANSFER', 'DUPLICATE_REFERENCE',
-    // Settlement engine
-    'IDEMPOTENCY_CONFLICT', 'REQUEST_IN_FLIGHT', 'NO_FUNDING_ROUTE',
-    'INSUFFICIENT_BALANCE', 'INVALID_AMOUNT', 'VAULT_NOT_PROVISIONED',
-    'PROVIDER_CIRCUIT_OPEN', 'ALL_PROVIDERS_UNAVAILABLE',
-    // An unbalanced posting is a 500, but a named one: it means a caller built
-    // a posting that does not balance, and the refusal is the correct outcome.
-    'UNBALANCED_POSTING', 'SETTLEMENT_PROOF_MISMATCH', 'SETTLEMENT_NOT_FINAL',
-  ]);
-  if (err && typeof err === 'object') {
-    const e = err as Record<string, unknown>;
-    if (typeof e.code === 'string' && BANK_ERR_CODES.has(e.code)) {
-      const status = typeof e.statusCode === 'number' ? e.statusCode : 422;
-      res.status(status).json({ error: msg, code: e.code });
-      return;
-    }
-  }
-
-  if (err && typeof err === 'object' && 'errors' in err) {
-    const agg = err as { errors: unknown[] };
-    agg.errors.forEach((e, i) => console.error(`  [${i}]`, e instanceof Error ? e.message : String(e)));
-  } else {
-    console.error('[Error]', msg, err instanceof Error ? err.stack : '');
-  }
-  res.status(500).json({ error: msg || 'Internal server error' });
-});
-
-app.listen(PORT, () => {
-  console.log(`AxLink Settlement running on http://localhost:${PORT}`);
-  console.log(`AxLink network · B2BinPay mode: ${process.env.B2BINPAY_SANDBOX === 'true' ? 'SANDBOX' : 'PRODUCTION'}`);
-});
+if (require.main === module) {
+  app.listen(PORT, () => { log.info('startup.listening', { port: PORT, env: cfgReport.config.NODE_ENV, b2binpayMode: process.env.B2BINPAY_SANDBOX === 'true' ? 'SANDBOX' : 'PRODUCTION' }); });
+}

@@ -1,4 +1,4 @@
-import { createHash } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
 import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../core/ledger.service';
 
@@ -68,6 +68,6 @@ export async function requireBankAuth(req: Request, res: Response, next: NextFun
 // Generate a random API key and return { rawKey, hash }
 // rawKey is shown once at registration; hash is stored in DB
 export function generateApiKey(): { rawKey: string; hash: string } {
-  const rawKey = `axlk_live_${createHash('sha256').update(Math.random().toString() + Date.now()).digest('hex').slice(0, 32)}`;
+  const rawKey = `axlk_live_${randomBytes(24).toString('base64url')}`; // CSPRNG — Math.random is not a key source
   return { rawKey, hash: hashApiKey(rawKey) };
 }

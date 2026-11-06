@@ -229,6 +229,12 @@ model Bank {
 
   transfers       InterbankTransfer[]
   apiUsage        BankApiUsage[]
+
+  // Step 1: optional link to the owning institution (tenant). Backfilled in Step 2.
+  institutionId   String?
+  institution     Institution? @relation(fields: [institutionId], references: [id])
+
+  @@index([institutionId])
 }
 
 // Rolling 24-hour usage tracker for per-bank daily limits
@@ -687,4 +693,83 @@ model ReconciliationBreak {
 
   @@index([runId, severity])
   @@index([kind, resolvedAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Step 1 foundation — institutions and API environments (no financial logic)
+//
+// An Institution is a tenant: a bank, fintech or payment institution integrating
+// AxLink. Every balance, credential and transaction record will hang off one.
+// `Bank` (the existing network member model) is kept and linked, not replaced.
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum InstitutionStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+  CLOSED
+}
+
+enum ApiEnvironmentKind {
+  SANDBOX
+  PRODUCTION
+}
+
+enum ApiEnvironmentStatus {
+  ACTIVE
+  DISABLED
+}
+
+model Institution {
+  id            String            @id @default(cuid())
+  slug          String            @unique                      // "galaxy-bank-so"
+  legalName     String
+  country       String                                         // ISO 3166-1 alpha-2
+  kind          String                                         // BANK | FINTECH | PSP | EXCHANGE | OTHER
+  status        InstitutionStatus @default(PENDING)
+  contactEmail  String?
+  settings      Json?                                          // non-secret institution settings
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  environments  ApiEnvironment[]
+  banks         Bank[]
+
+  @@index([status])
+}
+
+// One per institution per environment. Sandbox and production are isolated: separate
+// credentials, separate webhook endpoint, and (in later steps) separate ledgers and vaults.
+model ApiEnvironment {
+  id              String               @id @default(cuid())
+  institutionId   String
+  institution     Institution          @relation(fields: [institutionId], references: [id])
+  kind            ApiEnvironmentKind
+  status          ApiEnvironmentStatus @default(ACTIVE)
+  webhookUrl      String?
+  webhookSecretHash String?                                    // secret shown once; only a hash is kept
+  ipAllowlist     String[]             @default([])
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  credentials     ApiCredential[]
+
+  @@unique([institutionId, kind])
+}
+
+// A credential is a key with scopes. Raw key is shown once; prefix for lookup, hash for verification.
+model ApiCredential {
+  id              String         @id @default(cuid())
+  environmentId   String
+  environment     ApiEnvironment @relation(fields: [environmentId], references: [id])
+  label           String
+  prefix          String         @unique                      // first 12 chars of the raw key
+  keyHash         String         @unique                      // SHA-256(raw key + server pepper)
+  scopes          String[]       @default([])
+  lastUsedAt      DateTime?
+  expiresAt       DateTime?
+  revokedAt       DateTime?
+  createdAt       DateTime       @default(now())
+
+  @@index([environmentId])
 }

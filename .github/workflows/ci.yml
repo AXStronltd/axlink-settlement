@@ -35,6 +35,7 @@ jobs:
     env:
       DATABASE_URL: postgresql://axlink:axlink@localhost:5432/axlink_test
       API_BASE_URL: http://localhost:4000/api
+      OPS_API_KEY: ci-ops-key-0123456789abcdef
 
     steps:
       - uses: actions/checkout@v4
@@ -63,6 +64,9 @@ jobs:
 
       - name: Typecheck
         run: npx tsc --noEmit
+
+      - name: Web front end (apps/web) parses and keeps its routes
+        run: node scripts/check-web.js
 
       - name: Test
         run: npx vitest run
