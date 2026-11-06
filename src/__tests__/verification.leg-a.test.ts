@@ -45,9 +45,9 @@ describe('8 · arithmetic: journal is Decimal and balances per currency; legacy 
   it('journal amounts are Prisma.Decimal (exact), e.g. 0.1 + 0.2 === 0.3', () => {
     expect(new Prisma.Decimal('0.1').plus('0.2').equals('0.3')).toBe(true);
   });
-  it('GAP: legacy Account.balance path converts Decimal to Number (float) in ledger.service/credit paths', async () => {
+  it('F5 fixed: ledger.service no longer converts Decimal balances to Number on posting paths', async () => {
     const fs = await import('fs'); const src = fs.readFileSync('src/core/ledger.service.ts', 'utf8');
-    expect(/Number\(account\.balance\)/.test(src)).toBe(true); // documented gap: Step 3 (ledger hardening) removes this
+    expect(/Number\(account\.balance\)/.test(src)).toBe(false); // was a documented gap; closed by the remediation branch
   });
 });
 
