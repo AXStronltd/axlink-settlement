@@ -23,6 +23,7 @@ RUN npm ci
 COPY tsconfig.json tsconfig.build.json prisma.config.ts ./
 COPY prisma ./prisma
 COPY apps/api ./apps/api
+COPY apps/web/index.html ./apps/web/index.html
 COPY packages ./packages
 COPY openapi ./openapi
 
@@ -47,6 +48,10 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/openapi ./openapi
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
+
+# Institution portal — served at /portal by the API (apps/api/src/app.ts).
+# The page talks to /api/v1 on the same origin with an institution API key.
+COPY --from=builder /app/apps/web ./apps/web
 
 # The generated client must be copied AFTER `npm ci`, which empties
 # node_modules — copying it before means shipping an image without it.

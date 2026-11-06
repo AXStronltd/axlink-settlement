@@ -35,7 +35,7 @@ services:
         value: true
 
   - type: web
-    name: axlink-ops
+    name: axlink-web
     runtime: static
     buildCommand: echo done
     staticPublishPath: apps/marketing
@@ -43,6 +43,19 @@ services:
       - path: /*
         name: Cache-Control
         value: no-cache
+
+  - type: web
+    name: axlink-ops
+    runtime: static
+    buildCommand: cd apps/web/ops && npm install && npm run build
+    staticPublishPath: apps/web/ops/dist
+    headers:
+      - path: /*
+        name: Cache-Control
+        value: no-cache
+    envVars:
+      - key: VITE_API_URL
+        value: https://axlink-settlement.onrender.com
 
 databases:
   - name: axlink-db
