@@ -43,23 +43,52 @@ export const providers = {
   has(role: 'custody' | 'liquidity'): boolean { return !!reg[role]; },
 };
 
-export function registerCustodyProvider(p: CustodyProvider | null): void { defaultsLoaded = true; reg.custody = p; }
-export function registerLiquidityProvider(p: LiquidityProvider | null): void { reg.liquidity = p; }
-export function registerBlockchainProvider(network: NetworkId, p: BlockchainProvider | null): void { if (p) reg.blockchain[network] = p; else delete reg.blockchain[network]; }
+export class ProviderReplacementRefused extends Error {
+  readonly code = 'PROVIDER_REPLACEMENT_REFUSED';
+  constructor(reason: string) { super(`refusing to replace a registered provider after boot: ${reason}`); }
+}
 
-/** Snapshot for operators: who fills each role, whether credentials are configured, and live health. */
+let frozen = false;
+/**
+ * Called by the bootstrap once the deployment's adapters are registered. From then on a
+ * replacement is refused in production, and elsewhere only allowed with SIMULATOR_ENABLED=true —
+ * the same rule as the runtime seam (`useTestPorts`). A stray `registerCustodyProvider({...,
+ * configured: () => true})` would otherwise flip `custodyEnvironmentKind()` to PRODUCTION and let
+ * stub vault ids be persisted as production wallets.
+ */
+export function freezeProviders(): void { frozen = true; }
+function assertReplaceable(): void {
+  if (!frozen) return;
+  if (process.env.NODE_ENV === 'production') throw new ProviderReplacementRefused('NODE_ENV is production');
+  if (process.env.SIMULATOR_ENABLED !== 'true') throw new ProviderReplacementRefused('SIMULATOR_ENABLED is not "true"');
+}
+
+export function registerCustodyProvider(p: CustodyProvider | null): void { assertReplaceable(); defaultsLoaded = true; reg.custody = p; }
+export function registerLiquidityProvider(p: LiquidityProvider | null): void { assertReplaceable(); reg.liquidity = p; }
+export function registerBlockchainProvider(network: NetworkId, p: BlockchainProvider | null): void { assertReplaceable(); if (p) reg.blockchain[network] = p; else delete reg.blockchain[network]; }
+
+const HEALTH_TIMEOUT_MS = 5_000;
+function withTimeout(p: Promise<ProviderHealth>, ms = HEALTH_TIMEOUT_MS): Promise<ProviderHealth> {
+  let t: NodeJS.Timeout;
+  const timeout = new Promise<ProviderHealth>(res => { t = setTimeout(() => res({ ok: false, detail: `health check timed out after ${ms}ms` }), ms); });
+  return Promise.race([p.catch(e => ({ ok: false, detail: (e as Error).message })), timeout]).finally(() => clearTimeout(t));
+}
+
+/**
+ * Snapshot for operators: who fills each role, whether credentials are configured, and live health.
+ * `configured` comes from the adapter itself; health calls run in parallel, each bounded by a
+ * timeout so a hung vendor cannot hold the operator request open.
+ */
 export async function describeProviders(opts: { health?: boolean } = {}): Promise<Array<{ role: ProviderRole; provider: string | null; network?: string; configured: boolean | null; health: ProviderHealth | null }>> {
-  const out: Array<{ role: ProviderRole; provider: string | null; network?: string; configured: boolean | null; health: ProviderHealth | null }> = [];
-  const h = async (p: { health(): Promise<ProviderHealth> } | null) => (opts.health && p ? p.health().catch(e => ({ ok: false, detail: (e as Error).message })) : null);
-  const cfg = (health: ProviderHealth | null) => health ? !/sandbox stub/.test(health.detail ?? '') : null;
-  const ch = await h(reg.custody);
-  out.push({ role: 'custody', provider: reg.custody?.id ?? null, configured: cfg(ch), health: ch });
-  out.push({ role: 'blockchainExecution', provider: reg.custody?.id ?? null, configured: cfg(ch), health: ch });
-  const lh = await h(reg.liquidity);
-  out.push({ role: 'liquidity', provider: reg.liquidity?.id ?? null, configured: cfg(lh), health: lh });
-  for (const [network, b] of Object.entries(reg.blockchain)) {
-    const bh = await h(b!);
-    out.push({ role: 'blockchain', provider: b!.chain, network, configured: bh ? bh.ok : null, health: bh });
-  }
-  return out;
+  registerDefaultProviders();
+  const h = (p: { health(): Promise<ProviderHealth> } | null) => (opts.health && p ? withTimeout(p.health()) : Promise.resolve(null));
+  const chains = Object.entries(reg.blockchain) as Array<[string, BlockchainProvider]>;
+  const [ch, lh, ...bhs] = await Promise.all([h(reg.custody), h(reg.liquidity), ...chains.map(([, b]) => h(b))]);
+  const custodyConfigured = reg.custody ? reg.custody.configured() : null;
+  return [
+    { role: 'custody', provider: reg.custody?.id ?? null, configured: custodyConfigured, health: ch },
+    { role: 'blockchainExecution', provider: reg.custody?.id ?? null, configured: custodyConfigured, health: ch },
+    { role: 'liquidity', provider: reg.liquidity?.id ?? null, configured: reg.liquidity ? reg.liquidity.configured() : null, health: lh },
+    ...chains.map(([network, b], i) => ({ role: 'blockchain' as const, provider: b.chain, network, configured: bhs[i] ? bhs[i]!.ok : null, health: bhs[i] })),
+  ];
 }

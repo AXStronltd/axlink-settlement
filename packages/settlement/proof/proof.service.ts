@@ -185,7 +185,7 @@ export async function proveSettlement(params: ProveParams) {
       entityType,
       entityId,
       signature,
-      slot: BigInt(status.slot ?? tx.slot ?? 0),
+      slot: BigInt(slotOf(status.slot, tx.slot, signature)),
       blockTime: tx.blockTime ?? null,
       commitment: SETTLEMENT_COMMITMENT,
       mint: mintInfo.mint,
@@ -205,6 +205,12 @@ export async function proveSettlement(params: ProveParams) {
   );
 
   return { status: 'PROVEN' as const, signature, proof };
+}
+
+function slotOf(a: number | undefined, b: number | undefined, signature: string): number {
+  const slot = a ?? b;
+  if (slot === undefined) throw Object.assign(new Error(`Signature ${signature} is finalized but no slot was reported`), { code: 'PROOF_UNAVAILABLE', retryable: true });
+  return slot;
 }
 
 async function recordFailure(

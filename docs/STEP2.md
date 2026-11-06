@@ -66,3 +66,18 @@
 | Legacy facade | `packages/providers/legacy/index.ts` — the frozen Leg B services (transfer, orchestrator, interbank, treasury, fiat deposit) import the same functions through this one file instead of naming vendors; deleted when the last of them is migrated or retired |
 | Operator view | `GET /api/settlement/providers` (operator key): role, adapter, configured/stub, live health; the Providers screen mirrors it |
 | Tests | `tests/integration/providers.step2.test.ts` (6): adapter conformance in sandbox mode, registry defaults and swap, wallet creation on a swapped adapter, operator endpoint, proof through the blockchain port by id and by symbol; verification test now asserts **zero** vendor imports in core |
+
+**Independent review (fresh reviewer, 95095ca) and what changed.**
+
+| Finding | Severity | Fix |
+|---|---|---|
+| Solana adapter turned a finality *timeout* (node lagging / rate-limited) into `ChainTransactionFailed`, which the proof service records as a permanent on-chain failure and `finalizeReceivedInstructions` emits as `deposit.rejected` — for a deposit that finalizes seconds later | High | `SettlementNotFinalError` now carries `reason: 'execution_error' \| 'timeout'`; only an execution error maps to `ChainTransactionFailed`, a deadline is rethrown `retryable: true` and the settlement stays unproven for the next sweep |
+| Custody balance for reconciliation was `available + pending`; Fireblocks `total` also includes frozen/locked holds that are still ours on the ledger → spurious `CUSTODY_MISMATCH` or a masked break | Medium | `getBalance` returns `total` when the custodian reports one; reconciliation prefers it |
+| `register*Provider` had no production guard: a stray registration with `configured: () => true` would flip the deployment to PRODUCTION custody and persist stub vaults as production wallets | Medium | `freezeProviders()` after boot; replacements then refused in production and require `SIMULATOR_ENABLED=true` elsewhere (same rule as `useTestPorts`) |
+| B2BinPay `execute()`/`getOrder()` were type-correct placeholders that would create a real zero-amount order with live credentials | Medium | Both throw `LIQUIDITY_EXECUTE_UNSUPPORTED` — fiat conversion is Leg B and not enabled; quote, webhooks and health remain |
+| Operator `/providers` health calls ran sequentially with no timeout; `configured` inferred from the health text, `null` without a health call | Medium | Health calls in parallel, each bounded by 5 s; `configured` from the adapter's own `configured()` (`LiquidityProvider` gains it); defaults loaded before describing |
+| `FIREBLOCKS_USDT_ASSET` override honoured by the legacy services but not the registry | Low | Registry provider ids honour `FIREBLOCKS_USDC_ASSET` / `FIREBLOCKS_USDT_ASSET` |
+| Adapter `parseWebhook` diverged from the live route (no decimal-lexeme reviver, DEPOSIT lacked `externalTxId`/`network`/`contract`/source) | Low | Same reviver; DEPOSIT shape carries the attribution fields; `verifyWebhook` documented as pinned-key only — the route remains the admission point (pinned key or JWKS) |
+| Proof `slot` fell back to `0` when neither call reported one | Info | Throws `PROOF_UNAVAILABLE` (retryable) instead of recording a bogus slot |
+
+Noted, not changed: `usd-corridor.service.ts` (frozen Leg B) still reaches custody through the runtime seam rather than the registry — a replaced custody adapter does not reach the corridor engine. It is retired with Leg B, not migrated.

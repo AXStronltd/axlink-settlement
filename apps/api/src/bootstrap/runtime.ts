@@ -5,11 +5,12 @@ import type { AppConfig } from '../../../../packages/shared/config';
  */
 export async function startRuntime(cfg: AppConfig): Promise<void> {
   // Providers on the ports (Step 2): core never imports a vendor; the registry hands adapters out.
-  const { registerCustodyProvider, registerLiquidityProvider, registerBlockchainProvider } = await import('../../../../packages/providers/registry/provider-registry');
+  const { registerCustodyProvider, registerLiquidityProvider, registerBlockchainProvider, freezeProviders } = await import('../../../../packages/providers/registry/provider-registry');
   const { fireblocksCustodyProvider } = await import('../../../../packages/providers/custody/fireblocks/fireblocks.custody-provider');
   const { b2binpayLiquidityProvider } = await import('../../../../packages/providers/liquidity/b2binpay/b2binpay.liquidity-provider');
   const { solanaBlockchainProvider } = await import('../../../../packages/providers/blockchain/solana/solana.blockchain-provider');
   registerCustodyProvider(fireblocksCustodyProvider); registerLiquidityProvider(b2binpayLiquidityProvider); registerBlockchainProvider('solana-mainnet', solanaBlockchainProvider);
+  freezeProviders(); // replacements after boot: refused in production, SIMULATOR_ENABLED=true elsewhere
   await import('./lp.bootstrap');
   await import('./baas.bootstrap');
   const { startPaymentValidator } = await import('../../../../packages/settlement/transfers/payment-validator.service');

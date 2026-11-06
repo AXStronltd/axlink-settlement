@@ -50,12 +50,12 @@ export const ASSETS: Record<AssetId, AssetDefinition> = {
   USDC_SOL: {
     id: 'USDC_SOL', symbol: 'USDC', tokenIssuer: 'Circle', network: 'solana-mainnet',
     contract: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', decimals: 6, supported: true,
-    providerIds: { fireblocks: 'USDC_SOL', b2binpay: 'USDC-SOL' },
+    providerIds: { fireblocks: process.env.FIREBLOCKS_USDC_ASSET ?? 'USDC_SOL', b2binpay: 'USDC-SOL' },
   },
   USDT_SOL: {
     id: 'USDT_SOL', symbol: 'USDT', tokenIssuer: 'Tether', network: 'solana-mainnet',
     contract: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', decimals: 6, supported: true,
-    providerIds: { fireblocks: 'USDT_SOL', b2binpay: 'USDT-SOL' },
+    providerIds: { fireblocks: process.env.FIREBLOCKS_USDT_ASSET ?? 'USDT_SOL', b2binpay: 'USDT-SOL' }, // same override the legacy services honour
   },
 };
 

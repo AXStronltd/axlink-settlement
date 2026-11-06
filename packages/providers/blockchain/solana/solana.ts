@@ -247,8 +247,15 @@ export interface AwaitFinalityOptions {
 
 export class SettlementNotFinalError extends Error {
   readonly code = 'SETTLEMENT_NOT_FINAL';
-  constructor(signature: string, reason: string) {
-    super(`Solana settlement ${signature} is not final: ${reason}`);
+  /**
+   * `execution_error`: the transaction landed and failed — definite, never retry.
+   * `timeout`: not seen or not yet finalized within the deadline — unknown, retry later.
+   * Conflating the two turns a lagging RPC node into a permanent "rejected" deposit.
+   */
+  readonly reason: 'execution_error' | 'timeout';
+  constructor(signature: string, detail: string, reason: 'execution_error' | 'timeout' = 'timeout') {
+    super(`Solana settlement ${signature} is not final: ${detail}`);
+    this.reason = reason;
   }
 }
 
@@ -277,7 +284,7 @@ export async function awaitFinality(
     last = await getSignatureStatus(signature);
 
     if (last.found && last.err) {
-      throw new SettlementNotFinalError(signature, `on-chain execution error ${last.err}`);
+      throw new SettlementNotFinalError(signature, `on-chain execution error ${last.err}`, 'execution_error');
     }
     if (last.found && last.commitment && commitmentReached(last.commitment, target)) {
       return last;
@@ -291,6 +298,7 @@ export async function awaitFinality(
     last?.found
       ? `still at '${last.commitment ?? 'unknown'}' after ${timeoutMs}ms (wanted '${target}')`
       : `not seen by the RPC node after ${timeoutMs}ms`,
+    'timeout',
   );
 }
 

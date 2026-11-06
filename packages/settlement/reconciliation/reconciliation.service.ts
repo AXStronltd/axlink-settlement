@@ -226,7 +226,8 @@ async function checkCustody(breaks: Break[]) {
       // The account code's asset part is a registry id (USDC_SOL) or a legacy symbol (USDT).
       const def = isAssetId(asset) ? ASSETS[asset] : assetForSymbolOnNetwork(asset);
       const bal = await providers.custody().getBalance(vaultId, { symbol: def.symbol, chain: def.network });
-      custodianBalance = new Prisma.Decimal(bal.available).add(new Prisma.Decimal(bal.pending));
+      // Fireblocks' total includes frozen/locked holds (AML) that are still ours on the ledger; available+pending alone would report a spurious break.
+      custodianBalance = bal.total !== undefined ? new Prisma.Decimal(bal.total) : new Prisma.Decimal(bal.available).add(new Prisma.Decimal(bal.pending));
     } catch (err) {
       breaks.push({
         kind: 'CUSTODY_MISMATCH',

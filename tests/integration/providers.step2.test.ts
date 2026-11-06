@@ -19,12 +19,12 @@ describe('adapters conform to the ports (sandbox mode, no credentials)', () => {
     expect(fb.id).toBe('fireblocks'); expect(fb.configured()).toBe(false);
     const v = await fb.createVault('Test', 'inst:SANDBOX:Test'); expect(v.vaultId).toMatch(/^vault_sbx_/);
     const a = await fb.getDepositAddress(v.vaultId, { symbol: 'USDC', chain: 'solana-mainnet' }); expect(typeof a.address).toBe('string');
-    const b = await fb.getBalance(v.vaultId, { symbol: 'USDT', chain: 'solana-mainnet' }); expect(b).toEqual({ available: '0', pending: '0' });
+    const b = await fb.getBalance(v.vaultId, { symbol: 'USDT', chain: 'solana-mainnet' }); expect(b).toEqual({ available: '0', pending: '0', total: '0' });
     await expect(fb.getDepositAddress(v.vaultId, { symbol: 'USDC', chain: 'ethereum-mainnet' })).rejects.toThrow(/not in the registry/);
     const t = await fb.transferInternal({ clientRef: 'x', fromVaultId: 'a', toVaultId: 'b', asset: { symbol: 'USDT', chain: 'solana-mainnet' }, amount: '1' });
     expect(t.providerTxId).toMatch(/_sandbox_/); expect(['PENDING', 'CONFIRMED']).toContain(t.status);
     const parsed = fb.parseWebhook({ rawBody: JSON.stringify({ type: 'TRANSACTION_STATUS_UPDATED', data: { id: 'fb1', status: 'COMPLETED', assetId: 'USDC_SOL', operation: 'TRANSFER', txHash: 'sig1', netAmount: 5, destination: { type: 'VAULT_ACCOUNT', id: 'v1' } } }), headers: {} });
-    expect(parsed).toEqual({ kind: 'DEPOSIT', vaultId: 'v1', asset: { symbol: 'USDC', chain: 'solana-mainnet' }, amount: '5', txHash: 'sig1' });
+    expect(parsed).toMatchObject({ kind: 'DEPOSIT', vaultId: 'v1', asset: { symbol: 'USDC', chain: 'solana-mainnet' }, amount: '5', txHash: 'sig1', providerTxId: 'fb1' });
     expect(fb.parseWebhook({ rawBody: 'not json', headers: {} })).toEqual({ kind: 'IGNORED' });
     expect(fb.verifyWebhook({ rawBody: '{}', headers: {} })).toBe(false); // unconfigured → never verifies
     expect((await fb.health()).ok).toBe(true);
@@ -38,6 +38,32 @@ describe('adapters conform to the ports (sandbox mode, no credentials)', () => {
     const { solanaBlockchainProvider: sol } = await import('../../packages/providers/blockchain/solana/solana.blockchain-provider');
     expect(sol.chain).toBe('solana-mainnet');
     expect(sol.isValidAddress('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v')).toBe(true); expect(sol.isValidAddress('0xabc')).toBe(false);
+  });
+  it('review fixes: execute/getOrder refused in Leg A; custody balance carries total; deposit parse keeps lexeme + attribution fields', async () => {
+    const { b2binpayLiquidityProvider: lp } = await import('../../packages/providers/liquidity/b2binpay/b2binpay.liquidity-provider');
+    expect(lp.configured()).toBe(false);
+    await expect(lp.execute({ quoteId: 'q', clientRef: 'c' })).rejects.toMatchObject({ code: 'LIQUIDITY_EXECUTE_UNSUPPORTED' });
+    await expect(lp.getOrder('o')).rejects.toMatchObject({ code: 'LIQUIDITY_EXECUTE_UNSUPPORTED' });
+    const { fireblocksCustodyProvider: fb } = await import('../../packages/providers/custody/fireblocks/fireblocks.custody-provider');
+    const { useTestPorts } = await import('../../packages/providers/ports/runtime');
+    const restore = useTestPorts({ custody: { getVaultAssetBalance: async () => ({ available: '7', pending: '1', total: '10', frozen: '2' }) } as any });
+    try { expect(await fb.getBalance('v', { symbol: 'USDT', chain: 'solana-mainnet' })).toEqual({ available: '7', pending: '1', total: '10' }); } finally { restore(); }
+    const parsed = fb.parseWebhook({ rawBody: '{"type":"TRANSACTION_STATUS_UPDATED","data":{"id":"fb2","status":"COMPLETED","assetId":"USDT_SOL","operation":"TRANSFER","txHash":"sig2","netAmount":1.10,"externalTxId":"ext-1","network":"SOL","contract":"Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB","source":{"type":"UNKNOWN"},"destination":{"type":"VAULT_ACCOUNT","id":"v9"}}}', headers: {} });
+    expect(parsed).toMatchObject({ kind: 'DEPOSIT', vaultId: 'v9', txHash: 'sig2', providerTxId: 'fb2', externalTxId: 'ext-1', network: 'SOL', sourceType: 'UNKNOWN' });
+    expect((parsed as { amount: string }).amount).toBe('1.10'); // decimal lexeme preserved, not 1.1
+  });
+  it('Solana adapter: a finality deadline is retryable, only an on-chain execution error is ChainTransactionFailed', async () => {
+    const { solanaBlockchainProvider: sol } = await import('../../packages/providers/blockchain/solana/solana.blockchain-provider');
+    const { SettlementNotFinalError } = await import('../../packages/providers/blockchain/solana/solana');
+    const { ChainTransactionFailed } = await import('../../packages/providers/ports/blockchain.port');
+    const { useTestPorts } = await import('../../packages/providers/ports/runtime');
+    let restore = useTestPorts({ chain: { awaitFinality: async (s: string) => { throw new SettlementNotFinalError(s, 'not seen by the RPC node after 90000ms', 'timeout'); } } as any });
+    try {
+      const err = await sol.awaitFinality('sigT').catch(e => e);
+      expect(err).not.toBeInstanceOf(ChainTransactionFailed); expect(err.retryable).toBe(true);
+    } finally { restore(); }
+    restore = useTestPorts({ chain: { awaitFinality: async (s: string) => { throw new SettlementNotFinalError(s, 'on-chain execution error InstructionError', 'execution_error'); } } as any });
+    try { await expect(sol.awaitFinality('sigF')).rejects.toBeInstanceOf(ChainTransactionFailed); } finally { restore(); }
   });
 });
 
@@ -53,10 +79,25 @@ describe('registry', () => {
     const d = await r.describeProviders({ health: true });
     expect(d.map(x => x.role)).toEqual(['custody', 'blockchainExecution', 'liquidity', 'blockchain']);
     expect(d.find(x => x.role === 'custody')).toMatchObject({ provider: 'fireblocks', configured: false });
+    expect((await r.describeProviders({ health: false })).find(x => x.role === 'liquidity')).toMatchObject({ provider: 'b2binpay', configured: false, health: null }); // configured known without a health call
     expect(d.find(x => x.role === 'blockchain')).toMatchObject({ provider: 'solana-mainnet', network: 'solana-mainnet' });
     const fake = { ...r.providers.custody(), id: 'acme-custody', configured: () => false, createVault: async () => ({ vaultId: `acme-${randomUUID().slice(0, 8)}` }), getDepositAddress: async () => ({ address: 'acme-addr' }) };
     r.registerCustodyProvider(fake);
     expect(r.providers.custody().id).toBe('acme-custody');
+  });
+  it('after freezeProviders, a replacement needs SIMULATOR_ENABLED (and is refused in production)', async () => {
+    const r = await import('../../packages/providers/registry/provider-registry');
+    const { fireblocksCustodyProvider } = await import('../../packages/providers/custody/fireblocks/fireblocks.custody-provider');
+    r.freezeProviders();
+    const sim = process.env.SIMULATOR_ENABLED; const env = process.env.NODE_ENV;
+    try {
+      delete process.env.SIMULATOR_ENABLED;
+      expect(() => r.registerCustodyProvider({ ...fireblocksCustodyProvider, configured: () => true })).toThrow(/SIMULATOR_ENABLED/);
+      process.env.SIMULATOR_ENABLED = 'true'; process.env.NODE_ENV = 'production';
+      expect(() => r.registerCustodyProvider({ ...fireblocksCustodyProvider, configured: () => true })).toThrow(/production/);
+      expect(r.providers.custody().configured()).toBe(false); // nothing slipped through
+    } finally { process.env.SIMULATOR_ENABLED = sim; process.env.NODE_ENV = env; }
+    r.registerCustodyProvider(fireblocksCustodyProvider); // SIMULATOR_ENABLED=true restored → allowed
   });
 });
 

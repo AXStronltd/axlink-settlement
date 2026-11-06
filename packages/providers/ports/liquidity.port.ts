@@ -2,6 +2,8 @@ import type { AssetRef, OpStatus, ProviderHealth, WebhookInput } from './common'
 
 export interface LiquidityProvider {
   readonly id: string;
+  /** True when real credentials are present. */
+  configured(): boolean;
   readonly pairs: { base: AssetRef | string; quote: string }[];                 // e.g. USDT ↔ USD, USDT ↔ GBP
   quote(p: { side: 'BUY' | 'SELL'; asset: AssetRef; fiat: string; amount: string; amountIn: 'ASSET' | 'FIAT' }): Promise<{ quoteId: string; rate: string; assetAmount: string; fiatAmount: string; expiresAt: Date }>;
   execute(p: { quoteId: string; clientRef: string }): Promise<{ orderId: string; status: OpStatus }>;

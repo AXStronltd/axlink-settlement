@@ -28,7 +28,9 @@ export const solanaBlockchainProvider: BlockchainProvider = {
       const s = await ports().chain.awaitFinality(txHash, { commitment: sol.SETTLEMENT_COMMITMENT, ...(timeoutMs ? { timeoutMs } : {}) } as never);
       return { finalized: true, slot: s.slot ?? undefined };
     } catch (e) {
-      if (e instanceof sol.SettlementNotFinalError) throw new ChainTransactionFailed(txHash, e.message);
+      // Only a transaction that landed and failed is a definite failure. A deadline (node lagging,
+      // rate-limited, signature not yet seen) is unknown: leave the settlement unproven and retryable.
+      if (e instanceof sol.SettlementNotFinalError && e.reason === 'execution_error') throw new ChainTransactionFailed(txHash, e.message);
       throw Object.assign(e as Error, { retryable: true, code: (e as { code?: string }).code ?? 'CHAIN_UNAVAILABLE' });
     }
   },

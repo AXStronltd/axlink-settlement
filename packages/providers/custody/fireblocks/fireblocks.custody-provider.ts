@@ -39,7 +39,7 @@ export const fireblocksCustodyProvider: CustodyProvider = {
   },
   async getBalance(vaultId, asset) {
     const r = await ports().custody.getVaultAssetBalance(vaultId, providerAssetId('fireblocks', assetIdOf(asset))) as { available?: string; pending?: string; total?: string };
-    return { available: r.available ?? '0', pending: r.pending ?? '0' };
+    return { available: r.available ?? '0', pending: r.pending ?? '0', ...(r.total !== undefined ? { total: r.total } : {}) };
   },
   async transferInternal(p) {
     const r = await ports().custody.createTransfer({ assetId: providerAssetId('fireblocks', assetIdOf(p.asset)), amount: p.amount, sourceVaultId: p.fromVaultId, destVaultId: p.toVaultId, externalTxId: p.clientRef }) as { id: string; status?: string };
@@ -55,18 +55,21 @@ export const fireblocksCustodyProvider: CustodyProvider = {
   },
   async whitelistAddress() { throw new Error('whitelisting is managed in the Fireblocks console (Transaction Authorization Policy); not automated in Leg A'); },
   verifyWebhook(w: WebhookInput) {
-    // Synchronous verification covers the pinned-key path; the JWKS path is async and lives in the route.
+    // Pinned-key path only (synchronous). The live route (webhook.routes.ts) is the admission point and
+    // also verifies the async JWKS (v2) signature; this method must not be used as the sole gate.
     const sig = String(w.headers['fireblocks-signature'] ?? '');
     return fireblocksVerificationConfigured() && fb.verifyFireblocksWebhook(w.rawBody, sig);
   },
   parseWebhook(w: WebhookInput) {
-    let body: { type?: string; data?: { id?: string; status?: string; assetId?: string; txHash?: string; destination?: { id?: string; type?: string }; amountInfo?: { netAmount?: string }; netAmount?: number; operation?: string } };
-    try { body = JSON.parse(w.rawBody); } catch { return { kind: 'IGNORED' }; }
+    let body: { type?: string; data?: { id?: string; status?: string; assetId?: string; txHash?: string; externalTxId?: string; network?: string; contract?: string; source?: { id?: string; type?: string }; destination?: { id?: string; type?: string }; amountInfo?: { netAmount?: string }; netAmount?: number | string; operation?: string } };
+    // Numeric amounts keep their original decimal lexeme (same reviver as the live route; Node 22+).
+    try { body = JSON.parse(w.rawBody, (key: string, value: unknown, context?: { source?: string }) => (key === 'amount' || key === 'netAmount') && typeof value === 'number' ? (context?.source ?? String(value)) : value); } catch { return { kind: 'IGNORED' }; }
     const d = body.data; if (!d?.id) return { kind: 'IGNORED' };
     const asset = resolveProviderAsset('fireblocks', d.assetId);
     const st = toStatus(d.status);
     if (st.final && st.status === 'CONFIRMED' && d.operation === 'TRANSFER' && d.destination?.type === 'VAULT_ACCOUNT' && asset && d.destination.id && d.txHash) {
-      return { kind: 'DEPOSIT', vaultId: d.destination.id, asset: { symbol: asset.symbol, chain: asset.network }, amount: String(d.amountInfo?.netAmount ?? d.netAmount ?? ''), txHash: d.txHash };
+      return { kind: 'DEPOSIT', vaultId: d.destination.id, asset: { symbol: asset.symbol, chain: asset.network }, amount: String(d.amountInfo?.netAmount ?? d.netAmount ?? ''), txHash: d.txHash,
+        providerTxId: d.id, externalTxId: d.externalTxId, network: d.network, contract: d.contract, sourceType: d.source?.type, sourceVaultId: d.source?.id };
     }
     return { kind: 'TRANSFER_STATUS', providerTxId: d.id, status: st.status, final: st.final, txHash: d.txHash };
   },
