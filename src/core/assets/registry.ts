@@ -1,6 +1,10 @@
 /**
  * Asset registry (F6).
  *
+ * AxLink is NOT an issuer. It settles existing, publicly issued stablecoins on a public network
+ * (Solana mainnet). Nothing here creates, mints or redeems a token; it only names which public
+ * tokens are accepted and how to recognise them.
+ *
  * An asset is identified by (network, contract), never by ticker alone. "USDC" is not an asset:
  * USDC on Solana mainnet and USDC on Ethereum are different contracts with different risk, and a
  * webhook that says "USDC" without a network cannot be attributed. Every settlement, deposit and
@@ -27,7 +31,8 @@ export interface NetworkDefinition {
 export interface AssetDefinition {
   id: AssetId;
   symbol: 'USDC' | 'USDT';
-  issuer: string;
+  /** Who issues the token on the public network (Circle, Tether). AxLink never issues or mints anything. */
+  tokenIssuer: string;
   network: NetworkId;
   /** Token contract — the SPL mint on Solana. The identity of the asset together with `network`. */
   contract: string;
@@ -42,12 +47,12 @@ export const NETWORKS: Record<NetworkId, NetworkDefinition> = {
 
 export const ASSETS: Record<AssetId, AssetDefinition> = {
   USDC_SOL: {
-    id: 'USDC_SOL', symbol: 'USDC', issuer: 'Circle', network: 'solana-mainnet',
+    id: 'USDC_SOL', symbol: 'USDC', tokenIssuer: 'Circle', network: 'solana-mainnet',
     contract: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', decimals: 6,
     providerIds: { fireblocks: 'USDC_SOL', b2binpay: 'USDC-SOL' },
   },
   USDT_SOL: {
-    id: 'USDT_SOL', symbol: 'USDT', issuer: 'Tether', network: 'solana-mainnet',
+    id: 'USDT_SOL', symbol: 'USDT', tokenIssuer: 'Tether', network: 'solana-mainnet',
     contract: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', decimals: 6,
     providerIds: { fireblocks: 'USDT_SOL', b2binpay: 'USDT-SOL' },
   },

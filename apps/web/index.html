@@ -511,7 +511,7 @@ function spark(seed,color){
 }
 
 /* ===== WALLET / TREASURY / ONBOARDING DATA (institutional stablecoin settlement) ===== */
-DATA.ndd = {
+DATA.custody = {
   balance: 48250000, available: 41800000, locked: 6450000,
   reserves:[
     {name:'USDC · reserve + floats',pct:46,color:'#2ee6c5',amt:'$22.2M'},
@@ -519,7 +519,7 @@ DATA.ndd = {
     {name:'In transit (liquidity fills)',pct:8,color:'#38bdf8',amt:'$3.9M'}
   ],
   ratio:'100.00%',
-  mints:[
+  movements:[
     {id:'DEP_7F21',type:'Deposit',amount:5000000,from:'USDT · on-chain deposit to vault',status:'Completed',at:'May 16, 09:14',hash:'5Kj8…1cC8'},
     {id:'WDR_9C03',type:'Withdrawal',amount:2500000,from:'USDT → whitelisted wallet · Hormuud',status:'Completed',at:'May 15, 16:40',hash:'3xQc…d76F'},
     {id:'DEP_4A88',type:'Deposit',amount:10000000,from:'USD wire → USDC via liquidity',status:'Processing',at:'May 15, 11:02',hash:'—'},
@@ -1063,7 +1063,7 @@ function subContent(mod,tab){
   var tbl=function(title,heads,rows){return tableCard(title,heads,rows);};
   // SETTLEMENT
   if(mod==='Settlement'){
-    if(tab==='Settlements'){var r=DATA.ndd.mints.map(function(m){return '<tr><td class="txid">'+m.id+'</td><td>'+usdFull(m.amount)+'</td><td style="color:var(--ink-2)">'+m.from+'</td><td><span class="badge badge-'+(m.status==='Completed'?'completed':'pending')+'">'+m.status+'</span></td><td style="color:var(--ink-3)">'+m.at+'</td></tr>';}).join('');
+    if(tab==='Settlements'){var r=DATA.custody.movements.map(function(m){return '<tr><td class="txid">'+m.id+'</td><td>'+usdFull(m.amount)+'</td><td style="color:var(--ink-2)">'+m.from+'</td><td><span class="badge badge-'+(m.status==='Completed'?'completed':'pending')+'">'+m.status+'</span></td><td style="color:var(--ink-3)">'+m.at+'</td></tr>';}).join('');
       return wrapKpis(K('&#9670;','Settled Today','$1.82B','9.4%','up',6)+K('&#9638;','Batches','4','completed','flat',7,'#38bdf8')+K('&#10003;','Rate','99.68%','+0.3%','up',8,'#34d399')+K('&#9683;','Avg Time','2.8s','instant','flat',5,'#a78bfa'))+tbl('Settlement Records',['ID','Amount','Counterparty','Status','Time'],r);}
     if(tab==='Netting'){var pos=[['USD','$42.5M','Long','+$2.1M'],['EUR','-$18.2M','Short','-$0.8M'],['GBP','$12.6M','Long','+$0.4M'],['SGD','-$8.4M','Short','-$0.2M']];var r=pos.map(function(p){return '<tr><td><b>'+p[0]+'</b></td><td>'+p[1]+'</td><td><span class="badge badge-'+(p[2]==='Long'?'active':'review')+'">'+p[2]+'</span></td><td style="color:'+(p[3][0]==='+'?'var(--green)':'var(--red)')+'">'+p[3]+'</td></tr>';}).join('');
       return wrapKpis(K('&#9638;','Netting Efficiency','82.4%','+4.1%','up',6)+K('&#9670;','Gross Volume','$2.45B','before netting','flat',7)+K('&#9683;','Net Settled','$431M','after netting','down',5,'#34d399')+K('&#10003;','Capital Saved','82%','vs gross','up',8,'#a78bfa'))+tbl('Netting Positions',['Currency','Net Position','Direction','Change'],r);}
@@ -1126,7 +1126,7 @@ function appOverview(){
   var recentTitle = isOp?'Recent Network Transactions':'Your Recent Transactions';
   var quickActions = isOp ? '' :
     '<div class="cards reveal" style="grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:14px">'+
-    [['&#9670;','Add Funds','Deposit USD to your balance','openMint()'],['&#8599;','Send Payment','Pay a verified counterparty','go(\'#/app/payments\')'],['&#9878;','Withdraw','USD to your bank account','openRedeem()'],['&#9737;','Invite Team','Add users & set permissions','go(\'#/app/team\')']].map(function(a){
+    [['&#9670;','Add Funds','Deposit USD to your balance','openFunding()'],['&#8599;','Send Payment','Pay a verified counterparty','go(\'#/app/payments\')'],['&#9878;','Withdraw','USD to your bank account','openRedeem()'],['&#9737;','Invite Team','Add users & set permissions','go(\'#/app/team\')']].map(function(a){
       return '<button class="card" style="text-align:left;cursor:pointer;border:1px solid var(--line)" onclick="'+a[3]+'"><div style="display:flex;align-items:center;gap:10px"><span style="width:34px;height:34px;border-radius:9px;background:rgba(56,189,248,.12);color:var(--blue);display:flex;align-items:center;justify-content:center;font-size:16px">'+a[0]+'</span><div><div style="font-size:13.5px;font-weight:600;color:var(--ink)">'+a[1]+'</div><div style="font-size:11px;color:var(--ink-3)">'+a[2]+'</div></div></div></button>';
     }).join('')+'</div>';
   return appShell('#/app',
@@ -1399,14 +1399,14 @@ function onbNext(){ONB.step=Math.min(5,ONB.step+1);render();}
 
 /* ===== WALLET / TREASURY ===== */
 function appTreasury(){
-  var n=DATA.ndd;
-  var moves=n.mints.map(function(m){return '<tr><td class="txid">'+m.id+'</td><td><span class="badge badge-'+(m.type==='Deposit'?'active':'review')+'">'+m.type+'</span></td><td>'+usdFull(m.amount)+'</td><td style="color:var(--ink-2)">'+m.from+'</td><td><span class="badge badge-'+(m.status==='Completed'?'completed':'pending')+'">'+m.status+'</span></td><td class="mono" style="color:var(--ink-3);font-size:11px">'+m.hash+'</td><td style="color:var(--ink-3)">'+m.at+'</td></tr>';}).join('');
+  var n=DATA.custody;
+  var moves=n.movements.map(function(m){return '<tr><td class="txid">'+m.id+'</td><td><span class="badge badge-'+(m.type==='Deposit'?'active':'review')+'">'+m.type+'</span></td><td>'+usdFull(m.amount)+'</td><td style="color:var(--ink-2)">'+m.from+'</td><td><span class="badge badge-'+(m.status==='Completed'?'completed':'pending')+'">'+m.status+'</span></td><td class="mono" style="color:var(--ink-3);font-size:11px">'+m.hash+'</td><td style="color:var(--ink-3)">'+m.at+'</td></tr>';}).join('');
   var subs=n.subAccounts.map(function(s){return '<tr><td style="font-weight:500">'+s.name+'</td><td class="mono" style="font-size:11px;color:var(--teal)">'+s.ref+'</td><td>'+s.bal+'</td><td style="color:var(--ink-2)">'+s.mtd+'</td><td><span class="badge badge-'+(s.status==='Active'?'active':'review')+'">'+s.status+'</span></td></tr>';}).join('');
   var chains=n.chains.map(function(c){return '<span class="chip"><span class="d" style="background:'+(c.indexOf('live')>0?'var(--teal)':'var(--ink-3)')+'"></span>'+c+'</span>';}).join(' ');
   var isOp=(ROLE==='operator');
   var depositAddr=(ENV==='PRODUCTION')?'— issued at go-live —':'Gx7k…sandbox-vault-galaxy-bank-so…Q2mP';
   return appShell('#/app/treasury',
-   pageHead(isOp?'Treasury':'Wallet',isOp?'Network-wide settlement assets (USDC, USDT): reserve vault, institution floats, liquidity in transit.':'Your institution\'s custody vault on AxLink. Balances are USDC and USDT on Solana; you see them as USD.',isOp?'<button class="btn btn-ghost btn-sm" onclick="toast(\'Reconciliation run started\')">Reconcile now</button><button class="btn btn-primary btn-sm" onclick="toast(\'Rebalance proposed — needs a second approver\')">Propose rebalance</button>':'<button class="btn btn-ghost btn-sm" onclick="openRedeem()">Withdraw</button><button class="btn btn-primary btn-sm" onclick="openMint()">+ Deposit</button>')+
+   pageHead(isOp?'Treasury':'Wallet',isOp?'Network-wide settlement assets (USDC, USDT): reserve vault, institution floats, liquidity in transit.':'Your institution\'s custody vault on AxLink. Balances are USDC and USDT on Solana; you see them as USD.',isOp?'<button class="btn btn-ghost btn-sm" onclick="toast(\'Reconciliation run started\')">Reconcile now</button><button class="btn btn-primary btn-sm" onclick="toast(\'Rebalance proposed — needs a second approver\')">Propose rebalance</button>':'<button class="btn btn-ghost btn-sm" onclick="openRedeem()">Withdraw</button><button class="btn btn-primary btn-sm" onclick="openFunding()">+ Deposit</button>')+
    '<div class="kpi-cards reveal" style="grid-template-columns:repeat(4,1fr)">'+
    kpiCard(isOp?'&#9670;':'$',isOp?'Settlement asset under custody':'Balance',isOp?'$48.3M':usdM(n.balance),isOp?'USDC + USDT · Solana':'USDC + USDT · shown as USD','flat',6)+
    kpiCard('&#9683;','Available',usdM(n.available),'ready to settle','up',7,'#34d399')+
@@ -1424,7 +1424,7 @@ function appTreasury(){
      : '<div class="chart-card reveal d3"><div class="ch"><h4>Fiat accounts for payouts</h4><button class="btn btn-ghost btn-sm" onclick="toast(\'Add account opened\')">+ Add Account</button></div><table><thead><tr><th>Account</th><th>Bank</th><th>Currency</th><th>Status</th></tr></thead><tbody><tr><td class="mono" style="font-size:12px">****8842</td><td>Galaxy Bank nostro</td><td>USD</td><td><span class="badge badge-active">Verified</span></td></tr><tr><td class="mono" style="font-size:12px">****3391</td><td>Choice Bank</td><td>KES</td><td><span class="badge badge-active">Verified</span></td></tr></tbody></table><div style="font-size:11px;color:var(--ink-3);margin-top:12px">Used only when a counterparty cannot hold USDC/USDT: AxLink pays local fiat from its float and takes the asset back.</div></div>')
   );
 }
-function openMint(){
+function openFunding(){
   var isOp=(ROLE==='operator');
   if(isOp){
     openModal('<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px"><h3 style="font-size:19px">Propose treasury rebalance</h3><span style="color:var(--ink-3);cursor:pointer" onclick="closeModal()">x</span></div>'+
@@ -1800,13 +1800,13 @@ function axFlowAnimation(){
       '<text x="'+(c[1]+20)+'" y="'+(c[2]+4)+'" font-size="11" fill="var(--ink)" font-family="system-ui" font-weight="500">'+c[0]+'</text></g>';
   }).join('');
   // settlement convergence node (far right center) - caps converge into it
-  var ndd='<g opacity="0"><animate attributeName="opacity" values="0;1" dur="0.6s" begin="3.2s" fill="freeze"/>'+
+  var custodyLayer='<g opacity="0"><animate attributeName="opacity" values="0;1" dur="0.6s" begin="3.2s" fill="freeze"/>'+
     '<circle cx="960" cy="260" r="46" fill="var(--panel)" stroke="var(--teal-2)" stroke-width="2"/>'+
     '<circle cx="960" cy="260" r="46" fill="none" stroke="var(--teal-2)" stroke-width="2" opacity=".5"><animate attributeName="r" values="46;60;46" dur="2.6s" repeatCount="indefinite"/><animate attributeName="opacity" values=".5;0;.5" dur="2.6s" repeatCount="indefinite"/></circle>'+
     '<text x="960" y="253" text-anchor="middle" font-size="12.5" font-weight="800" fill="var(--ink)" font-family="system-ui">SETTLEMENT</text>'+
     '<text x="960" y="268" text-anchor="middle" font-size="7" fill="var(--ink-3)" font-family="system-ui">USDC + rails</text></g>';
   // caps -> settlement converging lines
-  var capToNdd=caps.map(function(c,i){
+  var capToCustody=caps.map(function(c,i){
     var d='M'+(c[1]+144)+' '+c[2]+' C 900 '+c[2]+', 920 260, 916 260';
     return '<path d="'+d+'" fill="none" stroke="var(--teal-2)" stroke-width="1.2" opacity="0" stroke-dasharray="3 5"><animate attributeName="opacity" values="0;.4" dur="0.5s" begin="'+(3.3+0.08*i)+'s" fill="freeze"/></path>'+
       '<circle r="2.4" fill="var(--teal-2)" opacity="0"><animate attributeName="opacity" values="0;1;1;0" dur="1.4s" begin="'+(3.5+0.1*i)+'s" repeatCount="indefinite"/><animateMotion dur="1.4s" begin="'+(3.5+0.1*i)+'s" repeatCount="indefinite" path="'+d+'"/></circle>';
@@ -1829,7 +1829,7 @@ function axFlowAnimation(){
     '<text x="960" y="200" text-anchor="middle" opacity="0"><animate attributeName="opacity" values="0;1" dur="0.5s" begin="3.4s" fill="freeze"/>4 · SETTLEMENT</text>'+
     '<text x="955" y="555" text-anchor="middle" opacity="0"><animate attributeName="opacity" values="0;1" dur="0.5s" begin="4.4s" fill="freeze"/>5 · GLOBAL SETTLEMENT</text></g>';
   return '<div class="ax-anim-wrap"><svg viewBox="0 0 1240 580" style="width:100%" preserveAspectRatio="xMidYMid meet">'+
-    instLines+capH+capToNdd+mktH+instH+axlink+ndd+phases+
+    instLines+capH+capToCustody+mktH+instH+axlink+custodyLayer+phases+
     '</svg></div>';
 }
 function bankValueSection(){

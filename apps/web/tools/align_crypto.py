@@ -250,5 +250,11 @@ rep("{id:'ACC_NDD_01',name:'NDD Treasury',type:'Digital',cur:'NDD',bal:'$48,250,
 rep("{cur:'NDD',avail:'$41,800,000',hold:'$6,450,000',total:'$48,250,00", "{cur:'USDC',avail:'$41,800,000',hold:'$6,450,000',total:'$48,250,00")
 src=src.replace("var NDDMARK=","var SETTLEMARK=").replace("NDDMARK","SETTLEMARK")
 assert 'NDD' not in src, [m.start() for m in re.finditer('NDD', src)][:5]
+# Not an issuer: AxLink settles existing public stablecoins on a public network. Remove the last
+# issuance-era identifiers (internal names only; the visible copy already says nothing is minted).
+src=src.replace('openMint(','openFunding(').replace('DATA.ndd','DATA.custody').replace('ndd:{','custody:{').replace('.mints','.movements').replace('mints:[','movements:[')
+src=src.replace('capToNdd','capToCustody').replace('var ndd=','var custodyLayer=').replace('+axlink+ndd+phases+','+axlink+custodyLayer+phases+')
+assert 'openMint' not in src and 'DATA.ndd' not in src and '.mints' not in src
+
 open('axlink-site.html', 'w', encoding='utf-8').write(src)
 print('ok', len(orig), '->', len(src))

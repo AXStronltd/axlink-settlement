@@ -10,7 +10,9 @@ and local fiat payout coordination for receivers that cannot take the asset.
 
 - The NDD ("Narrow Digital Dollar") settlement leg and any N3XT integration ("Leg B" in the earlier
   two-leg designs). Those designs are reference material only.
-- Any issuance or minting of a settlement instrument. AxLink settles existing public stablecoins.
+- Any issuance or minting of a settlement instrument. AxLink is not an issuer: it settles existing,
+  publicly issued stablecoins (USDC by Circle, USDT by Tether) on a public network (Solana mainnet),
+  held in regulated custody. No private or permissioned network.
 
 **Where the old scope still shows, and what happens to it:**
 
