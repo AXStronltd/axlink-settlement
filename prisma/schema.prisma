@@ -869,8 +869,9 @@ model WalletBalance {
 // receipt must name this instruction (externalTxId = trackingId) and match its asset and exact
 // amount; nothing else credits a wallet. No legacy User row is involved.
 enum DepositInstructionStatus {
-  PENDING
-  SETTLED
+  PENDING   // announced, waiting for the custody receipt
+  RECEIVED  // custody confirmed the receipt; wallet credited; on-chain finality not yet proven
+  SETTLED   // finality proven on a Solana node (SettlementProof row)
   CANCELLED
   EXPIRED
 }
@@ -891,7 +892,10 @@ model DepositInstruction {
   providerTxId    String?
   txHash          String?
   receivedAmount  Decimal?                 @db.Decimal(36, 18)
-  settledAt       DateTime?
+  receivedAt      DateTime?                // custody confirmation
+  settledAt       DateTime?                // on-chain finality
+  lastReceiptError String?                 // last rejected receipt or proof error, for the institution to see
+  lastReceiptAt   DateTime?
   expiresAt       DateTime
   createdAt       DateTime                 @default(now())
   updatedAt       DateTime                 @updatedAt

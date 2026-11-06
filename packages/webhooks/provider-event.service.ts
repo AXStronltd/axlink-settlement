@@ -58,6 +58,11 @@ function isUniqueViolation(e: unknown): boolean {
  * plus a result. Throwing `EventIgnored` records the event as IGNORED/REJECTED (nothing else is
  * written); any other throw rolls everything back and propagates.
  */
+/** Observers of IGNORED/REJECTED outcomes, run after the (rolled-back) transaction. Used to surface rejections to institutions. */
+type IgnoredHook = (event: EventRecord, outcome: EventOutcome) => Promise<void>;
+const ignoredHooks: IgnoredHook[] = [];
+export function onEventIgnored(hook: IgnoredHook): void { ignoredHooks.push(hook); }
+
 export async function processOnce<T>(
   event: EventRecord,
   apply: (tx: Tx) => Promise<{ outcome: EventOutcome; result: T }>,
@@ -91,6 +96,7 @@ export async function processOnce<T>(
         .create({ data: { ...base, ...outcomeData(e.outcome) } })
         .catch((err: unknown) => { if (!isUniqueViolation(err)) throw err; });
       log.warn('provider_event.ignored', { provider: event.provider, eventId: event.eventId, reason: e.outcome.reason });
+      for (const h of ignoredHooks) await h(event, e.outcome).catch(err => log.error('provider_event.hook_failed', { message: (err as Error).message }));
       return { duplicate: false, outcome: e.outcome, result: undefined as unknown as T };
     }
     throw e;

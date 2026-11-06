@@ -11,7 +11,8 @@ import { randomBytes } from 'crypto';
 import { prisma } from '../../core/ledger/ledger.service';
 import { getAsset, toMinorUnits, isAssetId } from '../../core/assets/registry';
 import { getWallet } from '../../core/wallets/wallet.service';
-import { proofsFor } from '../proof/proof.service';
+import { proofsFor, proveSettlement, ProofMismatchError } from '../proof/proof.service';
+import { SettlementNotFinalError } from '../../providers/blockchain/solana/solana';
 import { ApiError } from '../../shared/errors';
 import { log } from '../../shared/logger';
 
@@ -49,8 +50,10 @@ export async function getDepositInstruction(id: string, scope: { institutionId: 
   return i;
 }
 
+const STATUSES = ['PENDING', 'RECEIVED', 'SETTLED', 'CANCELLED', 'EXPIRED'] as const;
 export function listDepositInstructions(scope: { institutionId: string; environmentId: string }, status?: string) {
-  return prisma.depositInstruction.findMany({ where: { institutionId: scope.institutionId, environmentId: scope.environmentId, ...(status ? { status: status as never } : {}) }, orderBy: { createdAt: 'desc' }, take: 100, include: { wallet: { select: { depositAddress: true, label: true } } } });
+  if (status !== undefined && !(STATUSES as readonly string[]).includes(status)) throw new ApiError('VALIDATION_ERROR', `status must be one of ${STATUSES.join(', ')}`, 400);
+  return prisma.depositInstruction.findMany({ where: { institutionId: scope.institutionId, environmentId: scope.environmentId, ...(status ? { status: status as typeof STATUSES[number] } : {}) }, orderBy: { createdAt: 'desc' }, take: 100, include: { wallet: { select: { depositAddress: true, label: true } } } });
 }
 
 export async function cancelDepositInstruction(id: string, scope: { institutionId: string; environmentId: string }) {
@@ -62,9 +65,13 @@ export async function cancelDepositInstruction(id: string, scope: { institutionI
   }
 }
 
-/** The public status vocabulary the Developers page documents: PROCESSING · COMPLETED · FAILED. */
+/**
+ * The public status vocabulary the Developers page documents: PROCESSING · COMPLETED · FAILED.
+ * COMPLETED means a Solana node reported the signature finalized — not that the custodian said so.
+ */
 export function publicStatus(i: DepositInstruction): 'PROCESSING' | 'COMPLETED' | 'FAILED' {
   if (i.status === 'SETTLED') return 'COMPLETED';
+  if (i.status === 'RECEIVED') return 'PROCESSING';
   if (i.status === 'PENDING') return i.expiresAt > new Date() ? 'PROCESSING' : 'FAILED';
   return 'FAILED';
 }
@@ -77,12 +84,15 @@ export async function serializeInstruction(i: DepositInstruction & { wallet?: { 
     walletId: i.walletId, asset: i.assetId, expectedAmount: i.expectedAmount.toFixed(), receivedAmount: i.receivedAmount?.toFixed() ?? null,
     reference: i.reference, trackingId: i.trackingId,
     depositAddress: depositAddress ?? i.wallet?.depositAddress ?? null,
-    expiresAt: i.expiresAt, settledAt: i.settledAt, createdAt: i.createdAt,
+    expiresAt: i.expiresAt, receivedAt: i.receivedAt, settledAt: i.settledAt, createdAt: i.createdAt,
+    // A receipt that arrived but could not be credited (wrong amount, wrong asset, …) or a proof
+    // error: the institution sees it here and gets a deposit.rejected event.
+    attention: i.lastReceiptError ? { at: i.lastReceiptAt, reason: i.lastReceiptError } : null,
     proof: i.txHash ? {
       // Custody confirmed the receipt; on-chain finality is recorded separately when the proof service
       // has verified the signature against a Solana node. Both are stated, never conflated.
       custodyTxId: i.providerTxId, txHash: i.txHash, explorerUrl: explorer,
-      finality: proofs.length && !proofs[0].onchainError ? 'ON_CHAIN_FINALIZED' : 'CUSTODY_CONFIRMED',
+      finality: i.status === 'SETTLED' && proofs.length && !proofs[0].onchainError ? 'ON_CHAIN_FINALIZED' : 'CUSTODY_CONFIRMED',
       onChain: proofs[0] ?? null,
     } : null,
   };
@@ -112,7 +122,55 @@ export async function expireDepositInstructions(now = new Date()): Promise<numbe
 let sweeper: ReturnType<typeof setInterval> | null = null;
 export function startDepositInstructionSweeper(intervalMs = 60_000): void {
   if (sweeper) return;
-  sweeper = setInterval(() => { expireDepositInstructions().catch(e => log.error('deposit_instruction.sweep_failed', { message: (e as Error).message })); }, intervalMs);
+  sweeper = setInterval(() => {
+    expireDepositInstructions().catch(e => log.error('deposit_instruction.sweep_failed', { message: (e as Error).message }));
+    finalizeReceivedInstructions().catch(e => log.error('deposit_instruction.finalize_failed', { message: (e as Error).message }));
+  }, intervalMs);
   sweeper.unref?.();
 }
 export function stopDepositInstructionSweeper(): void { if (sweeper) { clearInterval(sweeper); sweeper = null; } }
+
+// ── Finality ──────────────────────────────────────────────────────────────────
+/**
+ * RECEIVED → SETTLED once a Solana node reports the receipt's signature finalized and the token
+ * movement matches (asset mint, exact amount). Runs on the sweeper tick; retryable errors (node
+ * unreachable) leave the row RECEIVED for the next tick; a definite on-chain failure or mismatch is
+ * recorded on the instruction and announced — custody said yes, the chain said no, a human decides.
+ */
+export async function finalizeReceivedInstructions(limit = 100): Promise<{ settled: number; pending: number; failed: number }> {
+  const { emitInstitutionEvent } = await import('../../core/webhooks/webhook-endpoint.service');
+  const rows = await prisma.depositInstruction.findMany({ where: { status: 'RECEIVED', txHash: { not: null } }, include: { wallet: { select: { depositAddress: true } } }, take: limit, orderBy: { receivedAt: 'asc' } });
+  const out = { settled: 0, pending: 0, failed: 0 };
+  for (const i of rows) {
+    const asset = getAsset(i.assetId);
+    try {
+      const r = await proveSettlement({ entityType: 'DepositInstruction', entityId: i.id, signature: i.txHash!, asset: asset.symbol, expectedAmount: i.receivedAmount ?? i.expectedAmount, toAddress: i.wallet.depositAddress ?? undefined });
+      if (r.status === 'PENDING_BROADCAST') { out.pending++; continue; }
+      await prisma.$transaction(async tx => {
+        const c = await tx.depositInstruction.updateMany({ where: { id: i.id, status: 'RECEIVED' }, data: { status: 'SETTLED', settledAt: new Date() } });
+        if (c.count !== 1) return;
+        await emitInstitutionEvent(tx, { institutionId: i.institutionId, environmentId: i.environmentId }, 'deposit.settled',
+          { settlementId: i.id, kind: 'DEPOSIT', status: 'COMPLETED', finality: 'ON_CHAIN_FINALIZED', walletId: i.walletId, asset: i.assetId, amount: (i.receivedAmount ?? i.expectedAmount).toFixed(), reference: i.reference, trackingId: i.trackingId, txHash: i.txHash, explorerUrl: `https://solscan.io/tx/${i.txHash}`, slot: r.proof?.slot?.toString() ?? null },
+          { entityType: 'DepositInstruction', entityId: i.id });
+      });
+      out.settled++;
+    } catch (e) {
+      const err = e as Error & { code?: string; retryable?: boolean };
+      if (err.retryable || err.code === 'PROOF_UNAVAILABLE') { out.pending++; continue; }
+      if (e instanceof ProofMismatchError || e instanceof SettlementNotFinalError) {
+        out.failed++;
+        await prisma.$transaction(async tx => {
+          await tx.depositInstruction.update({ where: { id: i.id }, data: { lastReceiptError: `on-chain proof failed: ${err.message}`.slice(0, 500), lastReceiptAt: new Date() } });
+          await emitInstitutionEvent(tx, { institutionId: i.institutionId, environmentId: i.environmentId }, 'deposit.rejected',
+            { settlementId: i.id, kind: 'DEPOSIT', status: 'PROCESSING', attention: true, reason: `on-chain proof failed: ${err.message}`.slice(0, 500), walletId: i.walletId, asset: i.assetId, txHash: i.txHash, trackingId: i.trackingId },
+            { entityType: 'DepositInstruction', entityId: i.id });
+        });
+        log.error('deposit_instruction.proof_failed', { instructionId: i.id, message: err.message });
+        continue;
+      }
+      out.pending++; log.warn('deposit_instruction.proof_error', { instructionId: i.id, message: err.message });
+    }
+  }
+  if (out.settled || out.failed) log.info('deposit_instruction.finalized', out);
+  return out;
+}

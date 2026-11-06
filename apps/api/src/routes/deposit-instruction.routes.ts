@@ -6,7 +6,7 @@ import { createDepositInstruction, getDepositInstruction, listDepositInstruction
 
 const router = Router();
 const wrap = (fn: (req: Request, res: Response) => Promise<void>) => (req: Request, res: Response, next: NextFunction) => fn(req, res).catch(next);
-const Create = z.object({ walletId: z.string().min(1), asset: z.enum(['USDC_SOL', 'USDT_SOL']), amount: z.string().regex(/^\d+(\.\d+)?$/), reference: z.string().max(140).optional(), ttlHours: z.number().int().min(1).max(720).optional() });
+const Create = z.object({ walletId: z.string().min(1), asset: z.enum(['USDC_SOL', 'USDT_SOL']), amount: z.string().max(30).regex(/^\d{1,18}(\.\d{1,18})?$/), reference: z.string().max(140).optional(), ttlHours: z.number().int().min(1).max(720).optional() });
 
 router.use(requireInstitution);
 router.post('/', requireScope('deposits:write'), wrap(async (req, res) => {

@@ -16,6 +16,7 @@
 
 import { createHmac } from 'crypto';
 import { decryptSecret, isEncryptedSecret } from '../../shared/secrets';
+import { assertDeliverableUrl } from '../webhooks/url-policy';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../ledger/ledger.service';
 
@@ -92,8 +93,16 @@ async function deliverOne(event: {
   // Institution webhooks (Step 2): documented format — unix seconds, `t=…,v1=…`, event id header —
   // and the secret is stored encrypted, decrypted only here, never logged.
   const timestamp = institution ? Math.floor(Date.now() / 1000).toString() : Date.now().toString();
-  const secret = event.targetSecret ? (isEncryptedSecret(event.targetSecret) ? decryptSecret(event.targetSecret) : event.targetSecret) : null;
   const payloadId = institution ? (event.payload as { id?: string } | null)?.id ?? event.id : event.id;
+  let secret: string | null = null;
+  try {
+    secret = event.targetSecret ? (isEncryptedSecret(event.targetSecret) ? decryptSecret(event.targetSecret) : event.targetSecret) : null;
+    // Re-check the destination at delivery time: DNS may have changed since registration (SSRF).
+    if (institution) await assertDeliverableUrl(event.targetUrl);
+  } catch (err) {
+    await fail(event, `undeliverable: ${err instanceof Error ? err.message : String(err)}`, null, true);
+    return;
+  }
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), DELIVERY_TIMEOUT_MS);
@@ -111,6 +120,7 @@ async function deliverOne(event: {
       },
       body,
       signal: controller.signal,
+      redirect: 'manual', // a redirect is a failure, never followed (SSRF via 3xx)
     });
 
     if (res.ok) {
@@ -121,8 +131,10 @@ async function deliverOne(event: {
       return;
     }
 
-    // A 4xx other than 408/429 will fail identically forever — stop early
-    // rather than burning eight attempts on a permanently malformed target.
+    // A 4xx other than 408/429 will fail identically forever — stop early rather than burning
+    // attempts on a permanently malformed target. A 3xx is a failure too (redirects are never
+    // followed). For institution webhooks this is documented: the retry schedule applies to 5xx,
+    // 408, 429, timeouts and network errors; other 4xx are final.
     const permanent = res.status >= 400 && res.status < 500 && res.status !== 408 && res.status !== 429;
     await fail(event, `HTTP ${res.status}`, res.status, permanent);
   } catch (err) {

@@ -9,13 +9,13 @@ import { prisma } from '../ledger/ledger.service';
 import { encryptSecret } from '../../shared/secrets';
 import { enqueue } from '../events/outbox.service';
 import { ApiError } from '../../shared/errors';
+import { assertDeliverableUrl, WebhookUrlRejected } from './url-policy';
 
-export const INSTITUTION_EVENTS = ['deposit.settled', 'deposit.expired'] as const;
+export const INSTITUTION_EVENTS = ['deposit.received', 'deposit.settled', 'deposit.rejected', 'deposit.expired'] as const;
 export type InstitutionEvent = typeof INSTITUTION_EVENTS[number];
 
 export async function createEndpoint(scope: { institutionId: string; environmentId: string }, url: string, events: string[] = ['*']) {
-  let u: URL; try { u = new URL(url); } catch { throw new ApiError('INVALID_URL', 'url must be absolute', 400); }
-  if (u.protocol !== 'https:' && !(process.env.NODE_ENV !== 'production' && u.protocol === 'http:')) throw new ApiError('INVALID_URL', 'webhook url must use https', 400);
+  try { await assertDeliverableUrl(url); } catch (e) { if (e instanceof WebhookUrlRejected) throw new ApiError('INVALID_URL', e.reason, 400); throw e; }
   for (const e of events) if (e !== '*' && !(INSTITUTION_EVENTS as readonly string[]).includes(e)) throw new ApiError('UNKNOWN_EVENT', `unknown event ${e}`, 400);
   const count = await prisma.webhookEndpoint.count({ where: { ...scope, status: 'ACTIVE' } });
   if (count >= 10) throw new ApiError('LIMIT', 'at most 10 active endpoints per environment', 409);

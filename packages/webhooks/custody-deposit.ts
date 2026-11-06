@@ -12,7 +12,7 @@ import { credit } from '../core/ledger/ledger.service';
 import { resolveProviderAsset, toMinorUnits, type AssetDefinition } from '../core/assets/registry';
 import { post } from '../core/ledger/journal.service';
 import { AccountCode } from '../core/ledger/accounts';
-import { EventIgnored, type EventOutcome, type Tx } from './provider-event.service';
+import { EventIgnored, onEventIgnored, type EventOutcome, type Tx } from './provider-event.service';
 import { walletForVault, applyWalletCredit, custodyEnvironmentKind } from '../core/wallets/wallet.service';
 import { emitInstitutionEvent } from '../core/webhooks/webhook-endpoint.service';
 
@@ -153,7 +153,9 @@ async function settleInstruction(tx: Tx, ev: CustodyCompletion, asset: AssetDefi
   // Same evidence rules as the legacy path (Step 1 F3): transfer into a vault, not an internal move,
   // network/contract consistent with the signed asset, exact net amount.
   if (ev.operation !== 'TRANSFER' || ev.destinationType !== 'VAULT_ACCOUNT') reject('only custody transfer receipts can settle deposits');
-  if (ev.sourceType === 'VAULT_ACCOUNT' || (ev.sourceVaultId && await tx.wallet.findUnique({ where: { custodyProvider_custodyVaultId: { custodyProvider: ev.provider, custodyVaultId: ev.sourceVaultId } }, select: { id: true } }))) {
+  if (ev.sourceType === 'VAULT_ACCOUNT' || (ev.sourceVaultId && (
+      await tx.wallet.findUnique({ where: { custodyProvider_custodyVaultId: { custodyProvider: ev.provider, custodyVaultId: ev.sourceVaultId } }, select: { id: true } }) ||
+      await tx.user.findUnique({ where: { vaultId: ev.sourceVaultId }, select: { id: true } })))) {
     reject('internal wallet movements must not create a fresh deposit liability');
   }
   if ((ev.network !== undefined && ev.network !== asset.network) || (ev.contract !== undefined && ev.contract !== asset.contract)) reject('network or token contract conflicts with signed provider asset identity');
@@ -176,9 +178,14 @@ async function settleInstruction(tx: Tx, ev: CustodyCompletion, asset: AssetDefi
   // Claim first: only one event can flip PENDING → SETTLED; the rest see IGNORED above on retry.
   const claimed = await tx.depositInstruction.updateMany({
     where: { id: instr.id, status: 'PENDING', expectedAmount: instr.expectedAmount, assetId: instr.assetId },
-    data: { status: 'SETTLED', providerTxId: ev.providerTxId ?? null, txHash: ev.txHash ?? null, receivedAmount: amount!, settledAt: new Date() },
+    data: { status: 'RECEIVED', providerTxId: ev.providerTxId ?? null, txHash: ev.txHash ?? null, receivedAmount: amount!, receivedAt: new Date(), lastReceiptError: null },
   });
-  if (claimed.count !== 1) throw new EventIgnored({ status: 'IGNORED', reason: 'instruction already settled or changed', ...attribution });
+  if (claimed.count !== 1) {
+    // Lost the race: re-read so the reason is true (an expiry sweep or a concurrent receipt got there first).
+    const now = await tx.depositInstruction.findUnique({ where: { id: instr.id }, select: { status: true } });
+    if (now?.status === 'EXPIRED' || now?.status === 'CANCELLED') reject(`instruction became ${now.status} before the receipt was recorded; funds are in custody — operator review`);
+    throw new EventIgnored({ status: 'IGNORED', reason: `instruction already ${now?.status ?? 'changed'}`, ...attribution });
+  }
 
   const journal = await post(tx, {
     eventType: 'DEPOSIT', entityType: 'DepositInstruction', entityId: instr.id,
@@ -191,10 +198,25 @@ async function settleInstruction(tx: Tx, ev: CustodyCompletion, asset: AssetDefi
   });
   if (!journal.created) reject('deposit journal already exists; operator reconciliation required');
   await applyWalletCredit(tx, w.id, asset.id, amount!);
-  await emitInstitutionEvent(tx, { institutionId: instr.institutionId, environmentId: instr.environmentId }, 'deposit.settled', {
-    settlementId: instr.id, kind: 'DEPOSIT', status: 'COMPLETED', walletId: w.id, asset: asset.id, amount: amount!.toFixed(),
+  // Custody confirmed and the wallet is credited, but the public status stays PROCESSING until a
+  // Solana node reports the signature finalized (finalizeReceivedInstructions → deposit.settled).
+  await emitInstitutionEvent(tx, { institutionId: instr.institutionId, environmentId: instr.environmentId }, 'deposit.received', {
+    settlementId: instr.id, kind: 'DEPOSIT', status: 'PROCESSING', finality: 'CUSTODY_CONFIRMED', walletId: w.id, asset: asset.id, amount: amount!.toFixed(),
     reference: instr.reference, trackingId: instr.trackingId, custodyTxId: ev.providerTxId ?? null, txHash: ev.txHash ?? null,
   }, { entityType: 'DepositInstruction', entityId: instr.id });
 
   return { outcome: { status: 'PROCESSED', ...attribution }, result: { credited: amount!, currency: asset.id, asset } };
 }
+
+// A rejected receipt for an instruction is something the institution must see: money arrived and
+// was not credited. Recorded on the instruction and announced, outside the rolled-back transaction.
+onEventIgnored(async (_event, outcome) => {
+  if (outcome.entityType !== 'DepositInstruction' || !outcome.entityId || outcome.status !== 'REJECTED') return;
+  const { prisma } = await import('../core/ledger/ledger.service');
+  await prisma.$transaction(async (tx) => {
+    const i = await tx.depositInstruction.update({ where: { id: outcome.entityId! }, data: { lastReceiptError: outcome.reason ?? 'rejected', lastReceiptAt: new Date() } });
+    await emitInstitutionEvent(tx, { institutionId: i.institutionId, environmentId: i.environmentId }, 'deposit.rejected',
+      { settlementId: i.id, kind: 'DEPOSIT', status: 'PROCESSING', attention: true, reason: outcome.reason ?? 'rejected', walletId: i.walletId, asset: i.assetId, expectedAmount: i.expectedAmount.toFixed(), reference: i.reference, trackingId: i.trackingId },
+      { entityType: 'DepositInstruction', entityId: i.id });
+  });
+});

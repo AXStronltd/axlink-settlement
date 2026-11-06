@@ -11,7 +11,9 @@ const DEV_KEY = Buffer.from('axlink-dev-webhook-encryption-key-32b!!').subarray(
 function key(): Buffer {
   const raw = process.env.WEBHOOK_ENCRYPTION_KEY;
   if (!raw) {
-    if (process.env.NODE_ENV === 'production') throw new Error('WEBHOOK_ENCRYPTION_KEY is required in production');
+    // The committed development key is acceptable only where no real institution can exist.
+    const env = process.env.NODE_ENV ?? 'development';
+    if (env !== 'development' && env !== 'test') throw new Error(`WEBHOOK_ENCRYPTION_KEY is required when NODE_ENV=${env}`);
     return DEV_KEY;
   }
   const buf = /^[0-9a-f]{64}$/i.test(raw) ? Buffer.from(raw, 'hex') : Buffer.from(raw, 'base64');
