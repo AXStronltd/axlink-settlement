@@ -74,7 +74,7 @@ d('6/7/11 · deposits, tenancy and duplicate events against the live app (requir
   let app: import('express').Express; let prisma: any;
   beforeAll(async () => { ({ app } = await import('../index')); ({ prisma } = await import('../core/ledger.service')); });
 
-  it('7 · institution credentials are scoped: a key of institution A cannot read institution B; legacy customer routes have NO tenant scoping (FAIL, known S2)', async () => {
+  it('7 · institution credentials are scoped: a key of institution A cannot read institution B; legacy customer routes now require an actor (F4 fixed)', async () => {
     const ops = { Authorization: `Bearer ${process.env.OPS_API_KEY}` }; const t = Date.now();
     const a = await request(app).post('/api/institutions').set(ops).send({ slug: `inst-a-${t}`, legalName: 'Institution A', country: 'KE', kind: 'BANK' }).expect(201);
     const b = await request(app).post('/api/institutions').set(ops).send({ slug: `inst-b-${t}`, legalName: 'Institution B', country: 'SO', kind: 'BANK' }).expect(201);
@@ -83,10 +83,9 @@ d('6/7/11 · deposits, tenancy and duplicate events against the live app (requir
     const me = await request(app).get('/api/institutions/me').set('Authorization', `Bearer ${ka.body.apiKey}`).expect(200);
     expect(me.body.institution.id).toBe(a.body.id); expect(me.body.institution.id).not.toBe(b.body.id);
     await request(app).get(`/api/institutions/${b.body.id}`).set('Authorization', `Bearer ${ka.body.apiKey}`).expect(401); // institution keys never reach ops routes
-    // legacy customer API: no auth at all → any caller can read any user (documented FAIL)
-    const u = await request(app).post('/api/users').send({ name: 'Tenant Test', email: `t${t}@x.io`, currency: 'USD' });
-    expect([200, 201]).toContain(u.status);
-    const r = await request(app).get(`/api/users/${u.body.userId}`); expect(r.status).toBe(200); // anyone, no key
+    // legacy customer API: was open to anyone (S2); now 401 without an operator or institution key.
+    await request(app).post('/api/users').send({ name: 'Tenant Test', email: `t${t}@x.io`, currency: 'USD' }).expect(401);
+    await request(app).get('/api/users/anything').expect(401);
   });
 
   it('6/11 · Fireblocks deposit webhook (post-remediation): USDC and USDT both credit; replay credits once; unsigned events are refused — full coverage in remediation.step1.test.ts', async () => {

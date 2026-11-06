@@ -1,8 +1,11 @@
 import { Router, Request, Response } from 'express';
+import { protectCustomerApi } from '../core/tenancy/customer-auth.middleware';
 import { createQuote, getQuote, formatQuoteResponse } from '../core/quote.service';
 import { SUPPORTED_CURRENCIES } from '../core/fx.service';
 
 const router = Router();
+// F4: operator or institution credential required; institutions are confined to their own customers.
+router.use(...protectCustomerApi);
 
 // POST /api/quote — request a JIT rate lock
 // Call this BEFORE /api/transfers — user sees the locked rate for 30s

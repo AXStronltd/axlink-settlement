@@ -1,8 +1,11 @@
 import { Router, Request, Response } from 'express';
+import { protectCustomerApi } from '../core/tenancy/customer-auth.middleware';
 import { initiateDeposit, getDepositStatus, listUserDeposits, getAvailableMethods } from '../core/deposit.service';
 import type { DepositMethod } from '../providers/live/brainrock';
 
 const router = Router();
+// F4: operator or institution credential required; institutions are confined to their own customers.
+router.use(...protectCustomerApi);
 
 // GET /api/deposits/methods?currency=GBP
 // Returns which payment methods are available for a given currency.

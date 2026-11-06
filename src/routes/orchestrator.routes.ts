@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import { protectCustomerApi } from '../core/tenancy/customer-auth.middleware';
 import {
   handleFiatArrived,
   handleWithdrawalRequest,
@@ -8,6 +9,8 @@ import {
 import type { PaymentDestination } from '../providers/live/brainrock';
 
 const router = Router();
+// F4: operator or institution credential required; institutions are confined to their own customers.
+router.use(...protectCustomerApi);
 
 // ── Payout Rail Webhook ───────────────────────────────────────────────────────
 // M-Pesa / bank partner POSTs here when fiat arrives at AxLink's account

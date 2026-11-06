@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import { protectCustomerApi, actorInstitutionId } from '../core/tenancy/customer-auth.middleware';
 import { executeTransfer, executeWithdrawal, executeBankDeposit, executeCryptoBuy } from '../core/transfer.service';
 import { prisma, getUser, createUser, getBalance } from '../core/ledger.service';
 import { createVaultAccount } from '../providers/live/fireblocks';
@@ -11,6 +12,9 @@ const CURRENCY_COUNTRY: Record<string, string> = {
 };
 
 const router = Router();
+// F4: operator or institution credential required; institutions are confined to their own customers.
+// This router is mounted at /api, so scope the guard to its own prefixes (never the webhook paths).
+router.use(['/users', '/transfers', '/withdrawals', '/deposits', '/crypto'], ...protectCustomerApi);
 
 // ── Users ─────────────────────────────────────────────────────────────────────
 
@@ -40,7 +44,7 @@ router.post('/users', async (req: Request, res: Response) => {
 
   const vaultId = (vault as { id?: string })?.id ?? '';
 
-  const user = await createUser({ email, name, vaultId, currency });
+  const user = await createUser({ email, name, vaultId, currency, institutionId: actorInstitutionId(req) });
 
   // Persist Brainrock virtual account details
   if (virtualAccount) {
@@ -69,7 +73,8 @@ router.get('/users/lookup', async (req: Request, res: Response) => {
   const email = String(req.query['email'] ?? '').trim().toLowerCase();
   if (!email) { res.status(400).json({ error: 'email is required' }); return; }
   const user = await prisma.user.findFirst({
-    where: { email: { equals: email, mode: 'insensitive' } },
+    // F4: an institution can only look up its own customers; the operator sees all.
+    where: { email: { equals: email, mode: 'insensitive' }, ...(req.actor?.kind === 'institution' ? { institutionId: req.actor.institutionId } : {}) },
     include: { accounts: { select: { currency: true } } },
   });
   if (!user) { res.status(404).json({ error: 'User not found on AxLink' }); return; }

@@ -26,10 +26,11 @@ export async function createUser(data: {
   name: string;
   vaultId: string;
   currency: string; // primary currency
+  institutionId?: string | null; // F4: owning tenant
 }) {
   return prisma.$transaction(async (tx) => {
     const user = await tx.user.create({
-      data: { email: data.email, name: data.name, vaultId: data.vaultId },
+      data: { email: data.email, name: data.name, vaultId: data.vaultId, institutionId: data.institutionId ?? null },
     });
     await tx.account.create({
       data: { userId: user.id, currency: data.currency, balance: 0, balanceUsd: 0 },

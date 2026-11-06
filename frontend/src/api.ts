@@ -1,12 +1,28 @@
 const BASE = '/api'
 
+// F4: the customer API now requires an operator key. This internal dashboard asks for it once and
+// keeps it in sessionStorage (cleared when the tab closes). It is never bundled into the build.
+const KEY_STORAGE = 'axlink.opsKey'
+function opsKey(): string {
+  let k = ''
+  try { k = sessionStorage.getItem(KEY_STORAGE) ?? '' } catch { /* storage unavailable */ }
+  if (!k) {
+    k = window.prompt('AxLink operator key (OPS_API_KEY)') ?? ''
+    try { if (k) sessionStorage.setItem(KEY_STORAGE, k) } catch { /* ignore */ }
+  }
+  return k
+}
+export function clearOpsKey() { try { sessionStorage.removeItem(KEY_STORAGE) } catch { /* ignore */ } }
+
 async function req<T>(path: string, options?: RequestInit): Promise<T> {
+  const key = opsKey()
   const res = await fetch(`${BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...(options?.headers ?? {}) },
+    headers: { 'Content-Type': 'application/json', ...(key ? { Authorization: `Bearer ${key}` } : {}), ...(options?.headers ?? {}) },
     ...options,
   })
   const data = await res.json()
-  if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`)
+  if (res.status === 401) clearOpsKey()
+  if (!res.ok) throw new Error(data?.error?.message ?? data?.error ?? `HTTP ${res.status}`)
   return data as T
 }
 
