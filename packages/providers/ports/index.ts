@@ -20,6 +20,7 @@ export * from './liquidity.port';
 export * from './blockchain.port';
 export * from './cross-chain.port';
 export * from './fiat-payout.port';
+export * from './screening.port';
 import type { CustodyProvider } from './custody.port';
 import type { LiquidityProvider } from './liquidity.port';
 import type { BlockchainProvider } from './blockchain.port';

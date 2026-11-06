@@ -290,7 +290,8 @@ db('outbound settlement transfers', () => {
     const { registerCounterparty, approveCounterparty } = await import('../../packages/settlement/transfers/counterparty.service');
     const A = await institution('prod');
     const env = await prisma.apiEnvironment.findFirst({ where: { institutionId: A.id, kind: 'PRODUCTION' } });
-    const cp = await registerCounterparty({ institutionId: A.id, environmentId: env.id, environmentKind: 'PRODUCTION' }, { label: 'Prod', address: CP_ADDR() });
+    process.env.SCREENING_OPTIONAL = 'true'; // no screening provider in tests; the readiness suite covers the refusal
+    let cp; try { cp = await registerCounterparty({ institutionId: A.id, environmentId: env.id, environmentKind: 'PRODUCTION' }, { label: 'Prod', address: CP_ADDR() }); } finally { delete process.env.SCREENING_OPTIONAL; }
     expect(cp.status).toBe('PENDING_APPROVAL');
     expect((await request(app).get('/api/settlement/counterparties/pending').set(ops).expect(200)).body.map((c: any) => c.id)).toContain(cp.id);
     await request(app).post(`/api/settlement/counterparties/${cp.id}/approve`).set(ops).send({ custodyWhitelisted: false }).expect(400);

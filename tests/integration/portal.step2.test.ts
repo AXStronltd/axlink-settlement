@@ -76,6 +76,12 @@ db('portal connected to the API', () => {
     await page.waitForFunction(() => /available/.test((globalThis as any).document.getElementById('toast')?.textContent ?? ''), null, { timeout: 10_000 });
     expect(await prisma.settlementTransfer.count({ where: { walletId: seededWalletId } })).toBe(transfersBefore);
 
+    // Transactions = the ledger statement; Balances = journal-derived; screens without an API are not in the live nav
+    await page.evaluate(() => (globalThis as any).go('#/app/transactions')); await page.waitForSelector('text=GET /v1/ledger/entries');
+    await page.evaluate(() => (globalThis as any).go('#/app/balances')); await page.waitForSelector('text=GET /v1/balances');
+    expect(await page.locator('nav a:has-text("Compliance")').count()).toBe(0);
+    expect(await page.locator('nav a:has-text("Balances")').count()).toBe(1);
+
     // Developers screen shows the real credential; sign-out clears the key
     await page.evaluate(() => (globalThis as any).go('#/app/developers'));
     await page.waitForSelector('text=Who am I');

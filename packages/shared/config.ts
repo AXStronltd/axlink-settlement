@@ -33,6 +33,11 @@ const schema = z.object({
   BRAINROCK_API_KEY: z.string().optional(), BRAINROCK_TREASURY_ACCOUNT_ID: z.string().optional(),
   CHOICE_BANK_API_KEY: z.string().optional(), DARAJA_CONSUMER_KEY: z.string().optional(), DARAJA_CONSUMER_SECRET: z.string().optional(),
   SOLANA_RPC_URL: z.string().url().optional(),
+  OUTBOUND_SETTLEMENT_ENABLED: z.string().optional(),
+  SCREENING_OPTIONAL: z.string().optional(),
+  TRANSFER_MAX_AMOUNT: z.string().optional(),
+  TRANSFER_DAILY_LIMIT: z.string().optional(),
+  TRANSFER_MAX_PER_HOUR: z.string().optional(),
 });
 export type AppConfig = z.infer<typeof schema>;
 
@@ -62,6 +67,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ConfigReport {
     // that is an outage, so the keys are required at boot.
     if (!cfg.FIREBLOCKS_WEBHOOK_JWKS_URL && (!cfg.FIREBLOCKS_WEBHOOK_PUBLIC_KEY || PLACEHOLDER.test(cfg.FIREBLOCKS_WEBHOOK_PUBLIC_KEY))) prodProblems.push('FIREBLOCKS_WEBHOOK_PUBLIC_KEY is required in production');
     if ([cfg.B2BINPAY_CLIENT_ID, cfg.B2BINPAY_CLIENT_SECRET].some(v => v && !PLACEHOLDER.test(v)) && (!cfg.B2BINPAY_CALLBACK_SECRET || PLACEHOLDER.test(cfg.B2BINPAY_CALLBACK_SECRET))) prodProblems.push('B2BINPAY_CALLBACK_SECRET is required in production');
+    // Things that must be true in production (CLAUDE.md): a dedicated Solana node, deliberate outbound enablement,
+    // sane limits, and a conscious choice about screening.
+    if (!cfg.SOLANA_RPC_URL || /api\.(mainnet-beta|devnet|testnet)\.solana\.com/.test(cfg.SOLANA_RPC_URL)) prodProblems.push('SOLANA_RPC_URL must point at a dedicated node in production (the public endpoint rate-limits finality checks and settlements pile up unproven)');
+    for (const k of ['TRANSFER_MAX_AMOUNT', 'TRANSFER_DAILY_LIMIT', 'TRANSFER_MAX_PER_HOUR'] as const) { const v = cfg[k]; if (v !== undefined && !(Number(v) > 0)) prodProblems.push(`${k} must be a positive number`); }
+    if (cfg.OUTBOUND_SETTLEMENT_ENABLED !== undefined && !['true', 'false'].includes(cfg.OUTBOUND_SETTLEMENT_ENABLED)) prodProblems.push('OUTBOUND_SETTLEMENT_ENABLED must be "true" or "false"');
+    if (cfg.SCREENING_OPTIONAL === 'true') console.warn('[config] SCREENING_OPTIONAL=true: external counterparties can be registered in PRODUCTION without sanctions screening — this must be a documented decision');
     if (prodProblems.length) throw new ConfigError(prodProblems);
   }
   const sandboxProviders = PROVIDER_KEYS.filter(k => { const v = cfg[k]; return !v || PLACEHOLDER.test(String(v)); }).map(String);

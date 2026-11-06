@@ -4,7 +4,8 @@ import { z } from 'zod';
 import { requireOps } from '../platform/ops-auth';
 import { createWallet, listInstitutionWallets, serializeWallet } from '../../../../packages/core/wallets/wallet.service';
 import { createInstitution, getInstitution, listInstitutions, issueCredential, revokeCredential, CreateInstitution } from '../../../../packages/core/institutions/institution.service';
-import { notFound } from '../../../../packages/shared/errors';
+import { notFound, ApiError } from '../../../../packages/shared/errors';
+import { prisma } from '../../../../packages/core/ledger/ledger.service';
 import { requireInstitution } from '../../../../packages/core/tenancy/tenancy.middleware';
 
 /** Every scope the API checks. Issuing an unknown scope (a typo) is refused here rather than failing silently at call time. */
@@ -20,6 +21,18 @@ router.use(requireOps);
 router.post('/', wrap(async (req, res) => { const inst = await createInstitution(CreateInstitution.parse(req.body)); res.status(201).json(inst); }));
 router.get('/', wrap(async (_req, res) => { res.json(await listInstitutions()); }));
 router.get('/:id', wrap(async (req, res) => { const i = await getInstitution(req.params.id as string); if (!i) throw notFound('institution'); res.json(i); }));
+// Operator: outbound policy overrides per environment (null = deployment default).
+const Policy = z.object({ transferDailyLimit: z.string().regex(/^\d{1,18}(\.\d{1,18})?$/).nullable().optional(), transferMaxAmount: z.string().regex(/^\d{1,18}(\.\d{1,18})?$/).nullable().optional(), transferMaxPerHour: z.number().int().min(1).max(100_000).nullable().optional(), settlementWalletId: z.string().nullable().optional() });
+router.patch('/:id/environments/:kind/policy', wrap(async (req, res) => {
+  const kind = String(req.params.kind).toUpperCase(); if (kind !== 'SANDBOX' && kind !== 'PRODUCTION') throw new ApiError('VALIDATION_ERROR', 'kind must be SANDBOX or PRODUCTION', 400);
+  const b = Policy.parse(req.body);
+  const env = await prisma.apiEnvironment.findUnique({ where: { institutionId_kind: { institutionId: String(req.params.id), kind } } });
+  if (!env) throw new ApiError('NOT_FOUND', 'environment not found', 404);
+  if (b.settlementWalletId) { const w = await prisma.wallet.findFirst({ where: { id: b.settlementWalletId, environmentId: env.id, status: 'ACTIVE' } }); if (!w) throw new ApiError('NOT_FOUND', 'settlement wallet must be an ACTIVE wallet of this environment', 404); }
+  const u = await prisma.apiEnvironment.update({ where: { id: env.id }, data: { ...(b.transferDailyLimit !== undefined ? { transferDailyLimit: b.transferDailyLimit } : {}), ...(b.transferMaxAmount !== undefined ? { transferMaxAmount: b.transferMaxAmount } : {}), ...(b.transferMaxPerHour !== undefined ? { transferMaxPerHour: b.transferMaxPerHour } : {}), ...(b.settlementWalletId !== undefined ? { settlementWalletId: b.settlementWalletId } : {}) } });
+  res.json({ environment: kind, policy: { transferDailyLimit: u.transferDailyLimit?.toFixed() ?? null, transferMaxAmount: u.transferMaxAmount?.toFixed() ?? null, transferMaxPerHour: u.transferMaxPerHour, settlementWalletId: u.settlementWalletId } });
+}));
+
 router.post('/:id/credentials', wrap(async (req, res) => {
   const d = z.object({ environment: z.enum(['SANDBOX', 'PRODUCTION']), label: z.string().min(1).max(80), scopes: z.array(z.enum(KNOWN_SCOPES)).default([]) }).parse(req.body);
   const r = await issueCredential(req.params.id as string, d.environment, d.label, d.scopes);

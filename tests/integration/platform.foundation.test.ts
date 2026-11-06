@@ -17,7 +17,7 @@ describe('config validation', () => {
     expect(r.config.PORT).toBe(4000); expect(r.sandboxProviders).toContain('FIREBLOCKS_API_KEY');
   });
   it('production foundation boots without an optional B2INPAY adapter, but configured adapters require a webhook secret', () => {
-    const env = { NODE_ENV: 'production', DATABASE_URL: 'postgresql://u@localhost/db', API_BASE_URL: 'https://api.example.test/api', OPS_API_KEY: 'k'.repeat(32), FIREBLOCKS_WORKSPACE_ID: 'test-workspace', FIREBLOCKS_WEBHOOK_PUBLIC_KEY: 'test-public-key', WEBHOOK_ENCRYPTION_KEY: 'a'.repeat(64) };
+    const env = { NODE_ENV: 'production', DATABASE_URL: 'postgresql://u@localhost/db', API_BASE_URL: 'https://api.example.test/api', OPS_API_KEY: 'k'.repeat(32), FIREBLOCKS_WORKSPACE_ID: 'test-workspace', FIREBLOCKS_WEBHOOK_PUBLIC_KEY: 'test-public-key', WEBHOOK_ENCRYPTION_KEY: 'a'.repeat(64), SOLANA_RPC_URL: 'https://solana.dedicated.example/rpc' };
     expect(() => loadConfig(env)).not.toThrow();
     for (const key of ['B2BINPAY_CLIENT_ID', 'B2BINPAY_CLIENT_SECRET']) {
       expect(() => loadConfig({ ...env, [key]: 'configured' })).toThrow(/B2BINPAY_CALLBACK_SECRET/);
@@ -66,12 +66,17 @@ d('http foundation (requires DATABASE_URL)', () => {
     const c = await request(app).post('/api/institutions').set(ops).send({ slug, legalName: 'Test Bank', country: 'KE', kind: 'BANK' }).expect(201);
     expect(c.body.environments.map((e: any) => `${e.kind}:${e.status}`).sort()).toEqual(['PRODUCTION:DISABLED', 'SANDBOX:ACTIVE']);
     const bad = await request(app).post('/api/institutions').set(ops).send({ slug: 'BAD SLUG', legalName: 'x', country: 'Kenya', kind: 'BANK' }).expect(400); expect(bad.body.error.code).toBe('VALIDATION_ERROR');
+    // keys are issued only after onboarding (ACTIVE)
+    expect((await request(app).post(`/api/institutions/${c.body.id}/credentials`).set(ops).send({ environment: 'SANDBOX', label: 'ci', scopes: ['settlements:read'] }).expect(409)).body.error.code).toBe('INSTITUTION_INACTIVE');
+    { const { prisma } = await import('../../packages/core/ledger/ledger.service'); await prisma.institution.update({ where: { id: c.body.id }, data: { status: 'ACTIVE' } }); }
     const k = await request(app).post(`/api/institutions/${c.body.id}/credentials`).set(ops).send({ environment: 'SANDBOX', label: 'ci', scopes: ['settlements:read'] }).expect(201);
     expect(k.body.apiKey).toMatch(/^axlk_test_/); expect(k.body.credential.prefix).toBe(k.body.apiKey.slice(0, 20));
     await request(app).post(`/api/institutions/${c.body.id}/credentials`).set(ops).send({ environment: 'PRODUCTION', label: 'x' }).expect(409); // production disabled
-    // institution is PENDING → key refused until ACTIVE
-    await request(app).get('/api/institutions/me').set('Authorization', `Bearer ${k.body.apiKey}`).expect(401);
-    const { prisma } = await import('../../packages/core/ledger/ledger.service'); await prisma.institution.update({ where: { id: c.body.id }, data: { status: 'ACTIVE' } });
+    // a suspended institution's keys stop authenticating at once; reactivation restores them
+    { const { prisma } = await import('../../packages/core/ledger/ledger.service');
+      await prisma.institution.update({ where: { id: c.body.id }, data: { status: 'SUSPENDED' } });
+      await request(app).get('/api/institutions/me').set('Authorization', `Bearer ${k.body.apiKey}`).expect(401);
+      await prisma.institution.update({ where: { id: c.body.id }, data: { status: 'ACTIVE' } }); }
     const me = await request(app).get('/api/institutions/me').set('Authorization', `Bearer ${k.body.apiKey}`).expect(200); expect(me.body.environment).toBe('SANDBOX'); expect(me.body.institution.slug).toBe(slug);
     await request(app).get('/api/institutions/me').set('Authorization', `Bearer ${k.body.apiKey}x`).expect(401);
     await request(app).post(`/api/institutions/${c.body.id}/credentials/${k.body.credential.id}/revoke`).set(ops).expect(200);

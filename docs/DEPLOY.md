@@ -1,33 +1,17 @@
-# Deploying to DigitalOcean
+# Deploying AxLink (Leg A)
 
-## Before the first deploy: create the migration baseline
+> **Authorisation.** Nothing in this repository deploys to production on its own. A production deploy
+> happens only when the owner has signed off the go-live checklist in [GO-LIVE.md](GO-LIVE.md). The
+> sandbox deployment described here is the one engineers and integrators use.
 
-**This repository has no `prisma/migrations/` directory.** `CLAUDE.md` documents
-the workaround — use `prisma db push` — which is fine on a laptop and wrong for a
-production database that moves customer money. There is no schema history, no
-review of schema changes, no rollback, and `prisma migrate deploy` in a pipeline
-silently does nothing at all, so a deploy appears to succeed against a database
-that never migrated.
+## Migrations
 
-Generate the baseline once, on your Mac:
-
-```bash
-./scripts/create-baseline-migration.sh
-git add prisma/migrations
-git commit -m "Add migration baseline"
-```
-
-> This could not be run for you. Prisma downloads its engine binaries from
-> `binaries.prisma.sh`, which is blocked by egress policy in both the cloud
-> workspace and the sandboxed Linux VM (403 from the proxy on every attempt).
-> Your Mac already has the `darwin-arm64` engines in `node_modules`, so the
-> script works there natively. It is one command.
-
-After that, every schema change follows the normal flow:
-
-```bash
-npx prisma migrate dev --name describe_the_change
-```
+`prisma/migrations/` is the schema history (baseline, Step 1, every Step 2 slice). Apply it with
+`npx prisma migrate deploy` on an isolated database; new changes go through
+`npx prisma migrate dev --name <change>` (or `migrate diff` + a hand-named folder when the dev
+command cannot run non-interactively). One index is a Postgres partial unique index that Prisma
+cannot express (`OperationalException_open_one_per_subject`); `prisma migrate diff` reports no
+drift for it — if a future tool proposes dropping it, keep it.
 
 ## Deploy
 
@@ -37,7 +21,7 @@ doctl apps update <APP_ID> --spec .do/app.yaml   # afterwards
 ```
 
 The spec provisions managed Postgres 16, runs `prisma migrate deploy` as a
-`PRE_DEPLOY` job, then rolls out the API and the static frontend.
+`PRE_DEPLOY` job, then rolls out the API, which also serves the institution portal at `/portal`.
 
 Migrations run as a pre-deploy job rather than from the start command on
 purpose: from the start command, the first request can arrive before the
@@ -59,8 +43,15 @@ Variables**, or with `doctl`. Nothing sensitive is committed.
 | `FIREBLOCKS_WEBHOOK_PUBLIC_KEY` | Full PEM |
 | `B2BINPAY_CLIENT_ID` / `_SECRET` / `_CALLBACK_SECRET` / `_WALLET_ID` | |
 | `BRAINROCK_API_KEY` / `_WEBHOOK_SECRET` / `_TREASURY_ACCOUNT_ID` | |
-| `OPS_API_KEY` | Gates every `/api/settlement/*` route except the public proof endpoint |
+| `OPS_API_KEY` | Gates every `/api/settlement/*` route except the public proof endpoint; also the operator console sign-in |
+| `WEBHOOK_ENCRYPTION_KEY` | 64 hex chars; encrypts institution webhook secrets at rest. Required in production |
 | `RECON_ONCHAIN_ADDRESSES` | `label=address,label=address` |
+| `OUTBOUND_SETTLEMENT_ENABLED` | `false` until go-live is signed off. With it unset, PRODUCTION transfers are refused at create, approve and submit |
+| `SCREENING_OPTIONAL` | Leave unset. `true` lets PRODUCTION register external counterparties without a screening provider — a documented decision only |
+| `TRANSFER_MAX_AMOUNT` / `TRANSFER_DAILY_LIMIT` / `TRANSFER_MAX_PER_HOUR` | Deployment defaults (1,000,000 / 5,000,000 / 200); operations override per institution environment with `PATCH /api/institutions/{id}/environments/{kind}/policy` |
+| `TRANSFER_AUTO_APPROVE_LIMIT_SANDBOX` | Sandbox-only auto-approval threshold (100,000). PRODUCTION always needs an operator |
+| `MAX_WALLETS_PER_ENVIRONMENT` | 20 |
+| `PORTAL_FILE` | Path to `apps/web/index.html` if not resolvable from the API's module directory |
 
 ### The Fireblocks key is a file
 
@@ -95,11 +86,19 @@ curl -s -H "Authorization: Bearer $OPS_API_KEY" \
 # Anything stuck? This should be empty.
 curl -s -H "Authorization: Bearer $OPS_API_KEY" \
   https://<app>/api/settlement/stuck
+
+# Open exceptions? Every row is something a person must look at.
+curl -s -H "Authorization: Bearer $OPS_API_KEY" \
+  https://<app>/api/settlement/exceptions
+
+# The certification pack, against this environment's database
+DATABASE_URL=… OPS_API_KEY=… npm run certify
 ```
 
 A deploy is not good because it returned 200 on `/api/health`. It is good when
-the trial balance is balanced, `/settlement/stuck` is empty, and
-`/settlement/infra` reports a reachable node.
+the trial balance is balanced, `/settlement/stuck` is empty, `/settlement/exceptions`
+has no CRITICAL item, `/settlement/infra` reports a reachable dedicated node, and
+`npm run certify` passes.
 
 ## Running two instances
 
@@ -117,7 +116,10 @@ does not change; only the efficiency one does.
 
 | When | What |
 |---|---|
-| Every deploy | trial balance, `/settlement/stuck`, `/settlement/infra` |
+| Every deploy | trial balance, `/settlement/stuck`, `/settlement/exceptions`, `/settlement/infra`, `npm run certify` |
+| Start of day | `/settlement/stuck` empty; exception queue reviewed in the operator console (Alerts) |
+| Close of day | `POST /settlement/reconcile` FULL; suspense zero; no CRITICAL exception open |
+| Each approval | Approvals screen: destination (address or participant) and policy checks read before approving |
 | Daily | `POST /api/settlement/reconcile` with `{"kind":"FULL"}` |
 | Daily | Suspense must be zero. A non-zero suspense balance is a customer debited and not delivered. |
 | Weekly | `GET /api/settlement/providers/health` — success rate is over payouts, not quotes |

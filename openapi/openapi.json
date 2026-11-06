@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "AxLink API",
-    "version": "2.4.1-step2",
+    "version": "2.5.0-step2",
     "description": "AxLink \u2014 provider-agnostic institutional settlement network. `/v1/*` is the institution contract (Architecture Blueprint names). Older paths under /api are aliases of the same services. Leg A: USDC and USDT on Solana in regulated custody; fiat legs are out of scope."
   },
   "servers": [
@@ -659,6 +659,27 @@
             "type": "string",
             "nullable": true,
             "description": "NETWORK: the participant institution slug"
+          },
+          "screening": {
+            "type": "object",
+            "nullable": true,
+            "properties": {
+              "verdict": {
+                "type": "string",
+                "enum": [
+                  "CLEAR",
+                  "REVIEW",
+                  "BLOCKED"
+                ]
+              },
+              "provider": {
+                "type": "string"
+              },
+              "at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
           }
         }
       },
@@ -1016,7 +1037,7 @@
             "description": "Issued"
           },
           "409": {
-            "description": "Environment disabled"
+            "description": "INSTITUTION_INACTIVE (keys are issued only after onboarding) or ENVIRONMENT_DISABLED"
           }
         }
       }
@@ -2459,10 +2480,13 @@
             "description": "IDEMPOTENCY_MISMATCH, WALLET_NOT_ACTIVE, COUNTERPARTY_NOT_ACTIVE"
           },
           "422": {
-            "description": "INSUFFICIENT_BALANCE, POLICY_LIMIT (details carry the checks)"
+            "description": "INSUFFICIENT_BALANCE, POLICY_LIMIT, POLICY_DAILY_LIMIT (details carry the checks: available, reserved, sentToday, dailyLimit)"
           },
           "503": {
             "description": "OUTBOUND_DISABLED (production outbound not enabled on this deployment)"
+          },
+          "429": {
+            "description": "POLICY_VELOCITY \u2014 more than the hourly transfer count"
           }
         },
         "requestBody": {
@@ -2698,13 +2722,16 @@
             "description": "Credential lacks counterparties:write"
           },
           "400": {
-            "description": "INVALID_ADDRESS, ADDRESS_IS_AXLINK_WALLET, validation"
+            "description": "INVALID_ADDRESS, ADDRESS_IS_AXLINK_WALLET, ADDRESS_BLOCKED (screening), validation"
           },
           "409": {
             "description": "COUNTERPARTY_EXISTS, PARTICIPANT_NOT_READY (no active wallet in this environment)"
           },
           "404": {
             "description": "PARTICIPANT_NOT_FOUND"
+          },
+          "503": {
+            "description": "SCREENING_UNAVAILABLE \u2014 PRODUCTION without a screening provider"
           }
         },
         "requestBody": {
@@ -3486,6 +3513,138 @@
           },
           "409": {
             "description": "NOT_UNDER_REVIEW, PARTICIPANT_NOT_READY"
+          }
+        }
+      }
+    },
+    "/v1/wallets/{id}/settlement-default": {
+      "post": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "Designate the wallet that receives network settlements in this environment (default: oldest ACTIVE wallet)",
+        "security": [
+          {
+            "institutionKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "settlementWalletId": {
+                      "type": "string"
+                    },
+                    "environment": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key"
+          },
+          "403": {
+            "description": "Credential lacks wallets:write"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "409": {
+            "description": "WALLET_NOT_ACTIVE"
+          }
+        }
+      }
+    },
+    "/institutions/{id}/environments/{kind}/policy": {
+      "patch": {
+        "tags": [
+          "Operations"
+        ],
+        "summary": "Operator: outbound policy overrides for one environment (null = deployment default): transferDailyLimit, transferMaxAmount, transferMaxPerHour, settlementWalletId",
+        "security": [
+          {
+            "opsKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "SANDBOX",
+                "PRODUCTION"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "transferDailyLimit": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "transferMaxAmount": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "transferMaxPerHour": {
+                    "type": "integer",
+                    "nullable": true
+                  },
+                  "settlementWalletId": {
+                    "type": "string",
+                    "nullable": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "400": {
+            "description": "Validation"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Environment or wallet not found"
           }
         }
       }

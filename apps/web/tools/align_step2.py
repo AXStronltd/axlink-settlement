@@ -295,3 +295,15 @@ rep("""function signOut(){ var wasOp=(ROLE==='operator'); disconnectLive(); toas
 rep("""'<main class="content">'+(LIVE.me?'':""", """'<main class="content">'+((LIVE.me||OPS.on)?'':""", marker="(LIVE.me||OPS.on)")
 open('index.html', 'w', encoding='utf-8').write(src)
 print('slice 6b applied')
+
+# ── Slice 7: Transactions and Balances live; screens without an API leave the live nav; screening verdict on counterparties ──
+src = open('index.html', encoding='utf-8').read()
+for fn, live_fn in [('appTransactions', 'liveTransactions'), ('appBalances', 'liveBalances')]:
+    rep('function ' + fn + '(){\n', 'function ' + fn + '(){\n  if(LIVE.me&&ROLE===\'client\') return ' + live_fn + '();\n')
+rep("""  var items = (ROLE==='operator')?operatorNav:clientNav;""",
+"""  var items = (ROLE==='operator')?operatorNav:clientNav;
+  // Live mode shows only screens backed by the API; the rest return as their APIs land.
+  if(LIVE.me&&ROLE==='client') items=items.filter(function(it){ return ['#/app','#/app/treasury','#/app/payments','#/app/contacts','#/app/webhooks','#/app/transactions','#/app/balances','#/app/developers'].indexOf(it[1])>=0; });
+  if(OPS.on&&ROLE==='operator') items=items.filter(function(it){ return ['#/app/alerts','#/app/approvals','#/app/providers'].indexOf(it[1])>=0; });""", marker="Live mode shows only screens backed by the API")
+open('index.html', 'w', encoding='utf-8').write(src)
+print('slice 7 applied')

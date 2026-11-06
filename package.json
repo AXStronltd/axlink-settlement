@@ -15,6 +15,7 @@
     "typecheck": "tsc --noEmit",
     "check:web": "node scripts/check-web.js",
     "verify": "npm run typecheck && npm run check:web && vitest run",
+    "certify": "vitest run tests/certification",
     "seed:sandbox": "ts-node scripts/seed-sandbox.ts"
   },
   "keywords": [],

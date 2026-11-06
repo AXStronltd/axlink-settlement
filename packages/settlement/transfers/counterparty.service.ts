@@ -53,7 +53,21 @@ async function registerNetworkCounterparty(scope: Scope & { environmentKind: 'SA
 export async function settlementWalletFor(institutionId: string, environmentKind: 'SANDBOX' | 'PRODUCTION', db: Prisma.TransactionClient | typeof prisma = prisma, match: { network?: string; custodyProvider?: string } = {}) {
   // The participant itself must be ACTIVE (a suspended institution receives nothing), its environment too,
   // and the wallet must sit on the same network and custodian as the sender's so an internal move is possible.
-  return db.wallet.findFirst({ where: { institutionId, status: 'ACTIVE', ...(match.network ? { network: match.network } : {}), ...(match.custodyProvider ? { custodyProvider: match.custodyProvider } : {}), environment: { kind: environmentKind, status: 'ACTIVE' }, institution: { status: 'ACTIVE' } }, orderBy: { createdAt: 'asc' } });
+  const base = { institutionId, status: 'ACTIVE' as const, ...(match.network ? { network: match.network } : {}), ...(match.custodyProvider ? { custodyProvider: match.custodyProvider } : {}), environment: { kind: environmentKind, status: 'ACTIVE' as const }, institution: { status: 'ACTIVE' as const } };
+  // An explicitly designated settlement wallet wins; it must still pass every check above.
+  const env = await db.apiEnvironment.findFirst({ where: { institutionId, kind: environmentKind }, select: { settlementWalletId: true } });
+  if (env?.settlementWalletId) { const w = await db.wallet.findFirst({ where: { ...base, id: env.settlementWalletId } }); if (w) return w; }
+  return db.wallet.findFirst({ where: base, orderBy: { createdAt: 'asc' } });
+}
+
+/** The institution designates which of its wallets receives network settlements in this environment. */
+export async function setSettlementWallet(scope: Scope, walletId: string) {
+  const w = await prisma.wallet.findFirst({ where: { id: walletId, institutionId: scope.institutionId, environmentId: scope.environmentId } });
+  if (!w) throw new ApiError('NOT_FOUND', 'wallet not found', 404);
+  if (w.status !== 'ACTIVE') throw new ApiError('WALLET_NOT_ACTIVE', `wallet is ${w.status}`, 409);
+  await prisma.apiEnvironment.update({ where: { id: scope.environmentId }, data: { settlementWalletId: w.id } });
+  log.info('settlement_wallet.set', { institutionId: scope.institutionId, environmentId: scope.environmentId, walletId: w.id });
+  return w;
 }
 
 export async function registerCounterparty(scope: Scope & { environmentKind: 'SANDBOX' | 'PRODUCTION' }, input: RegisterCounterpartyInput) {
@@ -68,10 +82,17 @@ export async function registerCounterparty(scope: Scope & { environmentKind: 'SA
   const own = await prisma.wallet.findFirst({ where: { depositAddress: address }, select: { institutionId: true } });
   if (own) throw new ApiError('ADDRESS_IS_AXLINK_WALLET', 'this address is an AxLink custody wallet; settle to it with a deposit instruction on that institution, not an outbound transfer', 400);
   const sandbox = scope.environmentKind === 'SANDBOX';
+  // Screening: BLOCKED is refused outright; REVIEW waits for an operator even in sandbox; CLEAR takes the usual path.
+  // Production never registers an unscreened external address unless SCREENING_OPTIONAL=true was set deliberately.
+  const screener = providers.screening();
+  if (!sandbox && !screener.configured() && process.env.SCREENING_OPTIONAL !== 'true') throw new ApiError('SCREENING_UNAVAILABLE', 'no screening provider is configured on this deployment; external counterparties cannot be registered in PRODUCTION', 503);
+  const screening = await screener.screenAddress(address, network);
+  if (screening.verdict === 'BLOCKED') { log.warn('counterparty.blocked', { institutionId: scope.institutionId, network, reasons: screening.reasons }); throw new ApiError('ADDRESS_BLOCKED', 'this address cannot be registered as a counterparty', 400, { screening: { provider: screening.provider, verdict: screening.verdict } }); }
+  const autoActive = sandbox && screening.verdict === 'CLEAR';
   try {
     const cp = await prisma.counterparty.create({ data: {
-      institutionId: scope.institutionId, environmentId: scope.environmentId, label: input.label, network, address, note: input.note ?? null,
-      ...(sandbox ? { status: 'ACTIVE', approvedBy: 'sandbox-auto', approvedAt: new Date(), custodyWhitelisted: false } : {}),
+      institutionId: scope.institutionId, environmentId: scope.environmentId, label: input.label, network, address, note: input.note ?? null, screening: screening as unknown as Prisma.InputJsonValue,
+      ...(autoActive ? { status: 'ACTIVE', approvedBy: 'sandbox-auto', approvedAt: new Date(), custodyWhitelisted: false } : {}),
     } });
     log.info('counterparty.registered', { institutionId: scope.institutionId, counterpartyId: cp.id, network, status: cp.status });
     return cp;
@@ -120,5 +141,5 @@ export async function rejectCounterparty(id: string, by: string, reason: string)
 }
 
 export function serializeCounterparty(c: Counterparty) {
-  return { id: c.id, label: c.label, kind: c.kind, network: c.network, address: c.kind === 'NETWORK' ? null : c.address, participant: c.kind === 'NETWORK' ? c.address.replace(/^network:/, '') : null, status: c.status, approvedAt: c.approvedAt, custodyWhitelisted: c.custodyWhitelisted, note: c.note, createdAt: c.createdAt };
+  return { id: c.id, label: c.label, kind: c.kind, screening: c.screening ? { verdict: (c.screening as { verdict: string }).verdict, provider: (c.screening as { provider: string }).provider, at: (c.screening as { at: string }).at } : null, network: c.network, address: c.kind === 'NETWORK' ? null : c.address, participant: c.kind === 'NETWORK' ? c.address.replace(/^network:/, '') : null, status: c.status, approvedAt: c.approvedAt, custodyWhitelisted: c.custodyWhitelisted, note: c.note, createdAt: c.createdAt };
 }

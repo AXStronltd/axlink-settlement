@@ -53,6 +53,12 @@ router.post('/wallets', requireScope('wallets:write'), wrap(async (req, res) => 
   const w = await createWallet({ institutionId: t.institutionId, environmentKind: t.environmentKind, label: b.label, network: b.network });
   res.status(201).json(await serializeWallet({ ...w, environment: { kind: t.environmentKind } }));
 }));
+// The institution designates which wallet receives network settlements in this environment (default: oldest ACTIVE).
+router.post('/wallets/:id/settlement-default', requireScope('wallets:write'), wrap(async (req, res) => {
+  const { setSettlementWallet } = await import('../../../../packages/settlement/transfers/counterparty.service');
+  const t = req.tenant!; const w = await setSettlementWallet({ institutionId: t.institutionId, environmentId: t.environmentId }, req.params.id as string);
+  res.json({ settlementWalletId: w.id, environment: t.environmentKind });
+}));
 router.use('/wallets', walletRoutes);
 
 // One receiving address serves every supported asset on the wallet's network.

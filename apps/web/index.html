@@ -1015,6 +1015,9 @@ function appShell(active,content){
     ['Team','#/app/team','◉'],['Settings','#/app/settings','⚙']
   ];
   var items = (ROLE==='operator')?operatorNav:clientNav;
+  // Live mode shows only screens backed by the API; the rest return as their APIs land.
+  if(LIVE.me&&ROLE==='client') items=items.filter(function(it){ return ['#/app','#/app/treasury','#/app/payments','#/app/contacts','#/app/webhooks','#/app/transactions','#/app/balances','#/app/developers'].indexOf(it[1])>=0; });
+  if(OPS.on&&ROLE==='operator') items=items.filter(function(it){ return ['#/app/alerts','#/app/approvals','#/app/providers'].indexOf(it[1])>=0; });
   var nav=items.map(function(it){return '<a href="javascript:void(0)" onclick="closeDashNav();return go('+"'"+it[1]+"'"+')" class="'+(active===it[1]?'active':'')+'"><span style="width:17px;display:inline-block;text-align:center">'+it[2]+'</span>'+it[0]+'</a>';}).join('');
   // role identity
   var id = (ROLE==='operator')
@@ -1144,6 +1147,7 @@ function appOverview(){
 }
 
 function appTransactions(){
+  if(LIVE.me&&ROLE==='client') return liveTransactions();
   var isOp=(ROLE==='operator');
   var txData = isOp ? DATA.transactions : DATA.transactions.filter(function(t){return t.from==='GlobalPay Ltd'||t.to==='GlobalPay Ltd'||t.from.indexOf('GlobalPay')>-1||t.to.indexOf('GlobalPay')>-1;});
   if(!isOp && txData.length<3){ txData=DATA.transactions.slice(0,6); } // ensure client has sample rows
@@ -1585,6 +1589,7 @@ function appAccounts(){
   );
 }
 function appBalances(){
+  if(LIVE.me&&ROLE==='client') return liveBalances();
   var rows=DATA.balances.map(function(b){return '<tr><td><span style="display:inline-flex;align-items:center;gap:8px"><span style="width:9px;height:9px;border-radius:50%;background:'+b.color+'"></span><b>'+b.cur+'</b></span></td><td>'+b.avail+'</td><td style="color:var(--amber)">'+b.hold+'</td><td style="font-weight:500">'+b.total+'</td><td><div class="bar-track" style="width:140px"><div class="bar-fill" style="width:'+(60+Math.random()*35)+'%;background:'+b.color+'"></div></div></td></tr>';}).join('');
   return appShell('#/app/balances',
    pageHead('Balances','Available, on-hold and total balances by currency.','<span class="sel">All Currencies</span><button class="btn btn-primary btn-sm" onclick="return go(\'#/app/treasury\')">Manage wallet</button>')+
@@ -2165,7 +2170,7 @@ function liveCreateSettlement(){
 }
 function liveCancelTransfer(id){ axApi('POST','/transfers/'+id+'/cancel').then(function(){ toast('Settlement cancelled'); refreshLive(); }).catch(function(e){ toast(e.message,'!'); }); }
 function liveCounterparties(){
-  var rows=(LIVE.counterparties||[]).map(function(c){ return '<tr><td style="font-weight:500">'+c.label+'</td><td style="color:var(--ink-2)">'+c.network+'</td><td class="mono" style="font-size:11px;color:var(--teal)" title="'+(c.address||'')+'">'+(c.kind==='NETWORK'?'<span class="chip" style="padding:2px 8px"><span class="d" style="background:var(--teal)"></span>network · '+c.participant+'</span>':(c.address.slice(0,8)+'…'+c.address.slice(-8)))+'</td><td style="color:var(--ink-2)">'+(c.kind==='NETWORK'?'inside AxLink custody':c.custodyWhitelisted?'custody whitelisted':(c.status==='PENDING_APPROVAL'?'awaiting operator':c.status==='ACTIVE'?'sandbox auto':'—'))+'</td><td>'+liveBadge(c.status)+'</td><td>'+(c.status==='ACTIVE'?'<button class="btn btn-primary btn-sm" onclick="liveOpenSettlement()">Settle</button> <button class="btn btn-ghost btn-sm" onclick="liveDisableCounterparty(\''+c.id+'\')">Disable</button>':'')+'</td></tr>'; }).join('')||'<tr><td colspan="6" style="color:var(--ink-3)">No counterparties yet — register one.</td></tr>';
+  var rows=(LIVE.counterparties||[]).map(function(c){ return '<tr><td style="font-weight:500">'+c.label+'</td><td style="color:var(--ink-2)">'+c.network+'</td><td class="mono" style="font-size:11px;color:var(--teal)" title="'+(c.address||'')+'">'+(c.kind==='NETWORK'?'<span class="chip" style="padding:2px 8px"><span class="d" style="background:var(--teal)"></span>network · '+c.participant+'</span>':(c.address.slice(0,8)+'…'+c.address.slice(-8)))+'</td><td style="color:var(--ink-2)">'+(c.kind==='NETWORK'?'inside AxLink custody':(c.screening?'screened '+c.screening.verdict+' · ':'')+(c.custodyWhitelisted?'custody whitelisted':(c.status==='PENDING_APPROVAL'?'awaiting operator':c.status==='ACTIVE'?'sandbox auto':'—')))+'</td><td>'+liveBadge(c.status)+'</td><td>'+(c.status==='ACTIVE'?'<button class="btn btn-primary btn-sm" onclick="liveOpenSettlement()">Settle</button> <button class="btn btn-ghost btn-sm" onclick="liveDisableCounterparty(\''+c.id+'\')">Disable</button>':'')+'</td></tr>'; }).join('')||'<tr><td colspan="6" style="color:var(--ink-3)">No counterparties yet — register one.</td></tr>';
   return appShell('#/app/contacts', liveHead()+pageHead('Counterparties','Who you may settle to — GET /v1/counterparties. A network participant (another AxLink institution) is active at once and settles inside custody. An external address: sandbox ACTIVE at once, production after an operator confirms custody whitelisting.','<button class="btn btn-primary btn-sm" onclick="liveOpenCounterparty()">+ Register counterparty</button>')+
    tableCard('Counterparties',['Label','Network','Address','Approval','Status',''],rows));
 }
@@ -2270,6 +2275,21 @@ function opsProviders(){
    tableCard('Adapters',['Role','Provider','Credentials','Health','Detail'],rows));
 }
 (function(){ if(opsKey()&&opsBase()){ opsApi('GET','/providers').then(function(){ OPS.on=true; ROLE='operator'; if(CURRENT.indexOf('#/app')!==0) CURRENT='#/app/alerts'; refreshOps(); }).catch(function(){ disconnectOps(); }); } })();
+
+/* ===== Slice 7: the last institution screens go live; screens with no API behind them leave the live nav ===== */
+LIVE.entries=null; LIVE.entriesCursor=null;
+function liveTransactions(){
+  if(LIVE.entries===null){ LIVE.entries=[]; axApi('GET','/ledger/entries?limit=50').then(function(v){ LIVE.entries=v.entries; LIVE.entriesCursor=v.nextCursor; render(); }).catch(function(e){ toast(e.message,'!'); }); }
+  var rows=(LIVE.entries||[]).map(function(e){ return e.lines.map(function(l,i){ return '<tr>'+(i===0?'<td class="txid" rowspan="'+e.lines.length+'">'+e.id.slice(-10)+'</td><td rowspan="'+e.lines.length+'" style="color:var(--ink-2)">'+e.eventType+'<div style="font-size:10.5px;color:var(--ink-3)">'+e.entityType+' · '+String(e.entityId||'').slice(-10)+'</div></td>':'')+'<td class="mono" style="font-size:11px">'+l.account.split(':')[0]+'</td><td style="color:var(--ink-2)">'+l.asset+'</td><td class="mono" style="font-size:12px;color:'+(l.amount.charAt(0)==='-'?'#f87171':'var(--teal)')+'">'+l.amount+'</td>'+(i===0?'<td rowspan="'+e.lines.length+'" style="color:var(--ink-3)">'+new Date(e.postedAt).toLocaleString()+'</td>':'')+'</tr>'; }).join(''); }).join('')||'<tr><td colspan="6" style="color:var(--ink-3)">No ledger entries yet.</td></tr>';
+  return appShell('#/app/transactions', liveHead()+pageHead('Transactions','Your statement, straight from the double-entry journal — GET /v1/ledger/entries. Every row is one posting on an account you own; the other side of each entry stays with its owner.',(LIVE.entriesCursor?'<button class="btn btn-ghost btn-sm" onclick="liveMoreEntries()">Older</button>':''))+
+   tableCard('Ledger entries',['Entry','Event','Account','Asset','Amount','Posted'],rows));
+}
+function liveMoreEntries(){ axApi('GET','/ledger/entries?limit=50&cursor='+encodeURIComponent(liveUnesc(LIVE.entriesCursor))).then(function(v){ LIVE.entries=LIVE.entries.concat(v.entries); LIVE.entriesCursor=v.nextCursor; render(); }).catch(function(e){ toast(e.message,'!'); }); }
+function liveBalances(){
+  var b=LIVE.balances; var rows=((b&&b.balances)||[]).map(function(x){ return '<tr><td style="font-weight:500">'+x.symbol+'</td><td style="color:var(--ink-2)">'+x.asset+' · '+x.network+'</td><td class="mono" style="font-size:13px">'+x.available+'</td><td style="color:var(--ink-2);font-size:12px">'+x.wallets.map(function(w){ return w.walletId.slice(-6)+': '+w.available; }).join(' · ')+'</td></tr>'; }).join('')||'<tr><td colspan="4" style="color:var(--ink-3)">No balances yet.</td></tr>';
+  return appShell('#/app/balances', liveHead()+pageHead('Balances','Journal-derived, exact decimals, per asset and per wallet — GET /v1/balances. Transfers awaiting operator approval are reserved against these figures.','')+
+   tableCard('Balances'+(b?' · as of '+new Date(b.asOf).toLocaleTimeString():''),['Asset','Id · network','Available','By wallet'],rows));
+}
 </script>
 </body>
 </html>

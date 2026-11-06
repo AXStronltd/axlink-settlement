@@ -51,6 +51,9 @@ export function listInstitutions() { return prisma.institution.findMany({ orderB
 export async function issueCredential(institutionId: string, kind: 'SANDBOX' | 'PRODUCTION', label: string, scopes: string[]) {
   const env = await prisma.apiEnvironment.findUnique({ where: { institutionId_kind: { institutionId, kind } } });
   if (!env) throw new ApiError('NOT_FOUND', 'environment not found', 404);
+  // Keys are handed over only after onboarding: a PENDING or SUSPENDED institution gets none (its keys would not authenticate anyway).
+  const inst = await prisma.institution.findUnique({ where: { id: institutionId }, select: { status: true } });
+  if (!inst || inst.status !== 'ACTIVE') throw new ApiError('INSTITUTION_INACTIVE', `institution is ${inst?.status ?? 'missing'}; complete onboarding and activate it before issuing keys`, 409);
   if (env.status !== 'ACTIVE') throw new ApiError('ENVIRONMENT_DISABLED', `${kind} environment is ${env.status}`, 409);
   const raw = generateRawKey(kind);
   const cred = await prisma.apiCredential.create({ data: { environmentId: env.id, label, prefix: keyPrefix(raw), keyHash: hashKey(raw), scopes } });

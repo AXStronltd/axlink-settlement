@@ -38,9 +38,32 @@ const where = (s: { institutionId: string; environmentId: string }) => ({ instit
 const num = (k: string, d: number) => { const v = Number(process.env[k]); return Number.isFinite(v) && v > 0 ? v : d; };
 export const policyLimits = () => ({
   maxPerTransfer: new Prisma.Decimal(num('TRANSFER_MAX_AMOUNT', 1_000_000)),
+  dailyLimit: new Prisma.Decimal(num('TRANSFER_DAILY_LIMIT', 5_000_000)),
+  maxPerHour: num('TRANSFER_MAX_PER_HOUR', 200),
   sandboxAutoApproveUpTo: new Prisma.Decimal(num('TRANSFER_AUTO_APPROVE_LIMIT_SANDBOX', 100_000)),
   maxSubmitAttempts: num('TRANSFER_MAX_SUBMIT_ATTEMPTS', 5),
 });
+/** Deployment defaults, overridable per API environment by operations (ApiEnvironment.transfer*). */
+export async function effectiveLimits(environmentId: string, db: Prisma.TransactionClient | typeof prisma = prisma) {
+  const d = policyLimits();
+  const env = await db.apiEnvironment.findUnique({ where: { id: environmentId }, select: { transferDailyLimit: true, transferMaxPerHour: true, transferMaxAmount: true } });
+  return { ...d, maxPerTransfer: env?.transferMaxAmount ?? d.maxPerTransfer, dailyLimit: env?.transferDailyLimit ?? d.dailyLimit, maxPerHour: env?.transferMaxPerHour ?? d.maxPerHour };
+}
+const COUNTED: SettlementTransfer['status'][] = ['AWAITING_APPROVAL', 'APPROVED', 'SUBMITTING', 'SUBMITTED', 'CONFIRMED', 'UNDER_REVIEW', 'SETTLED'];
+/**
+ * Velocity: what this institution has already committed to send today (UTC) in this asset, and how
+ * many transfers it created in the last hour — across all its wallets in the environment. Taken under
+ * an advisory lock keyed on (environment, asset) so two concurrent creates cannot both squeeze under the cap.
+ */
+async function velocityCheck(tx: Prisma.TransactionClient, scope: { environmentId: string }, assetId: string, amount: Prisma.Decimal, limits: Awaited<ReturnType<typeof effectiveLimits>>, checks: Record<string, unknown>) {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${scope.environmentId + ':' + assetId}))`;
+  const dayStart = new Date(); dayStart.setUTCHours(0, 0, 0, 0);
+  const today = (await tx.settlementTransfer.aggregate({ where: { environmentId: scope.environmentId, assetId, status: { in: COUNTED }, createdAt: { gte: dayStart } }, _sum: { amount: true } }))._sum.amount ?? new Prisma.Decimal(0);
+  const lastHour = await tx.settlementTransfer.count({ where: { environmentId: scope.environmentId, status: { in: COUNTED }, createdAt: { gte: new Date(Date.now() - 3_600_000) } } });
+  checks.dailyLimit = limits.dailyLimit.toFixed(); checks.sentToday = today.toFixed(); checks.maxPerHour = limits.maxPerHour; checks.createdLastHour = lastHour;
+  if (today.add(amount).gt(limits.dailyLimit)) throw new ApiError('POLICY_DAILY_LIMIT', `today's outbound in this asset would reach ${today.add(amount).toFixed()}, above the daily limit of ${limits.dailyLimit.toFixed()}; ask operations to raise it`, 422, checks);
+  if (lastHour >= limits.maxPerHour) throw new ApiError('POLICY_VELOCITY', `more than ${limits.maxPerHour} transfers created in the last hour; slow down or ask operations to raise the limit`, 429, checks);
+}
 export const outboundEnabled = (kind: 'SANDBOX' | 'PRODUCTION') => kind === 'SANDBOX' || process.env.OUTBOUND_SETTLEMENT_ENABLED === 'true';
 
 const OPEN_RESERVING: SettlementTransfer['status'][] = ['AWAITING_APPROVAL'];
@@ -91,13 +114,14 @@ export async function createTransfer(scope: Scope, input: CreateTransferInput): 
   if (cp.status !== 'ACTIVE') throw new ApiError('COUNTERPARTY_NOT_ACTIVE', `counterparty is ${cp.status}`, 409);
   if (cp.network !== asset.network) throw new ApiError('COUNTERPARTY_NETWORK_MISMATCH', `counterparty is on ${cp.network}`, 400);
 
-  const limits = policyLimits();
-  const checks: Record<string, unknown> = { maxPerTransfer: limits.maxPerTransfer.toFixed(), counterparty: cp.status, custodyWhitelisted: cp.custodyWhitelisted };
+  const limits = await effectiveLimits(scope.environmentId);
+  const checks: Record<string, unknown> = { maxPerTransfer: limits.maxPerTransfer.toFixed(), counterparty: cp.status, counterpartyKind: cp.kind, custodyWhitelisted: cp.custodyWhitelisted, screening: (cp.screening as { verdict?: string } | null)?.verdict ?? null };
   if (amount.gt(limits.maxPerTransfer)) throw new ApiError('POLICY_LIMIT', `amount exceeds the per-transfer limit of ${limits.maxPerTransfer.toFixed()} ${asset.symbol}`, 422, checks);
 
   try {
     const transfer = await prisma.$transaction(async tx => {
       await lockWallet(tx, wallet.id);
+      await velocityCheck(tx, scope, asset.id, amount, limits, checks);
       const bal = await availableForTransfer(wallet, asset.id, tx);
       checks.available = bal.available.toFixed(); checks.reserved = bal.reserved.toFixed();
       if (bal.available.lt(amount)) throw new ApiError('INSUFFICIENT_BALANCE', `available ${bal.available.toFixed()} ${asset.symbol} is less than ${amount.toFixed()}`, 422, checks);

@@ -77,7 +77,7 @@ describe('registry', () => {
     const r = await import('../../packages/providers/registry/provider-registry');
     expect(r.providers.custody().id).toBe('fireblocks'); expect(r.providers.liquidity().id).toBe('b2binpay'); expect(r.providers.blockchain('solana-mainnet').chain).toBe('solana-mainnet');
     const d = await r.describeProviders({ health: true });
-    expect(d.map(x => x.role)).toEqual(['custody', 'blockchainExecution', 'liquidity', 'blockchain']);
+    expect(d.map(x => x.role)).toEqual(['custody', 'blockchainExecution', 'liquidity', 'screening', 'blockchain']);
     expect(d.find(x => x.role === 'custody')).toMatchObject({ provider: 'fireblocks', configured: false });
     expect((await r.describeProviders({ health: false })).find(x => x.role === 'liquidity')).toMatchObject({ provider: 'b2binpay', configured: false, health: null }); // configured known without a health call
     expect(d.find(x => x.role === 'blockchain')).toMatchObject({ provider: 'solana-mainnet', network: 'solana-mainnet' });
@@ -121,7 +121,7 @@ db('core reaches custody only through the registry (wallet creation on a swapped
   it('GET /api/settlement/providers is operator-only and lists roles with health', async () => {
     await request(app).get('/api/settlement/providers').expect(401);
     const r = await request(app).get('/api/settlement/providers').set(ops).expect(200);
-    expect(r.body.providers.map((p: any) => [p.role, p.provider])).toEqual([['custody', 'fireblocks'], ['blockchainExecution', 'fireblocks'], ['liquidity', 'b2binpay'], ['blockchain', 'solana-mainnet']]);
+    expect(r.body.providers.map((p: any) => [p.role, p.provider])).toEqual([['custody', 'fireblocks'], ['blockchainExecution', 'fireblocks'], ['liquidity', 'b2binpay'], ['screening', 'screening-stub'], ['blockchain', 'solana-mainnet']]);
     expect(r.body.providers[0].health.ok).toBe(true);
   });
   it('proof service goes through the blockchain port: a stubbed node proves a settlement for USDC_SOL by id or by symbol', async () => {

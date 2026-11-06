@@ -767,6 +767,12 @@ model ApiEnvironment {
   webhookUrl      String?
   webhookSecretHash String?                                    // secret shown once; only a hash is kept
   ipAllowlist     String[]             @default([])
+  /// Outbound policy overrides (slice 7). Null = deployment defaults (TRANSFER_DAILY_LIMIT, TRANSFER_MAX_PER_HOUR, TRANSFER_MAX_AMOUNT).
+  transferDailyLimit   Decimal?        @db.Decimal(36, 18)
+  transferMaxPerHour   Int?
+  transferMaxAmount    Decimal?        @db.Decimal(36, 18)
+  /// The wallet that receives network settlements for this institution in this environment (explicit; null = oldest ACTIVE)
+  settlementWalletId   String?
   createdAt       DateTime             @default(now())
   updatedAt       DateTime             @updatedAt
 
@@ -966,6 +972,7 @@ model Counterparty {
   approvedBy     String?            // operator id/label, or "sandbox-auto"
   approvedAt     DateTime?
   custodyWhitelisted Boolean        @default(false) // operator attests the address is whitelisted at the custodian
+  screening      Json?              // last screening result for an EXTERNAL address: { provider, verdict, risk, reasons, at }
   note           String?
   createdAt      DateTime           @default(now())
   updatedAt      DateTime           @updatedAt

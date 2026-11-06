@@ -225,3 +225,19 @@ Out of scope, still: velocity/daily limits and sanctions screening of external a
 | Query validation on the exceptions list; ordering; wallet network/custodian match | Low | Fixed |
 
 Noted, not changed: "oldest ACTIVE wallet" as the participant's receiving wallet is implicit — an explicit, operator-set settlement wallet per environment is on the list for slice 7; slug-existence responses (404 vs 409) are acceptable for directory identifiers.
+
+## Slice 7 — Production readiness (last of Step 2)
+
+| Piece | What |
+|---|---|
+| Velocity limits | Daily outbound cap per environment and asset (`TRANSFER_DAILY_LIMIT`, 5,000,000) and transfers-per-hour (`TRANSFER_MAX_PER_HOUR`, 200), checked under an advisory lock keyed on (environment, asset) so concurrent creates cannot both squeeze under a cap; refusals `POLICY_DAILY_LIMIT` (422) / `POLICY_VELOCITY` (429) carry the figures. Operators override per institution environment: `PATCH /api/institutions/{id}/environments/{kind}/policy` |
+| Screening | `ScreeningProvider` port + registry role `screening`; stub answers CLEAR (and honours `SCREENING_DENYLIST` for tests). External counterparties are screened at registration: BLOCKED refused (`ADDRESS_BLOCKED`), REVIEW waits for an operator even in sandbox, CLEAR as before; the verdict is stored and shown. PRODUCTION refuses external counterparties without a configured provider unless `SCREENING_OPTIONAL=true` (a logged, documented decision). Network participants are not screened — the destination is AxLink custody |
+| Settlement wallet | Institutions designate it (`POST /v1/wallets/{id}/settlement-default`); operators can set it in the policy; falls back to the oldest ACTIVE wallet; a suspended designation is ignored |
+| Keys after onboarding | Issuing a credential for a non-ACTIVE institution is refused (`INSTITUTION_INACTIVE`) — the certification scenario caught that this was only enforced at authentication time |
+| Production boot gates | `SOLANA_RPC_URL` must be a dedicated node (the public endpoint is refused); limit variables must be positive; `OUTBOUND_SETTLEMENT_ENABLED` must be `true`/`false`; `SCREENING_OPTIONAL=true` is warned loudly |
+| Certification pack | `npm run certify` → `tests/certification/leg-a.cert.test.ts`: onboarding → key → wallet → deposit → network and external settlement → stuck empty, trial balance balanced, no CRITICAL exception. Uses only the public contract and operator endpoints; runs against any environment |
+| Runbook + checklist | `docs/DEPLOY.md` rewritten (migrations exist; new variables; verification includes exceptions and the certification pack; daily routine); `docs/GO-LIVE.md` is the signed checklist that precedes `OUTBOUND_SETTLEMENT_ENABLED=true` |
+| Front end | Transactions (ledger statement, cursor-paged) and Balances go live; screens with no API behind them leave the live nav (institution and operator); counterparties show the screening verdict |
+| Tests | `tests/integration/readiness.step2.test.ts` (4), certification (1), browser test extended; 312 total |
+
+Step 2 is complete with this slice. What is deliberately not here: a real screening adapter (needs a vendor contract), the B2BinPay conversion path (Leg B), and the production deploy itself (owner's decision per GO-LIVE.md).
