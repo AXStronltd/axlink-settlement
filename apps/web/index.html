@@ -1023,6 +1023,7 @@ function appShell(active,content){
   var id = (ROLE==='operator')
     ? {av:'AX',name:'AxLink Operations',role:'Super Admin · Network',scope:'Network-wide'}
     : {av:'GB',name:'Galaxy Bank',role:'Institution Admin',scope:'Galaxy Bank · galaxy-bank-so'};
+  if(LIVE.me&&ROLE==='client') id={av:LIVE.me.institution.slug.slice(0,2).toUpperCase(),name:LIVE.me.institution.slug,role:'Institution API client',scope:LIVE.me.institution.slug};
   var scopeBadge = (ROLE==='operator')
     ? '<span class="chip" style="background:rgba(46,230,197,.10)"><span class="d" style="background:var(--teal)"></span>Network-wide access</span>'
     : '<span class="chip"><span class="d" style="background:var(--blue)"></span>'+id.scope+'</span>';
@@ -1035,13 +1036,12 @@ function appShell(active,content){
    '<div style="padding:12px 14px 0">'+scopeBadge+'</div>'+
    '<nav>'+nav+'</nav>'+
    '<div class="env">'+roleSwitch+'<div style="font-size:11px;color:var(--ink-3);margin:10px 0 8px">Environment</div><div style="display:flex;align-items:center;justify-content:space-between;padding:9px 12px;border:1px solid var(--line-2);border-radius:9px;font-size:13px"><span style="display:flex;align-items:center;gap:8px"><span style="width:7px;height:7px;border-radius:50%;background:'+(ENV==='PRODUCTION'?'var(--green)':'#fbbf24')+'"></span>'+(ENV==='PRODUCTION'?'Production':'Sandbox')+'</span><button onclick="toggleEnv()" style="font-size:11px;color:var(--ink-3)">switch ▾</button></div></div></aside>'+
-   '<div class="main"><header class="topbar"><button class="dash-burger" onclick="toggleDashNav()" aria-label="Menu"><span></span><span></span><span></span></button><div class="searchbar"><span>⌕</span><span>'+(ROLE==='operator'?'Search institutions, transactions, corridors…':'Search your transactions & accounts…')+'</span><span style="margin-left:auto;font-size:11px;border:1px solid var(--line-2);border-radius:5px;padding:1px 6px" class="mono">⌘K</span></div>'+
-   '<div class="right"><span style="position:relative">◔<span style="position:absolute;top:-6px;right:-6px;width:15px;height:15px;border-radius:50%;background:var(--teal);color:#032019;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center">3</span></span><span>?</span><span>◍</span>'+
+   '<div class="main"><header class="topbar"><button class="dash-burger" onclick="toggleDashNav()" aria-label="Menu"><span></span><span></span><span></span></button><div style="font-size:13px;color:var(--ink-2)">Crypto settlement infrastructure · '+(ROLE==='operator'?'Operations':'Institution API portal')+'</div><div class="right">'+
    '<div style="display:flex;align-items:center;gap:9px"><span class="avatar">'+id.av+'</span><div style="line-height:1.2"><div style="font-size:13px;color:var(--ink);font-weight:500">'+id.name+'</div><div style="font-size:11px;color:var(--ink-3)">'+id.role+'</div></div></div></div></header>'+
    '<main class="content">'+((LIVE.me||OPS.on)?'':'<div style="background:var(--panel-2);border:1px solid var(--line);border-radius:8px;padding:8px 14px;font-size:11.5px;color:var(--ink-3);margin-bottom:16px;display:flex;align-items:center;gap:8px">&#9432; Demonstration — figures are illustrative sample data. Sign in with your institution API key to see live data.</div>')+content+'</main></div></div>';
 }
 function kpiCard(ic,label,val,dl,dir,seed,color){
-  return '<div class="kpi"><div class="top"><span class="ic">'+ic+'</span><span>'+label+'</span></div><div class="val">'+val+'</div>'+(dl?'<div class="dl '+(dir||'up')+'">'+(dir==='up'?'↑':dir==='down'?'↓':'')+' '+dl+'</div>':'')+'<div style="margin-top:6px">'+spark(seed||5,color||'#2ee6c5')+'</div></div>';
+  return '<div class="kpi"><div class="top"><span class="ic">'+ic+'</span><span>'+label+'</span></div><div class="val">'+val+'</div>'+(dl?'<div class="dl '+(dir||'up')+'">'+(dir==='up'?'↑':dir==='down'?'↓':'')+' '+dl+'</div>':'')+'</div>';
 }
 function pageHead(title,sub,actions,tabs,active,base){
   var t='<div class="page-head"><div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap"><div><h1>'+title+'</h1>'+(sub?'<p class="sub">'+sub+'</p>':'')+'</div>'+(actions?'<div style="display:flex;gap:10px;align-items:center">'+actions+'</div>':'')+'</div>';
@@ -1318,95 +1318,17 @@ function appStub(title){
 
 /* ===== SIGN IN (institution portal) ===== */
 function pageSignIn(){
-  return siteHeader('')+'<div class="site-body">'+
-   '<section style="padding:60px 0 100px;min-height:72vh;display:flex;align-items:center"><div class="wrap" style="max-width:440px;margin:0 auto"><div class="reveal" style="text-align:center;margin-bottom:26px">'+markSized(40)+'<h1 style="font-size:28px;margin-top:14px">Sign in to AxLink</h1><p class="lead" style="font-size:14px;margin-top:6px">Institution portal - the open financial network.</p></div>'+
-   '<div class="panel reveal d1" style="padding:28px">'+
-   '<div class="field"><label>Work email</label><input placeholder="you@institution.com"/></div>'+
-   '<div class="field"><label>Password</label><input type="password" placeholder="&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;"/></div>'+
-   '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;font-size:12.5px"><label style="display:flex;align-items:center;gap:7px;color:var(--ink-2)"><input type="checkbox" style="width:auto"/> Remember this device</label><a href="javascript:void(0)" onclick="return toast(\'Reset link sent\')" style="color:var(--teal)">Forgot password?</a></div>'+
-   '<button class="btn btn-ghost" style="width:100%;justify-content:center" onclick="loginAsClient()">Explore the demo</button>'+
-   '<div style="margin:18px 0 10px;padding-top:14px;border-top:1px solid var(--line);font-size:12.5px;color:var(--ink-2)"><b>Connect with your API key</b><div style="font-size:11.5px;color:var(--ink-3);margin-top:4px">Sandbox or production key issued by AxLink operations (axlk_test_… / axlk_live_…). Kept in this tab only.</div></div>'+
-   '<div class="field"><label>API key</label><input id="ax-key" type="password" placeholder="axlk_test_…" autocomplete="off"/></div>'+
-   (axBase()?'':'<div class="field"><label>API base URL</label><input id="ax-base" placeholder="https://sandbox.api.axlink.network/api/v1"/></div>')+
-   '<button class="btn btn-primary" style="width:100%;justify-content:center" onclick="return connectWithKey(document.getElementById(\'ax-key\').value,(document.getElementById(\'ax-base\')||{}).value)">Connect</button>'+
-   '<div style="text-align:center;margin-top:16px;font-size:12.5px;color:var(--ink-3)">SSO available for enterprise -<span style="color:var(--teal);cursor:pointer" onclick="toast(\'SSO redirect\')"> Use SSO</span></div>'+
-   '<div style="text-align:center;margin-top:14px;padding-top:14px;border-top:1px solid var(--line);font-size:11.5px;color:var(--ink-3)">AxLink staff? <span style="color:var(--ink-2);cursor:pointer;font-weight:600" onclick="document.getElementById(\'ops-box\').style.display=\'\'">Operator sign-in</span></div>'+
-   '<div id="ops-box" style="display:none;margin-top:10px"><div class="field"><label>Operator key</label><input id="ax-ops" type="password" placeholder="OPS_API_KEY" autocomplete="off"/></div><button class="btn btn-ghost" style="width:100%;justify-content:center" onclick="return connectAsOperator(document.getElementById(\'ax-ops\').value)">Connect operator console</button><div style="text-align:center;margin-top:8px;font-size:11.5px;color:var(--ink-3);cursor:pointer" onclick="loginAsOperator()">or explore the operator demo</div></div>'+
-   '</div>'+
-   '<p class="reveal d2" style="text-align:center;color:var(--ink-3);font-size:13px;margin-top:22px">New institution? <a href="javascript:void(0)" onclick="return go(\'#/onboarding\')" style="color:var(--teal);font-weight:600">Get started -></a></p>'+
-   '</div></section>'+siteFooter();
+  return siteHeader('')+'<div class="site-body"><section style="padding:60px 24px;min-height:72vh"><div class="wrap" style="max-width:460px;margin:auto">'+markSized(40)+'<h1 style="margin:18px 0">Institution API access</h1><p class="lead" style="font-size:14px;margin-bottom:24px">Connect to the crypto settlement platform with the key issued to your institution. Sandbox records are persisted by the API; custody and blockchain verification require configured providers.</p><div class="panel" style="padding:28px"><div class="field"><label for="ax-key">Institution API key</label><input id="ax-key" type="password" placeholder="axlk_test_…" autocomplete="off"/></div><button class="btn btn-primary" onclick="return connectWithKey(document.getElementById(\'ax-key\').value)">Connect</button><p class="hint" style="margin-top:14px">Keys stay in this tab. Your institution and environment are determined by the authenticated key.</p><button class="btn btn-ghost" style="margin-top:20px" onclick="document.getElementById(\'ops-box\').style.display=\'\'">Operator sign-in</button><div id="ops-box" style="display:none;margin-top:14px"><div class="field"><label for="ax-ops">Operator key</label><input id="ax-ops" type="password" autocomplete="off"/></div><button class="btn btn-primary" onclick="return connectAsOperator(document.getElementById(\'ax-ops\').value)">Connect operator console</button></div></div><p class="hint" style="margin-top:20px">New institution? Ask AxLink operations to provision a sandbox environment. Password, SSO and automatic KYB sign-up are not enabled.</p></div></section>'+siteFooter();
 }
-/* ===== OPERATOR (SUPER ADMIN) SIGN-IN — separate secure panel ===== */
-function pageOperatorSignIn(){
-  return '<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;background:radial-gradient(120% 90% at 50% 0%,var(--glow),transparent 60%)">'+
-   '<div style="max-width:420px;width:100%">'+
-   '<div class="reveal in" style="text-align:center;margin-bottom:24px">'+markSized(40)+
-   '<h1 style="font-size:26px;margin-top:14px">AxLink Operator Console</h1>'+
-   '<p class="lead" style="font-size:13.5px;margin-top:6px">Super Admin access · AxLink team only</p>'+
-   '<div class="chip" style="margin-top:12px"><span class="d" style="background:var(--teal)"></span>Restricted · Network-wide access</div></div>'+
-   '<div class="panel reveal d1" style="padding:28px">'+
-   '<div class="field"><label>AxLink staff email</label><input placeholder="you@axlink.network"/></div>'+
-   '<div class="field"><label>Password</label><input type="password" placeholder="&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;"/></div>'+
-   '<div class="field"><label>2FA authentication code</label><input placeholder="000 000" class="mono" style="letter-spacing:.3em"/><div class="hint">Two-factor authentication is required for operator access.</div></div>'+
-   '<button class="btn btn-primary" style="width:100%;justify-content:center" onclick="loginAsOperator()">Sign in to Operator Console</button>'+
-   '<div style="text-align:center;margin-top:14px;font-size:12px;color:var(--ink-3)"><span style="cursor:pointer" onclick="toast(\'SSO / SAML redirect\')">Use SSO (SAML)</span></div>'+
-   '<div style="text-align:center;margin-top:14px;padding-top:14px;border-top:1px solid var(--line);font-size:11.5px;color:var(--ink-3)">Not AxLink staff? <span style="color:var(--teal);cursor:pointer;font-weight:600" onclick="go(\'#/signin\')">Institution sign-in</span></div>'+
-   '</div>'+
-   '<p style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:18px">This is a restricted system. Access is monitored and logged.</p>'+
-   '</div></div>';
-}
-/* login handlers set the role, then enter the dashboard */
-function loginAsOperator(){ ROLE='operator'; toast('Signed in · Operator Console'); go('#/app'); }
-function loginAsClient(){ ROLE='client'; toast('Signed in · Institution Portal'); go('#/app'); }
+function pageOperatorSignIn(){ return pageSignIn(); }
+function loginAsOperator(){ return go('#/operator'); }
+function loginAsClient(){ return go('#/signin'); }
 function signOut(){ var wasOp=(ROLE==='operator'); disconnectLive(); disconnectOps(); toast('Signed out'); go(wasOp?'#/operator':'#/signin'); }
 
 /* ===== ONBOARDING FLOW (Get Verified -> Fund -> Transact) ===== */
 var ONB={step:1,type:'institution'};
-function onboarding(){
-  var steps=['Institution','Verification (KYB)','Identity Passport','Fund Account','Go Live'];
-  var stepH='<div class="steps">';
-  for(var i=0;i<steps.length;i++){
-    var cls=(i+1<ONB.step?'done':(i+1===ONB.step?'active':''));
-    stepH+='<div class="st '+cls+'"><span class="num">'+(i+1<ONB.step?'&#10003;':(i+1))+'</span><span class="lb">'+steps[i]+'</span></div>';
-    if(i<steps.length-1) stepH+='<div class="line '+(i+1<ONB.step?'done':'')+'"></div>';
-  }
-  stepH+='</div>';
-  var body='';
-  if(ONB.step===1){
-    body='<h2 style="font-size:24px;margin-bottom:6px">Create your institution account</h2><p class="lead" style="font-size:14px;margin-bottom:22px">AxLink is available to regulated institutions - banks, PSPs, fintechs and payment providers.</p>'+
-    '<div class="field"><label>Legal entity name</label><input placeholder="e.g. Axstron Finance Inc."/></div>'+
-    '<div class="grid-2" style="gap:14px"><div class="field"><label>Entity type</label><select><option>Bank</option><option>Payment Service Provider</option><option>Fintech</option><option>Payment Provider</option><option>Money Services Business</option></select></div>'+
-    '<div class="field"><label>Country of registration</label><select><option>United States</option><option>United Kingdom</option><option>Canada</option><option>Singapore</option><option>UAE</option><option>Kenya</option><option>Lithuania</option></select></div></div>'+
-    '<div class="field"><label>Work email</label><input placeholder="you@institution.com"/></div>'+
-    '<div class="field"><label>Estimated monthly settlement volume</label><select><option>$1M - $10M</option><option>$10M - $50M</option><option>$50M - $250M</option><option>$250M+</option></select></div>'+
-    '<button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:8px" onclick="onbNext()">Continue to Verification -></button>';
-  }else if(ONB.step===2){
-    body='<h2 style="font-size:24px;margin-bottom:6px">Business verification (KYB)</h2><p class="lead" style="font-size:14px;margin-bottom:22px">Institutional onboarding requires full KYB, ID verification and sanctions screening - powered by Sumsub, SEON and Chainalysis.</p>'+
-    ['Certificate of incorporation','Beneficial ownership (UBO) structure','Regulatory license / MSB registration','AML/CFT policy & MLRO details','Authorized signatory ID'].map(function(d){return '<label style="display:flex;align-items:center;gap:12px;padding:12px 14px;background:var(--panel-2);border:1px solid var(--line);border-radius:10px;margin-bottom:10px;cursor:pointer;font-size:13.5px"><span style="width:20px;height:20px;border-radius:6px;border:1px solid var(--teal);color:var(--teal);display:flex;align-items:center;justify-content:center;font-size:11px">&#10003;</span>'+d+' <span style="margin-left:auto;color:var(--ink-3);font-size:11.5px">Uploaded</span></label>';}).join('')+
-    '<div class="chip" style="margin:8px 0 18px"><span class="d" style="background:var(--amber)"></span> Screening in progress - typically 1-3 business days</div>'+
-    '<button class="btn btn-primary" style="width:100%;justify-content:center" onclick="onbNext()">Continue -> Identity Passport</button>';
-  }else if(ONB.step===3){
-    body='<h2 style="font-size:24px;margin-bottom:6px">On-chain Identity Passport</h2><p class="lead" style="font-size:14px;margin-bottom:22px">Once verified, your institution is issued an on-chain Identity Passport (KYB NFT). Every counterparty on the network holds one - settlement only occurs between verified parties in the closed-loop network.</p>'+
-    '<div style="text-align:center;padding:26px;background:var(--panel-2);border:1px solid var(--line-2);border-radius:14px;margin-bottom:20px">'+markSized(46)+'<div style="font-weight:700;font-size:18px;margin-top:12px">Identity Passport</div><div class="mono" style="font-size:11px;color:var(--teal);margin-top:6px">PASS_0x8f7a...1cC8</div><div style="font-size:12px;color:var(--ink-3);margin-top:8px">KYB - Sanctions cleared - Tier 1</div><span class="chip" style="margin-top:14px"><span class="d pulse-dot" style="background:var(--green)"></span> Verified &amp; minted</span></div>'+
-    '<button class="btn btn-primary" style="width:100%;justify-content:center" onclick="onbNext()">Continue -> Fund Account</button>';
-  }else if(ONB.step===4){
-    body='<h2 style="font-size:24px;margin-bottom:6px">Fund your account</h2><p class="lead" style="font-size:14px;margin-bottom:22px">Send USDC to your vault address, or wire USD and AxLink converts it to USDC through its liquidity providers. Your balance is held in a segregated custody vault; we never lend it out.</p>'+
-    '<div style="background:var(--panel-2);border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:18px;font-size:13px">'+
-    [['Beneficiary','Axstron Finance Inc. (AxLink)'],['Bank','AxLink Settlement (regulated, US)'],['Account','**** **** 8842'],['Routing','091000019'],['Reference','AXL-'+((Math.random()*90000+10000)|0)]].map(function(r){return '<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--line)"><span style="color:var(--ink-3)">'+r[0]+'</span><span class="mono" style="font-size:12px">'+r[1]+'</span></div>';}).join('')+'</div>'+
-    '<div class="chip" style="margin-bottom:18px"><span class="d" style="background:var(--blue)"></span> 1:1 backed - cash + short-term U.S. Treasuries</div>'+
-    '<button class="btn btn-primary" style="width:100%;justify-content:center" onclick="onbNext()">I have sent the wire -> Finish</button>';
-  }else{
-    body='<div style="text-align:center;padding:10px 0"><div style="width:66px;height:66px;border-radius:50%;background:rgba(52,211,153,.14);color:var(--green);display:flex;align-items:center;justify-content:center;font-size:30px;margin:0 auto 18px">&#10003;</div>'+
-    '<h2 style="font-size:26px;margin-bottom:8px">You are live on AxLink</h2><p class="lead" style="font-size:14px;max-width:380px;margin:0 auto 24px">Your institution is verified, funded and connected to the open financial network. Start moving value instantly.</p>'+
-    '<button class="btn btn-primary" style="justify-content:center;padding:13px 26px" onclick="loginAsClient()">Open your dashboard -></button></div>';
-  }
-  return siteHeader('')+'<div class="site-body">'+
-   '<section style="padding:50px 0 90px;min-height:70vh"><div class="wrap" style="max-width:680px"><span class="eyebrow reveal">Onboarding</span><h1 class="reveal d1" style="font-size:34px;margin:14px 0 8px">Get your institution on the network</h1>'+
-   '<div class="reveal d2">'+stepH+'</div>'+
-   '<div class="panel reveal d2" style="padding:28px">'+body+'</div>'+
-   '<p style="text-align:center;color:var(--ink-3);font-size:12px;margin-top:20px">AxLink · Crypto Settlement Network — regulated · fully reserved · nothing minted</p></div></section>'+
-   siteFooter()+'</div>';
-}
+function onboarding(){ return pageSignIn(); }
+
 function onbNext(){ONB.step=Math.min(5,ONB.step+1);render();}
 
 /* ===== WALLET / TREASURY ===== */
@@ -2031,11 +1953,21 @@ var ROUTES={
 var CURRENT='#/';
 function go(route){
   CURRENT=route;
+  if(location.hash!==route) history.replaceState(null,'',route);
   render();
   return false;
 }
 function render(){
   var fn=ROUTES[CURRENT]||pageHome;
+  if(CURRENT.indexOf('#/app')===0){
+    var isClient=typeof LIVE!=='undefined'&&LIVE.me&&ROLE==='client';
+    var isOperator=typeof OPS!=='undefined'&&OPS.on&&ROLE==='operator';
+    var clientRoutes=['#/app','#/app/treasury','#/app/payments','#/app/contacts','#/app/webhooks','#/app/transactions','#/app/balances','#/app/developers'];
+    var operatorRoutes=['#/app/alerts','#/app/approvals','#/app/providers'];
+    if(!isClient&&!isOperator) fn=pageSignIn;
+    else if(isClient&&clientRoutes.indexOf(CURRENT)<0) fn=liveOverview;
+    else if(isOperator&&operatorRoutes.indexOf(CURRENT)<0) fn=opsAlerts;
+  }
   try{
     var app=document.getElementById('app');
     app.innerHTML=fn();
@@ -2065,13 +1997,7 @@ function liveEsc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){
 /* For toasts (rendered as text, not HTML) take the escaping back off. */
 function liveUnesc(s){ return String(s==null?'':s).replace(/&(amp|lt|gt|quot|#39);/g,function(m,c){ return {amp:'&',lt:'<',gt:'>',quot:'"','#39':"'"}[c]; }); }
 function liveSan(v){ if(typeof v==='string') return liveEsc(v); if(Array.isArray(v)) return v.map(liveSan); if(v&&typeof v==='object'){ var o={}; for(var k in v) if(Object.prototype.hasOwnProperty.call(v,k)) o[k]=liveSan(v[k]); return o; } return v; }
-function axBase(){
-  // Served from the API (/portal): always same origin, a stored base is ignored. Elsewhere: an https
-  // base the user typed (or http://localhost for development) — never a URL parameter.
-  if(location.pathname.indexOf('/portal')===0) return location.origin+'/api/v1';
-  try{ var b=sessionStorage.getItem('AX_API_BASE'); if(b&&axBaseOk(b)) return b; }catch(e){}
-  return null;
-}
+function axBase(){ return location.origin+'/api/v1'; }
 function axBaseOk(b){ return /^https:\/\/[^\s\/]+(\/[^\s]*)?$/.test(b)||/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/[^\s]*)?$/.test(b); }
 function axKey(){ try{ return sessionStorage.getItem('AX_API_KEY')||''; }catch(e){ return ''; } }
 function axApi(method,path,body,headers){
@@ -2080,13 +2006,14 @@ function axApi(method,path,body,headers){
   return fetch(base+path,{method:method,headers:h,body:body?JSON.stringify(body):undefined}).then(function(r){
     return r.text().then(function(t){ var j=null; try{ j=t?JSON.parse(t):null; }catch(e){}
       if(!r.ok){ var err=new Error((j&&j.error&&j.error.message)||('HTTP '+r.status)); /* shown via toast (text node) or escaped at LIVE.error */ err.code=liveEsc((j&&j.error&&j.error.code)||('HTTP_'+r.status)); err.status=r.status; err.details=liveSan(j&&j.error&&j.error.details); throw err; }
+      if(j===null) throw new Error('API returned an empty or invalid JSON response');
       return liveSan(j); });
   });
 }
 function axIdem(){ try{ return crypto.randomUUID(); }catch(e){ return 'idem-'+Date.now()+'-'+Math.random().toString(36).slice(2); } }
 function connectWithKey(key,base){
   key=(key||'').trim(); if(!key){ toast('Paste your API key','!'); return false; }
-  base=(base||'').trim().replace(/\/$/,'');
+  base=axBase();
   if(base&&!axBaseOk(base)){ toast('API base must be https:// (or http://localhost for development)','!'); return false; }
   // Nothing is stored until the key has authenticated: a wrong key or base leaves no trace.
   var probe=base||axBase(); if(!probe){ toast('No API base: open the portal from the API (/portal) or set the base URL','!'); return false; }
@@ -2101,16 +2028,16 @@ function connectWithKey(key,base){
 function disconnectLive(){ LIVE={me:null,wallets:[],balances:null,deposits:[],transfers:[],counterparties:[],endpoints:[],deliveries:{},assets:null,error:null,loading:false}; try{ sessionStorage.removeItem('AX_API_KEY'); sessionStorage.removeItem('AX_API_BASE'); }catch(e){} }
 function refreshLive(){
   if(!LIVE.me) return Promise.resolve();
-  LIVE.loading=true;
+  LIVE.loading=true; LIVE.error=null; LIVE.entries=null; LIVE.entriesCursor=null;
   var gets=[['wallets','/wallets'],['balances','/balances'],['deposits','/deposits'],['transfers','/transfers'],['counterparties','/counterparties'],['endpoints','/webhook-endpoints'],['assets','/assets']];
-  return Promise.all(gets.map(function(g){ return axApi('GET',g[1]).then(function(v){ LIVE[g[0]]=v; }).catch(function(e){ if(e.status!==403) LIVE.error=liveEsc(e.message); LIVE[g[0]]=Array.isArray(LIVE[g[0]])?[]:null; }); }))
+  return Promise.all(gets.map(function(g){ return axApi('GET',g[1]).then(function(v){ LIVE[g[0]]=v; }).catch(function(e){ LIVE.error=liveEsc(e.message); LIVE[g[0]]=Array.isArray(LIVE[g[0]])?[]:null; }); }))
    .then(function(){ return Promise.all((LIVE.endpoints||[]).map(function(ep){ return axApi('GET','/webhook-endpoints/'+ep.id+'/deliveries').then(function(d){ LIVE.deliveries[ep.id]=d; }).catch(function(){}); })); })
    .then(function(){ LIVE.loading=false; render(); });
 }
 function liveAmt(a){ return a===undefined||a===null?'—':String(a); }
 function liveWhen(iso){ if(!iso) return '—'; var d=new Date(iso); var s=(Date.now()-d.getTime())/1000; if(s<60) return 'just now'; if(s<3600) return Math.floor(s/60)+' min ago'; if(s<86400) return Math.floor(s/3600)+' hr ago'; return d.toISOString().slice(0,10); }
 function liveBadge(st){ return '<span class="badge badge-'+(st==='COMPLETED'||st==='ACTIVE'||st==='SETTLED'?'completed':st==='FAILED'||st==='DISABLED'||st==='REJECTED'||st==='CANCELLED'||st==='EXPIRED'||st==='ABANDONED'?'failed':'pending')+'">'+st+'</span>'; }
-function liveHead(){ return '<div style="background:rgba(46,230,197,.08);border:1px solid rgba(46,230,197,.25);border-radius:8px;padding:8px 14px;font-size:11.5px;color:var(--ink-2);margin-bottom:16px;display:flex;align-items:center;gap:8px;justify-content:space-between"><span>&#9679; Live · '+LIVE.me.institution.slug+' · '+LIVE.me.environment.toLowerCase()+' · '+liveEsc(axBase())+(LIVE.error?' · <span style="color:#f87171">'+LIVE.error+'</span>':'')+'</span><span><button class="btn btn-ghost btn-sm" onclick="refreshLive();toast(\'Refreshing\')">Refresh</button></span></div>'; }
+function liveHead(){ return '<div style="background:rgba(46,230,197,.08);border:1px solid rgba(46,230,197,.25);border-radius:8px;padding:8px 14px;font-size:11.5px;color:var(--ink-2);margin-bottom:16px;display:flex;align-items:center;gap:8px;justify-content:space-between"><span>&#9679; API connected · '+LIVE.me.institution.slug+' · '+LIVE.me.environment.toLowerCase()+' · '+liveEsc(axBase())+(LIVE.me.environment==='SANDBOX'?' · Sandbox records; no verified real-money settlement':'')+(LIVE.error?' · <span style="color:#f87171">'+LIVE.error+'</span>':'')+'</span><span><button class="btn btn-ghost btn-sm" onclick="refreshLive();toast(\'Refreshing\')">Refresh</button></span></div>'; }
 /* ---- screens ---- */
 function liveOverview(){
   var b=LIVE.balances?LIVE.balances.balances:[];
@@ -2144,7 +2071,7 @@ function liveOpenDeposit(){
 }
 function liveCreateDeposit(){
   var body={walletId:document.getElementById('ld-wallet').value,asset:document.getElementById('ld-asset').value,amount:(document.getElementById('ld-amount').value||'').trim()}; var ref=(document.getElementById('ld-ref').value||'').trim(); if(ref) body.reference=ref;
-  axApi('POST','/deposits',body).then(function(d){ closeModal(); openModal('<h3 style="font-size:19px;margin-bottom:10px">Deposit instruction created</h3><div class="hint" style="margin-bottom:8px">Send exactly '+body.amount+' '+body.asset+' on Solana to:</div><pre style="background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:12px;font-size:12px;word-break:break-all;white-space:pre-wrap">'+d.depositAddress+'</pre><div class="hint">Tracking id (put it in the transfer\'s external id): <b class="mono">'+d.trackingId+'</b><br>Valid until '+(d.expiresAt||'').replace('T',' ').slice(0,16)+' · COMPLETED when a Solana node reports the receipt finalized.</div><div style="margin-top:12px"><button class="btn btn-primary" style="width:100%;justify-content:center" onclick="closeModal()">Done</button></div>'); refreshLive(); }).catch(function(e){ toast(e.message,'!'); });
+  axApi('POST','/deposits',body).then(function(d){ closeModal(); openModal('<h3 style="font-size:19px;margin-bottom:10px">Deposit instruction created</h3><div class="hint" style="margin-bottom:8px">'+(/^sbx_/.test(d.depositAddress)?'Sandbox placeholder address — do not send funds. Instruction recorded for testing. Expected ':'Send exactly ')+body.amount+' '+body.asset+' on Solana to:</div><pre style="background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:12px;font-size:12px;word-break:break-all;white-space:pre-wrap">'+d.depositAddress+'</pre><div class="hint">Tracking id (put it in the transfer\'s external id): <b class="mono">'+d.trackingId+'</b><br>Valid until '+(d.expiresAt||'').replace('T',' ').slice(0,16)+' · COMPLETED when a Solana node reports the receipt finalized.</div><div style="margin-top:12px"><button class="btn btn-primary" style="width:100%;justify-content:center" onclick="closeModal()">Done</button></div>'); refreshLive(); }).catch(function(e){ toast(e.message,'!'); });
 }
 function liveCancelDeposit(id){ axApi('POST','/deposits/'+id+'/cancel').then(function(){ toast('Instruction cancelled'); refreshLive(); }).catch(function(e){ toast(e.message,'!'); }); }
 function liveSettlements(){
@@ -2159,7 +2086,7 @@ function liveOpenSettlement(){
   if(!ws.length){ toast('Create a wallet first','!'); return; } if(!cps.length){ toast('Register and approve a counterparty first','!'); return; }
   openModal('<h3 style="font-size:19px;margin-bottom:14px">New settlement</h3>'+
    '<div class="field"><label>From wallet</label><select id="ls-wallet">'+ws.map(function(w){return '<option value="'+w.id+'">'+w.label+' · '+w.balances.map(function(b){return b.asset+' '+b.available;}).join(' · ')+'</option>';}).join('')+'</select></div>'+
-   '<div class="field"><label>Counterparty (ACTIVE only)</label><select id="ls-cp">'+cps.map(function(c){return '<option value="'+c.id+'">'+c.label+' — '+c.address.slice(0,6)+'…'+c.address.slice(-6)+'</option>';}).join('')+'</select></div>'+
+   '<div class="field"><label>Counterparty (ACTIVE only)</label><select id="ls-cp">'+cps.map(function(c){return '<option value="'+c.id+'">'+c.label+' — '+(c.kind==='NETWORK'?c.participant:(c.address||'').slice(0,6)+'…'+(c.address||'').slice(-6))+'</option>';}).join('')+'</select></div>'+
    '<div class="grid-2" style="gap:14px"><div class="field"><label>Amount (exact, in the asset)</label><input id="ls-amount" placeholder="120.5"/></div><div class="field"><label>Asset</label><select id="ls-asset"><option>USDC_SOL</option><option>USDT_SOL</option></select></div></div>'+
    '<div class="field"><label>Your reference</label><input id="ls-ref" placeholder="SETTLE-2026-0442"/><div class="hint">POST /v1/transfers with an Idempotency-Key · above the approval threshold it waits for an operator.</div></div>'+
    '<div style="display:flex;gap:10px"><button class="btn btn-ghost" style="flex:1;justify-content:center" onclick="closeModal()">Cancel</button><button class="btn btn-primary" style="flex:1;justify-content:center" onclick="liveCreateSettlement()">Create settlement</button></div>');
@@ -2210,12 +2137,13 @@ function liveDevelopers(){
    and health. Same rules as the institution side: the key lives in sessionStorage only, every value
    from the API is escaped at the boundary, every button is one call. */
 var OPS={on:false,exceptions:null,summary:null,pending:[],pendingCps:[],review:[],providers:[],error:null};
-function opsBase(){ return location.pathname.indexOf('/portal')===0?location.origin+'/api/settlement':null; }
+function opsBase(){ return location.origin+'/api/settlement'; }
 function opsKey(){ try{ return sessionStorage.getItem('AX_OPS_KEY')||''; }catch(e){ return ''; } }
 function opsApi(method,path,body){
   var base=opsBase(); if(!base) return Promise.reject(new Error('Operator console is available when the portal is served by the API (/portal)'));
   var h={'Authorization':'Bearer '+opsKey()}; if(body) h['Content-Type']='application/json';
   return fetch(base+path,{method:method,headers:h,body:body?JSON.stringify(body):undefined}).then(function(r){ return r.text().then(function(t){ var j=null; try{ j=t?JSON.parse(t):null; }catch(e){}
+    if(r.ok&&j===null) throw new Error('API returned an empty or invalid JSON response');
     if(!r.ok){ var m=(j&&j.error&&(j.error.message||j.error))||('HTTP '+r.status); throw new Error(typeof m==='string'?m:('HTTP '+r.status)); } return liveSan(j); }); });
 }
 function connectAsOperator(key){
@@ -2229,7 +2157,7 @@ function connectAsOperator(key){
 }
 function disconnectOps(){ OPS={on:false,exceptions:null,summary:null,pending:[],pendingCps:[],review:[],providers:[],error:null}; try{ sessionStorage.removeItem('AX_OPS_KEY'); }catch(e){} }
 function refreshOps(){
-  if(!OPS.on) return Promise.resolve();
+  if(!OPS.on) return Promise.resolve(); OPS.error=null;
   return Promise.all([
     opsApi('GET','/exceptions?status=OPEN').then(function(v){ OPS.exceptions=v.exceptions; OPS.summary=v.summary; }),
     opsApi('GET','/transfers/pending').then(function(v){ OPS.pending=v; }),
@@ -2238,7 +2166,7 @@ function refreshOps(){
     opsApi('GET','/providers?health=true').then(function(v){ OPS.providers=v.providers||[]; }),
   ]).catch(function(e){ OPS.error=liveEsc(e.message); }).then(function(){ render(); });
 }
-function opsHead(){ return '<div style="background:rgba(167,139,250,.08);border:1px solid rgba(167,139,250,.3);border-radius:8px;padding:8px 14px;font-size:11.5px;color:var(--ink-2);margin-bottom:16px;display:flex;align-items:center;gap:8px"><span style="width:7px;height:7px;border-radius:50%;background:#a78bfa;display:inline-block"></span>Operator console · live · '+liveEsc(opsBase())+(OPS.error?' · <span style="color:#f87171">'+OPS.error+'</span>':'')+'<span style="margin-left:auto"><button class="btn btn-ghost btn-sm" onclick="refreshOps()">Refresh</button></span></div>'; }
+function opsHead(){ return '<div style="background:rgba(167,139,250,.08);border:1px solid rgba(167,139,250,.3);border-radius:8px;padding:8px 14px;font-size:11.5px;color:var(--ink-2);margin-bottom:16px;display:flex;align-items:center;gap:8px"><span style="width:7px;height:7px;border-radius:50%;background:#a78bfa;display:inline-block"></span>Operator console · API connected · '+liveEsc(opsBase())+(OPS.error?' · <span style="color:#f87171">'+OPS.error+'</span>':'')+'<span style="margin-left:auto"><button class="btn btn-ghost btn-sm" onclick="refreshOps()">Refresh</button></span></div>'; }
 function opsSevBadge(s){ return '<span class="badge badge-'+(s==='CRITICAL'?'high':s==='WARN'?'medium':'low')+'">'+s+'</span>'; }
 function opsAlerts(){
   var xs=OPS.exceptions||[]; var sm=OPS.summary||{open:0,acknowledged:0,critical:0,warn:0,info:0};

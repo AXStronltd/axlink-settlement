@@ -52,6 +52,7 @@ COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
 # node_modules — copying it before means shipping an image without it.
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
+COPY apps/web/index.html /app/dist/apps/web/index.html
 COPY scripts/write-fireblocks-key.sh /app/scripts/write-fireblocks-key.sh
 RUN chmod +x /app/scripts/write-fireblocks-key.sh
 
