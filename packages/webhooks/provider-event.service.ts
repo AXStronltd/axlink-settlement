@@ -36,6 +36,7 @@ export interface EventOutcome {
   vaultId?: string | null;
   entityType?: string | null;
   entityId?: string | null;
+  walletId?: string | null;
 }
 
 export type ProcessResult<T> =
@@ -99,6 +100,6 @@ export async function processOnce<T>(
 function outcomeData(o: EventOutcome) {
   return {
     status: o.status, reason: o.reason ?? null, assetId: o.assetId ?? null, institutionId: o.institutionId ?? null,
-    vaultId: o.vaultId ?? null, entityType: o.entityType ?? null, entityId: o.entityId ?? null,
+    vaultId: o.vaultId ?? null, entityType: o.entityType ?? null, entityId: o.entityId ?? null, walletId: o.walletId ?? null,
   };
 }

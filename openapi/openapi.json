@@ -1,30 +1,666 @@
 {
   "openapi": "3.1.0",
-  "info": { "title": "AxLink API", "version": "2.1.0-step1", "description": "AxLink — provider-agnostic institutional settlement network. Step 1 documents the platform foundation (health, readiness, institutions, credentials). Financial endpoints are documented as they are built, one milestone at a time." },
-  "servers": [{ "url": "/api" }],
+  "info": {
+    "title": "AxLink API",
+    "version": "2.1.0-step1",
+    "description": "AxLink \u2014 provider-agnostic institutional settlement network. Step 1 documents the platform foundation (health, readiness, institutions, credentials). Financial endpoints are documented as they are built, one milestone at a time."
+  },
+  "servers": [
+    {
+      "url": "/api"
+    }
+  ],
   "components": {
     "securitySchemes": {
-      "institutionKey": { "type": "http", "scheme": "bearer", "description": "Institution API key: axlk_test_… (sandbox) or axlk_live_… (production). One environment per key." },
-      "opsKey": { "type": "http", "scheme": "bearer", "description": "Operator key (OPS_API_KEY). Never issued to institutions." }
+      "institutionKey": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Institution API key: axlk_test_\u2026 (sandbox) or axlk_live_\u2026 (production). One environment per key."
+      },
+      "opsKey": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Operator key (OPS_API_KEY). Never issued to institutions."
+      }
     },
     "schemas": {
-      "Error": { "type": "object", "required": ["error"], "properties": { "error": { "type": "object", "required": ["code", "message"], "properties": { "code": { "type": "string" }, "message": { "type": "string" }, "requestId": { "type": "string" }, "details": {} } } } },
-      "Institution": { "type": "object", "properties": { "id": { "type": "string" }, "slug": { "type": "string" }, "legalName": { "type": "string" }, "country": { "type": "string" }, "kind": { "type": "string", "enum": ["BANK", "FINTECH", "PSP", "EXCHANGE", "OTHER"] }, "status": { "type": "string", "enum": ["PENDING", "ACTIVE", "SUSPENDED", "CLOSED"] }, "environments": { "type": "array", "items": { "$ref": "#/components/schemas/ApiEnvironment" } } } },
-      "ApiEnvironment": { "type": "object", "properties": { "id": { "type": "string" }, "kind": { "type": "string", "enum": ["SANDBOX", "PRODUCTION"] }, "status": { "type": "string", "enum": ["ACTIVE", "DISABLED"] } } },
-      "CreateInstitution": { "type": "object", "required": ["slug", "legalName", "country", "kind"], "properties": { "slug": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{2,48}$" }, "legalName": { "type": "string" }, "country": { "type": "string", "pattern": "^[A-Z]{2}$" }, "kind": { "type": "string", "enum": ["BANK", "FINTECH", "PSP", "EXCHANGE", "OTHER"] }, "contactEmail": { "type": "string", "format": "email" } } },
-      "IssueCredential": { "type": "object", "required": ["environment", "label"], "properties": { "environment": { "type": "string", "enum": ["SANDBOX", "PRODUCTION"] }, "label": { "type": "string" }, "scopes": { "type": "array", "items": { "type": "string", "example": "settlement:read" } } } }
+      "Error": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": [
+              "code",
+              "message"
+            ],
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "requestId": {
+                "type": "string"
+              },
+              "details": {}
+            }
+          }
+        }
+      },
+      "Institution": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "legalName": {
+            "type": "string"
+          },
+          "country": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "BANK",
+              "FINTECH",
+              "PSP",
+              "EXCHANGE",
+              "OTHER"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "ACTIVE",
+              "SUSPENDED",
+              "CLOSED"
+            ]
+          },
+          "environments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ApiEnvironment"
+            }
+          }
+        }
+      },
+      "ApiEnvironment": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "SANDBOX",
+              "PRODUCTION"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "DISABLED"
+            ]
+          }
+        }
+      },
+      "CreateInstitution": {
+        "type": "object",
+        "required": [
+          "slug",
+          "legalName",
+          "country",
+          "kind"
+        ],
+        "properties": {
+          "slug": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{2,48}$"
+          },
+          "legalName": {
+            "type": "string"
+          },
+          "country": {
+            "type": "string",
+            "pattern": "^[A-Z]{2}$"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "BANK",
+              "FINTECH",
+              "PSP",
+              "EXCHANGE",
+              "OTHER"
+            ]
+          },
+          "contactEmail": {
+            "type": "string",
+            "format": "email"
+          }
+        }
+      },
+      "IssueCredential": {
+        "type": "object",
+        "required": [
+          "environment",
+          "label"
+        ],
+        "properties": {
+          "environment": {
+            "type": "string",
+            "enum": [
+              "SANDBOX",
+              "PRODUCTION"
+            ]
+          },
+          "label": {
+            "type": "string"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "example": "settlement:read"
+            }
+          }
+        }
+      },
+      "Wallet": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "SUSPENDED",
+              "CLOSED"
+            ]
+          },
+          "network": {
+            "type": "string",
+            "example": "solana-mainnet"
+          },
+          "custody": {
+            "type": "object",
+            "properties": {
+              "provider": {
+                "type": "string"
+              },
+              "vaultId": {
+                "type": "string"
+              }
+            }
+          },
+          "depositAddress": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "One address receives every supported asset on the network (USDC and USDT share it on Solana)."
+          },
+          "balances": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "asset": {
+                  "type": "string",
+                  "example": "USDC_SOL"
+                },
+                "available": {
+                  "type": "string",
+                  "example": "100.123456"
+                },
+                "pending": {
+                  "type": "string"
+                },
+                "updatedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              }
+            }
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      }
     }
   },
   "paths": {
-    "/health": { "get": { "summary": "Liveness", "responses": { "200": { "description": "Process is up" } } } },
-    "/ready": { "get": { "summary": "Readiness: database reachable, migrations applied", "responses": { "200": { "description": "Ready" }, "503": { "description": "Not ready", "content": { "application/json": { "schema": { "type": "object" } } } } } } },
-    "/institutions/me": { "get": { "summary": "Identify the calling institution and environment", "security": [{ "institutionKey": [] }], "responses": { "200": { "description": "OK" }, "401": { "description": "Invalid key", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } } } } },
-    "/institutions": {
-      "get": { "summary": "List institutions", "security": [{ "opsKey": [] }], "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Institution" } } } } } } },
-      "post": { "summary": "Create an institution (sandbox active, production disabled)", "security": [{ "opsKey": [] }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateInstitution" } } } }, "responses": { "201": { "description": "Created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Institution" } } } }, "409": { "description": "Slug exists" } } }
+    "/health": {
+      "get": {
+        "summary": "Liveness",
+        "responses": {
+          "200": {
+            "description": "Process is up"
+          }
+        }
+      }
     },
-    "/institutions/{id}": { "get": { "summary": "Get an institution", "security": [{ "opsKey": [] }], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "description": "OK" }, "404": { "description": "Not found" } } } },
-    "/institutions/{id}/credentials": { "post": { "summary": "Issue an API credential (raw key returned once)", "security": [{ "opsKey": [] }], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/IssueCredential" } } } }, "responses": { "201": { "description": "Issued" }, "409": { "description": "Environment disabled" } } } },
-    "/institutions/{id}/credentials/{credId}/revoke": { "post": { "summary": "Revoke a credential", "security": [{ "opsKey": [] }], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }, { "name": "credId", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "description": "Revoked" } } } }
+    "/ready": {
+      "get": {
+        "summary": "Readiness: database reachable, migrations applied",
+        "responses": {
+          "200": {
+            "description": "Ready"
+          },
+          "503": {
+            "description": "Not ready",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/institutions/me": {
+      "get": {
+        "summary": "Identify the calling institution and environment",
+        "security": [
+          {
+            "institutionKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Invalid key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/institutions": {
+      "get": {
+        "summary": "List institutions",
+        "security": [
+          {
+            "opsKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Institution"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Create an institution (sandbox active, production disabled)",
+        "security": [
+          {
+            "opsKey": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateInstitution"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Institution"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Slug exists"
+          }
+        }
+      }
+    },
+    "/institutions/{id}": {
+      "get": {
+        "summary": "Get an institution",
+        "security": [
+          {
+            "opsKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/institutions/{id}/credentials": {
+      "post": {
+        "summary": "Issue an API credential (raw key returned once)",
+        "security": [
+          {
+            "opsKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IssueCredential"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Issued"
+          },
+          "409": {
+            "description": "Environment disabled"
+          }
+        }
+      }
+    },
+    "/institutions/{id}/credentials/{credId}/revoke": {
+      "post": {
+        "summary": "Revoke a credential",
+        "security": [
+          {
+            "opsKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "credId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Revoked"
+          }
+        }
+      }
+    },
+    "/wallets": {
+      "get": {
+        "tags": [
+          "Wallets"
+        ],
+        "summary": "List the wallets of the calling institution in the credential's environment",
+        "security": [
+          {
+            "institutionKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Wallets",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Wallet"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key"
+          },
+          "403": {
+            "description": "Credential lacks wallets:read"
+          }
+        }
+      }
+    },
+    "/wallets/{id}": {
+      "get": {
+        "tags": [
+          "Wallets"
+        ],
+        "summary": "One wallet (404 for any wallet outside the caller's institution and environment)",
+        "security": [
+          {
+            "institutionKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Wallet",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Wallet"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/wallets/{id}/balances": {
+      "get": {
+        "tags": [
+          "Wallets"
+        ],
+        "summary": "Balances per asset, as exact decimal strings",
+        "security": [
+          {
+            "institutionKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Balances"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/institutions/{id}/wallets": {
+      "post": {
+        "tags": [
+          "Institutions (operator)"
+        ],
+        "summary": "Create a custody wallet for an institution in one environment",
+        "security": [
+          {
+            "opsKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "environment",
+                  "label"
+                ],
+                "properties": {
+                  "environment": {
+                    "type": "string",
+                    "enum": [
+                      "SANDBOX",
+                      "PRODUCTION"
+                    ]
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "network": {
+                    "type": "string",
+                    "enum": [
+                      "solana-mainnet"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Wallet created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Wallet"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Environment disabled"
+          },
+          "503": {
+            "description": "Custody not configured (production)"
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Institutions (operator)"
+        ],
+        "summary": "All wallets of an institution across environments",
+        "security": [
+          {
+            "opsKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Wallets"
+          }
+        }
+      }
+    }
   }
 }

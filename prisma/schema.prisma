@@ -34,6 +34,7 @@ model User {
   // only an ops credential can reach those.
   institutionId   String?
   institution     Institution? @relation(fields: [institutionId], references: [id])
+  wallet          Wallet?      // Step 2: the Wallet backfilled from this user's vault
 
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -743,6 +744,7 @@ model Institution {
   environments  ApiEnvironment[]
   banks         Bank[]
   users         User[]
+  wallets       Wallet[]
 
   @@index([status])
 }
@@ -763,6 +765,7 @@ model ApiEnvironment {
 
   credentials     ApiCredential[]
 
+  wallets         Wallet[]
   @@unique([institutionId, kind])
 }
 
@@ -798,6 +801,7 @@ model ProviderEvent {
   institutionId String?
   vaultId       String?
   entityType    String?  // BankDeposit | Withdrawal | SettlementLeg
+  walletId      String?  // Step 2: the Wallet the event was attributed to
   entityId      String?
   payloadHash   String   // sha256 of the raw body
   receivedAt    DateTime @default(now())
@@ -805,4 +809,52 @@ model ProviderEvent {
   @@unique([provider, eventId])
   @@index([entityType, entityId])
   @@index([institutionId])
+}
+
+// ── Wallets (Step 2, slice 1) ─────────────────────────────────────────────────
+// An institution's custody wallet: one custody vault on one network, holding one balance per
+// registry asset. The deposit address receives every supported asset on that network (USDC and
+// USDT share one Solana address). Environment-bound: a sandbox wallet can never hold production
+// funds, and credentials of one environment cannot see the other's wallets.
+enum WalletStatus {
+  ACTIVE
+  SUSPENDED
+  CLOSED
+}
+
+model Wallet {
+  id              String         @id @default(cuid())
+  institutionId   String
+  institution     Institution    @relation(fields: [institutionId], references: [id])
+  environmentId   String
+  environment     ApiEnvironment @relation(fields: [environmentId], references: [id])
+  label           String
+  custodyProvider String         @default("fireblocks")
+  custodyVaultId  String         // provider's vault/account id
+  network         String         // registry NetworkId, e.g. solana-mainnet
+  depositAddress  String?        // on-network address; null until custody has issued one
+  status          WalletStatus   @default(ACTIVE)
+  legacyUserId    String?        @unique // backfilled link to the legacy User row that owned the vault
+  legacyUser      User?          @relation(fields: [legacyUserId], references: [id])
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  balances        WalletBalance[]
+
+  @@unique([custodyProvider, custodyVaultId])
+  @@index([institutionId])
+  @@index([environmentId])
+}
+
+// Projection of the journal's CUSTODY:<vault>:<ASSET> account, kept in the same transaction as the
+// posting. Never the source of truth; reconciliation compares it to the journal.
+model WalletBalance {
+  id        String   @id @default(cuid())
+  walletId  String
+  wallet    Wallet   @relation(fields: [walletId], references: [id])
+  assetId   String   // registry AssetId
+  available Decimal  @default(0) @db.Decimal(36, 18)
+  pending   Decimal  @default(0) @db.Decimal(36, 18)
+  updatedAt DateTime @updatedAt
+
+  @@unique([walletId, assetId])
 }

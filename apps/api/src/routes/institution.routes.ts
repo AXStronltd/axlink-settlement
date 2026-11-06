@@ -2,6 +2,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { requireOps } from '../platform/ops-auth';
+import { createWallet, listInstitutionWallets, serializeWallet } from '../../../../packages/core/wallets/wallet.service';
 import { createInstitution, getInstitution, listInstitutions, issueCredential, revokeCredential, CreateInstitution } from '../../../../packages/core/institutions/institution.service';
 import { notFound } from '../../../../packages/shared/errors';
 import { requireInstitution } from '../../../../packages/core/tenancy/tenancy.middleware';
@@ -23,3 +24,12 @@ router.post('/:id/credentials', wrap(async (req, res) => {
 }));
 router.post('/:id/credentials/:credId/revoke', wrap(async (req, res) => { res.json(await revokeCredential(req.params.credId as string)); }));
 export default router;
+
+// ── Wallets (Step 2) — operator creates; institutions read their own through /api/wallets ──
+const CreateWallet = z.object({ environment: z.enum(['SANDBOX', 'PRODUCTION']), label: z.string().min(1).max(80), network: z.literal('solana-mainnet').optional() });
+router.post('/:id/wallets', wrap(async (req, res) => {
+  const body = CreateWallet.parse(req.body);
+  const w = await createWallet({ institutionId: req.params.id as string, environmentKind: body.environment, label: body.label, network: body.network });
+  res.status(201).json(serializeWallet({ ...w, environment: { kind: body.environment } }));
+}));
+router.get('/:id/wallets', wrap(async (req, res) => { res.json((await listInstitutionWallets(req.params.id as string)).map(serializeWallet)); }));

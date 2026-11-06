@@ -13,6 +13,7 @@ import { resolveProviderAsset, toMinorUnits, type AssetDefinition } from '../cor
 import { post } from '../core/ledger/journal.service';
 import { AccountCode } from '../core/ledger/accounts';
 import { EventIgnored, type EventOutcome, type Tx } from './provider-event.service';
+import { walletForVault, applyWalletCredit } from '../core/wallets/wallet.service';
 
 export interface CustodyCompletion {
   provider: 'fireblocks';
@@ -47,7 +48,19 @@ export async function applyCustodyDeposit(tx: Tx, ev: CustodyCompletion): Promis
     throw new EventIgnored({ status: 'IGNORED', reason: 'destination vault is not an AxLink wallet', assetId: asset.id, vaultId: ev.destinationVaultId });
   }
 
-  const attribution = { assetId: asset.id, institutionId: user.institutionId, vaultId: user.vaultId };
+  // Step 2: the vault belongs to a Wallet. When one exists it is the owner of record and must agree
+  // with the legacy user's institution; a mismatch is a data error, never a credit.
+  const wallet = await walletForVault(tx, ev.provider, ev.destinationVaultId);
+  const attribution = { assetId: asset.id, institutionId: wallet?.institutionId ?? user.institutionId, vaultId: user.vaultId, walletId: wallet?.id ?? null };
+  if (wallet && user.institutionId && wallet.institutionId !== user.institutionId) {
+    throw new EventIgnored({ status: 'REJECTED', reason: 'wallet and legacy user disagree on owning institution', ...attribution });
+  }
+  if (wallet && wallet.status !== 'ACTIVE') {
+    throw new EventIgnored({ status: 'REJECTED', reason: `wallet is ${wallet.status}`, ...attribution });
+  }
+  if (wallet && wallet.network !== asset.network) {
+    throw new EventIgnored({ status: 'REJECTED', reason: 'asset network differs from wallet network', ...attribution });
+  }
   const reject = (reason: string): never => { throw new EventIgnored({ status: 'REJECTED', reason, ...attribution }); };
   if (ev.operation !== 'TRANSFER' || ev.destinationType !== 'VAULT_ACCOUNT') reject('only custody transfer receipts can settle deposits');
   if (ev.sourceType === 'VAULT_ACCOUNT' || (ev.sourceVaultId && await tx.user.findUnique({ where: { vaultId: ev.sourceVaultId }, select: { id: true } }))) {
@@ -104,6 +117,7 @@ export async function applyCustodyDeposit(tx: Tx, ev: CustodyCompletion): Promis
   });
   if (!journal.created) reject('deposit journal already exists; operator reconciliation required');
   await credit(tx, user.id, asset.id, amount!);
+  if (wallet) await applyWalletCredit(tx, wallet.id, asset.id, amount!);
 
   return {
     outcome: { status: 'PROCESSED', ...attribution, entityType: 'BankDeposit', entityId: deposit.id },

@@ -22,6 +22,7 @@ import treasuryRoutes   from './routes/treasury.routes';
 import depositRoutes    from './routes/deposit.routes';
 import settlementRoutes from './routes/settlement.routes';
 import institutionRoutes from './routes/institution.routes';
+import walletRoutes      from './routes/wallet.routes';
 import { loadConfig } from '../../../packages/shared/config';
 import { log, requestContext } from '../../../packages/shared/logger';
 import { errorHandler, notFoundHandler } from '../../../packages/shared/errors';
@@ -54,6 +55,7 @@ app.use(openapiRouter());
 
 // Institutions (tenants) and API environments — operator-administered in Step 1
 app.use('/api/institutions', institutionRoutes);
+app.use('/api/wallets', walletRoutes);
 
 app.get(['/', '/api'], (_req, res) => {
   const base = process.env.API_BASE_URL ?? `http://localhost:${PORT}/api`;

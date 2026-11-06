@@ -1,13 +1,13 @@
-# How Claude and Codex work together on AxLink
+# How AxLink is built — working rules
 
-*Owner instruction, 2026-11-06. Both agents read this file (Codex via `AGENTS.md`, Claude via `CLAUDE.md`). GitHub is the only channel between them: branches, pull requests and PR comments. Nothing agreed anywhere else counts until it is written on the PR.*
+*Owner instruction, 2026-11-06. **Codex was stopped after Step 1; from Step 2 Claude works alone.** The per-slice flow below still applies, with the review step done by a separate, fresh Claude reviewer that has not seen the slice being written (so the work is not grading itself). The protocol is kept so a second agent can be re-added without changing the flow.*
 
 ## Roles
 
 | | Claude | Codex | Owner (Ahmed) |
 |---|---|---|---|
 | Builds | each slice of the approved milestone, on its own branch | fixes for its own findings (commits on the slice branch, or a PR targeting it) | — |
-| Reviews | Codex's fix commits before they merge | every slice PR, independently, against the code (not the description) | milestone reports |
+| Reviews | Codex's fix commits before they merge | every slice PR, independently, against the code (not the description) — **while Codex is stopped, a fresh Claude reviewer does this** | milestone reports |
 | Merges to `main` | yes — only after CI is green, Codex has no open critical/high finding, and the owner has approved the milestone | never | — |
 | Decides | technical approach within scope | severity of findings | scope, milestones, deployment |
 

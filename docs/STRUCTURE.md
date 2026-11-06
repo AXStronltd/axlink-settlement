@@ -26,7 +26,8 @@ axlink-settlement/
 │   │   ├── assets/             # asset registry: network + contract + decimals (F6)
 │   │   ├── idempotency/        # unique-constraint idempotency
 │   │   ├── events/             # event bus (Kafka or in-process), outbox, bank webhooks
-│   │   └── wallets/ networks/ compliance/ audit/   # reserved
+│   │   ├── wallets/            # Step 2: Wallet = institution → custody vault → per-asset balances (environment-bound)
+│   │   └── networks/ compliance/ audit/   # reserved
 │   ├── settlement/
 │   │   ├── orchestration/      # settlement legs, resume worker, USD corridor
 │   │   ├── proof/              # on-chain proof (Solana finality + mint/amount check)

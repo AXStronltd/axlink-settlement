@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { readFileSync } from 'fs';
+import { log } from '../../../shared/logger';
 import {
   Fireblocks,
   BasePath,
@@ -10,7 +11,7 @@ import {
 
 const PLACEHOLDER = ['your_', 'YOUR_'];
 
-function isConfigured(): boolean {
+export function isConfigured(): boolean {
   const apiKey = process.env.FIREBLOCKS_API_KEY ?? '';
   const keyPath = process.env.FIREBLOCKS_SECRET_KEY_PATH ?? '';
   return !!(apiKey && keyPath && !PLACEHOLDER.some(p => apiKey.startsWith(p)));
@@ -61,6 +62,27 @@ export async function getVaultAccount(vaultAccountId: string) {
   if (!isConfigured()) return { id: vaultAccountId, name: 'sandbox', assets: [] };
   const res = await client().vaults.getVaultAccount({ vaultAccountId });
   return res.data;
+}
+
+/**
+ * Create (or fetch) the asset wallet inside a vault and return its deposit address.
+ * Fireblocks issues one address per (vault, asset); on Solana the SPL tokens share the vault's
+ * SOL address, so USDC_SOL and USDT_SOL return the same string. No stub on failure: an address we
+ * invented is an address customers would send real money to.
+ */
+export async function createVaultAssetAddress(vaultAccountId: string, assetId: string): Promise<{ address: string; tag?: string }> {
+  if (!isConfigured()) throw new Error('Fireblocks is not configured; cannot issue a deposit address');
+  try {
+    const res = await client().vaults.createVaultAccountAsset({ vaultAccountId, assetId });
+    if (res.data.address) return { address: res.data.address, tag: res.data.tag ?? undefined };
+  } catch (err: unknown) {
+    // Asset wallet may already exist → read its first address.
+    log.warn('fireblocks.create_vault_asset', { vaultAccountId, assetId, error: (err as Error).message });
+  }
+  const addrs = await client().vaults.getVaultAccountAssetAddressesPaginated({ vaultAccountId, assetId });
+  const first = addrs.data.addresses?.[0];
+  if (!first?.address) throw new Error(`Fireblocks returned no address for ${assetId} in vault ${vaultAccountId}`);
+  return { address: first.address, tag: first.tag ?? undefined };
 }
 
 export async function listVaultAccounts(limit = 20, after?: string) {
