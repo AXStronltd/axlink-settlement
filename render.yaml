@@ -37,7 +37,7 @@ services:
   - type: web
     name: axlink-ops
     runtime: static
-    buildCommand: cd apps/web/ops && npm install && VITE_BASE_PATH=/ops/ npm run build && mkdir -p ../dist && cp -r dist ../dist/ops && cp ../index.html ../dist/index.html
+    buildCommand: mkdir -p apps/web/dist && cp apps/web/index.html apps/web/dist/index.html && cd apps/web/ops && npm install && VITE_BASE_PATH=/ops/ npm run build && cp -r dist ../dist/ops
     staticPublishPath: apps/web/dist
     plan: free
     headers:
