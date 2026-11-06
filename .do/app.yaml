@@ -40,7 +40,7 @@ jobs:
       repo: AXStronltd/axlink-settlement
       branch: main
       deploy_on_push: false
-    dockerfile_path: Dockerfile
+    dockerfile_path: infra/Dockerfile
     instance_size_slug: apps-s-1vcpu-0.5gb
     instance_count: 1
     run_command: npx prisma migrate deploy
@@ -62,7 +62,7 @@ services:
       repo: AXStronltd/axlink-settlement
       branch: main
       deploy_on_push: true
-    dockerfile_path: Dockerfile
+    dockerfile_path: infra/Dockerfile
     http_port: 4000
     instance_size_slug: apps-s-1vcpu-1gb
     # Two instances for availability. Both run the settlement resume worker;
@@ -197,7 +197,7 @@ static_sites:
       repo: AXStronltd/axlink-settlement
       branch: main
       deploy_on_push: true
-    source_dir: frontend
+    source_dir: apps/web/ops
     build_command: npm ci && npm run build
     output_dir: dist
     routes:

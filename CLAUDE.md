@@ -1,12 +1,12 @@
 # AxLink Settlement — working notes
 
-Crypto-rail settlement service. Express + Prisma/Postgres backend (`src/`), React/Vite frontend (`frontend/`).
+Crypto-rail settlement service. Express + Prisma/Postgres backend (`apps/api` + `packages/`), AxLink front end (`apps/web`, with the ops dashboard at `apps/web/ops`). Layout: `docs/STRUCTURE.md`.
 Users see fiat only; USDT on Solana via Fireblocks is the internal settlement layer.
 
 ## Running locally
 
 Requires Postgres. Redis and Kafka appear in `docker-compose.yml` but are **not** required:
-Redis is unused by any source file, and `src/core/kafka.service.ts` falls back to an
+Redis is unused by any source file, and `packages/core/events/kafka.service.ts` falls back to an
 in-process EventEmitter bus when `KAFKA_BROKERS` is unset.
 
 ```bash
@@ -15,7 +15,7 @@ cp .env.example .env              # then set DATABASE_URL
 npx prisma db push                # NOT `migrate deploy` — see below
 npx prisma generate
 npm run dev                       # backend  → http://localhost:4000
-cd frontend && npm install && npm run dev   # frontend → http://localhost:5173 (proxies /api → :4000)
+cd apps/web/ops && npm install && npm run dev   # ops dashboard → http://localhost:5173 (proxies /api → :4000)
 ```
 
 Health check: `curl -s http://localhost:4000/api/health`
@@ -30,7 +30,7 @@ Tests: `npx vitest run`
   `npx prisma db push` still works locally, but a DigitalOcean deploy will silently succeed
   against an unmigrated database. See `docs/DEPLOY.md`.
 
-- **npm 11 blocks postinstall scripts.** `prisma`, `@prisma/engines` (root) and `esbuild` (frontend)
+- **npm 11 blocks postinstall scripts.** `prisma`, `@prisma/engines` (root) and `esbuild` (apps/web/ops)
   need them. Approvals are recorded in the `allowScripts` field of each `package.json`, so a fresh
   `npm install` now works without manual intervention.
 
@@ -52,20 +52,20 @@ Tests: `npx vitest run`
 
 Added in the `settlement-engine` branch. `docs/GAP_ANALYSIS.md` explains why each piece exists.
 
-- `core/settlement/journal.service.ts` — double-entry journal. Every posting balances to zero
+- `packages/core/ledger/journal.service.ts` — double-entry journal. Every posting balances to zero
   **per currency**, asserted before write. `Account.balance` is now a projection of the journal,
   not the source of truth; both are written in the same transaction.
-- `core/settlement/leg.service.ts` — settlement legs. The plan is written before any external
+- `packages/settlement/orchestration/leg.service.ts` — settlement legs. The plan is written before any external
   call, so a crash between the customer debit and the partner payout is recoverable.
-  `core/settlement/resume.worker.ts` drives stalled legs forward.
-- `core/settlement/proof.service.ts` + `providers/live/solana.ts` — a transfer is settled when a
+  `packages/settlement/orchestration/resume.worker.ts` drives stalled legs forward.
+- `packages/settlement/proof/proof.service.ts` + `packages/providers/blockchain/solana/solana.ts` — a transfer is settled when a
   Solana node reports the signature `finalized`, not when Fireblocks returns an id.
-- `core/idempotency.service.ts` — a retried request must not pay twice. Backed by a unique
+- `packages/core/idempotency/idempotency.service.ts` — a retried request must not pay twice. Backed by a unique
   constraint, not a read-then-write check.
-- `core/provider/capability.ts` — replaces `atomicJit: boolean`. Declares settlement and payout
+- `packages/providers/runtime/capability.ts` — replaces `atomicJit: boolean`. Declares settlement and payout
   currencies separately, which is what makes local-currency corridors reachable. Refuses to send
   USDT to a partner not marked `cryptoLicensed`.
-- `core/settlement/reconciliation.service.ts` — trial balance, projection drift, custody and
+- `packages/settlement/reconciliation/reconciliation.service.ts` — trial balance, projection drift, custody and
   on-chain position checks.
 
 Ops surface: `/api/settlement/*`, gated by `OPS_API_KEY`. The exception is

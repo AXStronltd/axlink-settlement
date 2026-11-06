@@ -2,9 +2,13 @@
   "compilerOptions": {
     "module": "commonjs",
     "target": "es2020",
-    "lib": ["es2020"],
-    "types": ["node"],
-    "rootDir": "./src",
+    "lib": [
+      "es2020"
+    ],
+    "types": [
+      "node"
+    ],
+    "rootDir": ".",
     "outDir": "./dist",
     "sourceMap": true,
     "declaration": true,
@@ -13,6 +17,14 @@
     "skipLibCheck": true,
     "resolveJsonModule": true
   },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist"]
+  "include": [
+    "apps/api/src/**/*",
+    "packages/**/*",
+    "tests/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "apps/web"
+  ]
 }

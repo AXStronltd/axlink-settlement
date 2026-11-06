@@ -79,20 +79,20 @@ jobs:
           SIMULATOR_ENABLED: 'true'
 
       - name: Verify the production image builds
-        run: docker build -t axlink-settlement:ci .
+        run: docker build -f infra/Dockerfile -t axlink-settlement:ci .
 
   frontend:
     name: Frontend — build
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: frontend
+        working-directory: apps/web/ops
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: frontend/package-lock.json
+          cache-dependency-path: apps/web/ops/package-lock.json
       - run: npm ci
       - run: npm run build

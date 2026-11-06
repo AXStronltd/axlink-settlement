@@ -85,4 +85,4 @@ echo
 amber "Rails are stubbed in this process. Nothing here reaches a real partner."
 echo
 
-exec npx ts-node src/index.ts
+exec npx ts-node apps/api/src/index.ts
