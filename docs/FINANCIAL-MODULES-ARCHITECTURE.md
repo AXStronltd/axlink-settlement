@@ -23,7 +23,7 @@
 
 ## 3. Stablecoin deposits and transfers
 - **Exists:** USDT on Solana via Fireblocks; `SettlementLeg` with plan-before-act; deposit detection via Fireblocks webhooks.
-- **Missing:** multi-asset (`USDC`, `USDT`), per-institution deposit crediting with confirmations policy, whitelisted external destinations with approvals.
+- **Missing:** both assets (`USDC`, `USDT`) first-class per vault, per-institution deposit crediting with confirmations policy, whitelisted external destinations with approvals.
 - **Design:** `asset`+`chain` on every movement (config-selected, not hard-coded); inbound deposit → `ProviderEvent` → credit after N confirmations; outbound only to addresses in a whitelist registry (screened, dual-approved, mirrored at the custodian); amounts above a threshold wait for two operator approvals, with a timeout.
 
 ## 4. Cross-chain settlement
