@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import { admitWebhook, isSecretConfigured, rejectWebhook } from '../platform/webhook-policy';
 import { verifyWebhookSignature, TRANSFER_STATUS } from '../providers/live/b2binpay';
 import { verifyFireblocksWebhook, TX_STATUS } from '../providers/live/fireblocks';
 import { prisma, credit } from '../core/ledger.service';
@@ -12,14 +13,8 @@ router.post('/b2binpay', async (req: Request, res: Response) => {
   const signature = (req.headers['x-callback-signature'] as string | undefined) ?? '';
   const rawBody = (req as Request & { rawBody?: string }).rawBody ?? '';
 
-  const b2bSecret = process.env.B2BINPAY_CALLBACK_SECRET ?? '';
-  const secretConfigured = b2bSecret.length > 0 && !b2bSecret.startsWith('your_');
-  if (secretConfigured) {
-    if (!signature || !verifyWebhookSignature(rawBody, signature)) {
-      res.status(401).json({ error: 'Invalid webhook signature' });
-      return;
-    }
-  }
+  const verdict = admitWebhook({ provider: 'b2binpay', secretConfigured: isSecretConfigured(process.env.B2BINPAY_CALLBACK_SECRET), signaturePresent: !!signature, verify: () => verifyWebhookSignature(rawBody, signature) });
+  if (!verdict.ok) { rejectWebhook(res, verdict); return; }
 
   const payload = req.body as {
     data?: {
@@ -121,10 +116,8 @@ router.post(['/fireblocks', '/fireboks'], async (req: Request, res: Response) =>
   const signature = (req.headers['fireblocks-signature'] as string | undefined) ?? '';
   const rawBody = (req as Request & { rawBody?: string }).rawBody ?? '';
 
-  if (!verifyFireblocksWebhook(rawBody, signature)) {
-    res.status(401).json({ error: 'Invalid Fireblocks webhook signature' });
-    return;
-  }
+  const verdict = admitWebhook({ provider: 'fireblocks', secretConfigured: isSecretConfigured(process.env.FIREBLOCKS_WEBHOOK_PUBLIC_KEY), signaturePresent: !!signature, verify: () => verifyFireblocksWebhook(rawBody, signature) });
+  if (!verdict.ok) { rejectWebhook(res, verdict); return; }
 
   const payload = req.body as {
     type?: string;

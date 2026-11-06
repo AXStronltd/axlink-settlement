@@ -71,6 +71,7 @@ echo "   The money is not his until USDT is confirmed in his vault."
 # ─────────────────────────────────────────────────────────────────────────────
 rule "3. Fireblocks confirms the USDT landed"
 
+# Requires ALLOW_UNVERIFIED_WEBHOOKS=true on the API (local dev only — see .env.example, F2)
 curl -s -X POST "$API/webhooks/fireblocks" -H 'Content-Type: application/json' \
   -d "{\"type\":\"TRANSACTION_STATUS_UPDATED\",
        \"data\":{\"id\":\"fbtx_$RANDOM\",\"status\":\"COMPLETED\",

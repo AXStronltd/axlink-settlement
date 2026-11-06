@@ -190,7 +190,7 @@ export function verifyFireblocksWebhook(
   signatureHeader: string,
 ): boolean {
   const pubKey = process.env.FIREBLOCKS_WEBHOOK_PUBLIC_KEY ?? '';
-  if (!pubKey) return true; // skip if not configured (dev mode)
+  if (!pubKey || !signatureHeader) return false; // F2: fail closed — admission policy decides 503 vs 401
 
   try {
     return crypto.verify(

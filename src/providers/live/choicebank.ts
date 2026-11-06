@@ -225,7 +225,7 @@ export async function getBalance(currency: ChoiceBankCurrency): Promise<ChoiceBa
 
 export function verifyWebhookSignature(rawBody: string, signatureHeader: string): boolean {
   const secret = process.env.CHOICE_BANK_WEBHOOK_SECRET ?? '';
-  if (!secret) return true; // skip if not configured (dev)
+  if (!secret || !signatureHeader) return false; // F2: fail closed
 
   const expected = crypto
     .createHmac('sha256', secret)

@@ -1,3 +1,4 @@
+import { admitWebhook, isSecretConfigured, rejectWebhook } from '../platform/webhook-policy';
 import { Router, Request, Response } from 'express';
 import { verifyWebhookSignature } from '../providers/live/choicebank';
 import { prisma, credit } from '../core/ledger.service';
@@ -20,13 +21,8 @@ router.post('/choicebank', async (req: Request, res: Response) => {
   const signature = (req.headers['x-choicebank-signature'] as string | undefined) ?? '';
   const rawBody = (req as Request & { rawBody?: string }).rawBody ?? '';
 
-  const secretConfigured = (process.env.CHOICE_BANK_WEBHOOK_SECRET ?? '').length > 0 &&
-    !process.env.CHOICE_BANK_WEBHOOK_SECRET?.startsWith('your_');
-
-  if (secretConfigured && !verifyWebhookSignature(rawBody, signature)) {
-    res.status(401).json({ error: 'Invalid Choice Bank webhook signature' });
-    return;
-  }
+  const verdict = admitWebhook({ provider: 'choicebank', secretConfigured: isSecretConfigured(process.env.CHOICE_BANK_WEBHOOK_SECRET), signaturePresent: !!signature, verify: () => verifyWebhookSignature(rawBody, signature) });
+  if (!verdict.ok) { rejectWebhook(res, verdict); return; }
 
   // Acknowledge immediately before any async work
   res.status(200).json({ received: true });

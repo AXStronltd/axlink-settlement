@@ -1,3 +1,4 @@
+import { admitWebhook, isSecretConfigured, rejectWebhook } from '../platform/webhook-policy';
 import { Router, Request, Response } from 'express';
 import { verifyWebhookSignature, buildAuthDecision } from '../providers/live/brainrock';
 import { prisma, credit, debit, getBalance } from '../core/ledger.service';
@@ -16,11 +17,8 @@ router.post('/brainrock', async (req: Request, res: Response) => {
   const signature = (req.headers['x-brainrock-signature'] as string | undefined) ?? '';
   const rawBody = (req as Request & { rawBody?: string }).rawBody ?? '';
 
-  const secretConfigured = (process.env.BRAINROCK_WEBHOOK_SECRET ?? '').length > 0;
-  if (secretConfigured && !verifyWebhookSignature(rawBody, signature)) {
-    res.status(401).json({ error: 'Invalid Brainrock webhook signature' });
-    return;
-  }
+  const verdict = admitWebhook({ provider: 'brainrock', secretConfigured: isSecretConfigured(process.env.BRAINROCK_WEBHOOK_SECRET), signaturePresent: !!signature, verify: () => verifyWebhookSignature(rawBody, signature) });
+  if (!verdict.ok) { rejectWebhook(res, verdict); return; }
 
   const event = req.body as {
     type: string;
@@ -140,11 +138,8 @@ router.post('/brainrock/card/authorize', async (req: Request, res: Response) => 
   const signature = (req.headers['x-brainrock-signature'] as string | undefined) ?? '';
   const rawBody   = (req as Request & { rawBody?: string }).rawBody ?? '';
 
-  const secretConfigured = (process.env.BRAINROCK_WEBHOOK_SECRET ?? '').length > 0;
-  if (secretConfigured && !verifyWebhookSignature(rawBody, signature)) {
-    res.status(401).json(buildAuthDecision(false, '', 'Invalid signature'));
-    return;
-  }
+  const verdict = admitWebhook({ provider: 'brainrock', secretConfigured: isSecretConfigured(process.env.BRAINROCK_WEBHOOK_SECRET), signaturePresent: !!signature, verify: () => verifyWebhookSignature(rawBody, signature) });
+  if (!verdict.ok) { res.status(verdict.status).json(buildAuthDecision(false, '', verdict.message)); return; }
 
   const t0 = Date.now();
 

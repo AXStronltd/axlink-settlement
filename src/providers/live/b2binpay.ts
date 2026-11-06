@@ -420,6 +420,7 @@ export function verifyWebhookSignature(
   signatureHeader: string,
 ): boolean {
   const secret = process.env.B2BINPAY_CALLBACK_SECRET ?? '';
+  if (!secret || !signatureHeader) return false; // F2: fail closed
   const expected = crypto
     .createHmac('sha256', secret)
     .update(rawBody)
