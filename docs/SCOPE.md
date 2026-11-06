@@ -1,26 +1,41 @@
-# Scope — crypto settlement only
+# AxLink scope — Leg A, Step 1 security remediation
 
-*Set by the owner on 2026-11-06. Binding for every milestone from Step 2 onward.*
+Owner authorization: institutional digital asset custody, USDC/USDT deposits,
+transfers and blockchain settlement from the sending institution to verified
+receipt by the receiving institution.
 
-AxLink is built as **crypto settlement infrastructure**: digital asset custody, stablecoin deposits
-and transfers, cross-chain settlement, liquidity and FX access, bank-to-bank settlement in the asset,
-and local fiat payout coordination for receivers that cannot take the asset.
+AxLink does not issue, mint or redeem tokens. It accepts supported, publicly
+issued stablecoins on public networks, held in regulated custody. There is no
+private or permissioned settlement network. Current token definitions identify
+USDC/Circle and USDT/Tether on Solana mainnet by network and mint.
 
-**Out of scope — not built, not integrated, not referenced in new code or docs:**
+The overall Leg A architecture includes institutional authentication/tenancy,
+asset/network identity, wallets/addresses, immutable double-entry accounting,
+provider-agnostic custody, stablecoin receipts/transfers, approved cross-chain
+mechanisms, compliance/risk controls, settlement states, signed events and
+reconciliation. This list is product scope, not permission to implement it all.
+B2INPAY is a future optional conversion/liquidity adapter, not a dependency for
+basic USDT settlement.
 
-- The NDD ("Narrow Digital Dollar") settlement leg and any N3XT integration ("Leg B" in the earlier
-  two-leg designs). Those designs are reference material only.
-- Any issuance or minting of a settlement instrument. AxLink is not an issuer: it settles existing,
-  publicly issued stablecoins (USDC by Circle, USDT by Tether) on a public network (Solana mainnet),
-  held in regulated custody. No private or permissioned network.
+## Current authorized work
 
-**Where the old scope still shows, and what happens to it:**
+Step 1 final security remediation only: confirm F1–F6 against the existing
+verification report and source, fix confirmed defects, demonstrate before/after
+behavior, run relevant sandbox checks, obtain independent scoped Codex review
+and report. Preserve both existing frontends and the current repository structure.
+No new settlement features, live financial transactions or production deployment.
 
-| Location | Status |
-|---|---|
-| `apps/web/index.html` (AxLink front end) | Positions NDD as a rail and has NDD reserve views. Preserved unchanged in Step 1; receives a crypto-settlement-only content pass in the milestone that wires the portal to the API. |
-| `docs/ARCHITECTURE.md`, `docs/AxLink-Settlement-Blueprint.*` | Historical. Superseded by `docs/FINANCIAL-MODULES-ARCHITECTURE.md` for anything NDD-related. |
-| Backend `src/` | Contains no NDD code. Keep it that way; CI may add a word-guard. |
+## Leg B — excluded
 
-Providers in scope today: Fireblocks (custody, chain execution), B2BinPay (liquidity), Solana RPC
-(finality), plus fiat payout partners for local delivery. All behind `src/providers/ports`.
+Kenyan shilling payouts, mobile money disbursements, beneficiary bank transfers,
+receiving-bank fiat FX pricing, local fiat liquidity management and beneficiary
+payout execution. Existing legacy code is not authorization to develop these.
+Unsafe legacy customer mutations, interbank submission and fiat callbacks are
+blocked by this remediation. Some privileged settlement actions, background
+workers and the signed B2INPAY callback still exist; they are not production-approved.
+
+## Stop boundary
+
+Stop after the Step 1 remediation and independent review. Step 2, repository
+restructure, provider rewiring, wallet model expansion, cross-chain implementation
+and any production financial deployment require explicit owner approval.
