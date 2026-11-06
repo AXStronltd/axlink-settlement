@@ -1,25 +1,17 @@
 import { useState } from 'react'
 import Dashboard from './components/Dashboard'
 import Users from './components/Users'
-import Accounts from './components/Accounts'
 import Transfers from './components/Transfers'
-import Deposits from './components/Deposits'
-import Withdrawals from './components/Withdrawals'
 import Simulator from './components/Simulator'
-import LiveDemo from './components/LiveDemo'
 import { getStoredOpsKey, storeOpsKey } from './api'
 
-type Page = 'dashboard' | 'users' | 'wallet' | 'transfers' | 'deposits' | 'withdrawals' | 'simulator' | 'livedemo'
+type Page = 'dashboard' | 'institutions' | 'transfers' | 'simulator'
 
 const NAV: { id: Page; label: string; icon: string }[] = [
-  { id: 'dashboard',   label: 'Dashboard',   icon: '▦' },
-  { id: 'users',       label: 'Users',        icon: '◉' },
-  { id: 'wallet',      label: 'Accounts',     icon: '▣' },
-  { id: 'transfers',   label: 'Transfers',    icon: '⇄' },
-  { id: 'deposits',    label: 'Deposits',     icon: '↓' },
-  { id: 'withdrawals', label: 'Withdrawals',  icon: '↑' },
-  { id: 'simulator',   label: 'Simulator',    icon: '▷' },
-  { id: 'livedemo',    label: 'Live Demo',    icon: '◈' },
+  { id: 'dashboard',    label: 'Network',      icon: '▦' },
+  { id: 'institutions', label: 'Institutions', icon: '🏦' },
+  { id: 'transfers',    label: 'Settlements',  icon: '⇄' },
+  { id: 'simulator',    label: 'Simulator',    icon: '▷' },
 ]
 
 function LoginModal({ onLogin }: { onLogin: () => void }) {
@@ -102,14 +94,10 @@ export default function App() {
 
       {/* Main */}
       <main className="flex-1 overflow-auto">
-        {page === 'dashboard'   && <Dashboard />}
-        {page === 'users'       && <Users />}
-        {page === 'wallet'      && <Accounts />}
-        {page === 'transfers'   && <Transfers />}
-        {page === 'deposits'    && <Deposits />}
-        {page === 'withdrawals' && <Withdrawals />}
-        {page === 'simulator'   && <Simulator />}
-        {page === 'livedemo'    && <LiveDemo />}
+        {page === 'dashboard'    && <Dashboard />}
+        {page === 'institutions' && <Users />}
+        {page === 'transfers'    && <Transfers />}
+        {page === 'simulator'    && <Simulator />}
       </main>
     </div>
   )
