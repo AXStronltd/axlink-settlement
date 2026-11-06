@@ -22,6 +22,7 @@ const schema = z.object({
   FIREBLOCKS_WORKSPACE_ID: z.string().optional(),
   FIREBLOCKS_WEBHOOK_JWKS_URL: z.enum(['https://keys.fireblocks.io/.well-known/jwks.json', 'https://eu-keys.fireblocks.io/.well-known/jwks.json', 'https://eu2-keys.fireblocks.io/.well-known/jwks.json', 'https://sandbox-keys.fireblocks.io/.well-known/jwks.json']).optional(),
   FIREBLOCKS_WEBHOOK_PUBLIC_KEY: z.string().optional(), B2BINPAY_CALLBACK_SECRET: z.string().optional(),
+  WEBHOOK_ENCRYPTION_KEY: z.string().optional(), // Step 2: AES-256-GCM key for institution webhook secrets
   DEMO_ENABLED: bool,
   SETTLEMENT_WORKER_ENABLED: z.enum(['true', 'false']).default('true').transform(v => v === 'true'),
   OUTBOX_WORKER_ENABLED: z.enum(['true', 'false']).default('true').transform(v => v === 'true'),
@@ -54,6 +55,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ConfigReport {
     if (cfg.SIMULATOR_ENABLED) prodProblems.push('SIMULATOR_ENABLED must be false in production');
     if (cfg.DEMO_ENABLED) prodProblems.push('DEMO_ENABLED must be false in production');
     if (cfg.ALLOW_UNVERIFIED_WEBHOOKS) prodProblems.push('ALLOW_UNVERIFIED_WEBHOOKS must be false in production');
+    if (!cfg.WEBHOOK_ENCRYPTION_KEY || PLACEHOLDER.test(cfg.WEBHOOK_ENCRYPTION_KEY)) prodProblems.push('WEBHOOK_ENCRYPTION_KEY is required in production');
     // F2: a crypto-settlement webhook that cannot be verified is refused at runtime (503); in production
     // that is an outage, so the keys are required at boot.
     if (!cfg.FIREBLOCKS_WEBHOOK_JWKS_URL && (!cfg.FIREBLOCKS_WEBHOOK_PUBLIC_KEY || PLACEHOLDER.test(cfg.FIREBLOCKS_WEBHOOK_PUBLIC_KEY))) prodProblems.push('FIREBLOCKS_WEBHOOK_PUBLIC_KEY is required in production');

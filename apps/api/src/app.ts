@@ -23,6 +23,9 @@ import depositRoutes    from './routes/deposit.routes';
 import settlementRoutes from './routes/settlement.routes';
 import institutionRoutes from './routes/institution.routes';
 import walletRoutes      from './routes/wallet.routes';
+import depositInstructionRoutes from './routes/deposit-instruction.routes';
+import settlementStatusRoutes   from './routes/settlement-status.routes';
+import webhookEndpointRoutes    from './routes/webhook-endpoint.routes';
 import { loadConfig } from '../../../packages/shared/config';
 import { log, requestContext } from '../../../packages/shared/logger';
 import { errorHandler, notFoundHandler } from '../../../packages/shared/errors';
@@ -56,6 +59,10 @@ app.use(openapiRouter());
 // Institutions (tenants) and API environments — operator-administered in Step 1
 app.use('/api/institutions', institutionRoutes);
 app.use('/api/wallets', walletRoutes);
+// Step 2 institution API. Mounted before the legacy /api/deposits and provider /api/webhooks routers.
+app.use('/api/deposits/instructions', depositInstructionRoutes);
+app.use('/api/settlements', settlementStatusRoutes);
+app.use('/api/webhooks/endpoints', webhookEndpointRoutes);
 
 app.get(['/', '/api'], (_req, res) => {
   const base = process.env.API_BASE_URL ?? `http://localhost:${PORT}/api`;

@@ -244,6 +244,119 @@
             "format": "date-time"
           }
         }
+      },
+      "Settlement": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "DEPOSIT"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PROCESSING",
+              "COMPLETED",
+              "FAILED"
+            ]
+          },
+          "instructionStatus": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "SETTLED",
+              "CANCELLED",
+              "EXPIRED"
+            ]
+          },
+          "walletId": {
+            "type": "string"
+          },
+          "asset": {
+            "type": "string",
+            "example": "USDC_SOL"
+          },
+          "expectedAmount": {
+            "type": "string"
+          },
+          "receivedAmount": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reference": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "trackingId": {
+            "type": "string",
+            "description": "Put this in the custody transfer's external id."
+          },
+          "depositAddress": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "settledAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "proof": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "custodyTxId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "txHash": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "explorerUrl": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "finality": {
+                "type": "string",
+                "enum": [
+                  "CUSTODY_CONFIRMED",
+                  "ON_CHAIN_FINALIZED"
+                ]
+              },
+              "onChain": {
+                "type": [
+                  "object",
+                  "null"
+                ]
+              }
+            }
+          }
+        }
       }
     }
   },
@@ -658,6 +771,315 @@
         "responses": {
           "200": {
             "description": "Wallets"
+          }
+        }
+      }
+    },
+    "/deposits/instructions": {
+      "post": {
+        "tags": [
+          "Deposits"
+        ],
+        "summary": "Announce an incoming deposit to one of your wallets",
+        "security": [
+          {
+            "institutionKey": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "walletId",
+                  "asset",
+                  "amount"
+                ],
+                "properties": {
+                  "walletId": {
+                    "type": "string"
+                  },
+                  "asset": {
+                    "type": "string",
+                    "enum": [
+                      "USDC_SOL",
+                      "USDT_SOL"
+                    ]
+                  },
+                  "amount": {
+                    "type": "string",
+                    "example": "12.5"
+                  },
+                  "reference": {
+                    "type": "string",
+                    "maxLength": 140
+                  },
+                  "ttlHours": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 720,
+                    "default": 72
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Instruction",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Settlement"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unsupported asset, invalid amount, network mismatch"
+          },
+          "403": {
+            "description": "Missing deposits:write"
+          },
+          "404": {
+            "description": "Wallet not found in this institution/environment"
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Deposits"
+        ],
+        "summary": "List instructions (newest first, max 100)",
+        "security": [
+          {
+            "institutionKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "PENDING",
+                "SETTLED",
+                "CANCELLED",
+                "EXPIRED"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Instructions"
+          }
+        }
+      }
+    },
+    "/deposits/instructions/{id}": {
+      "get": {
+        "tags": [
+          "Deposits"
+        ],
+        "summary": "One instruction",
+        "security": [
+          {
+            "institutionKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Instruction",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Settlement"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/deposits/instructions/{id}/cancel": {
+      "post": {
+        "tags": [
+          "Deposits"
+        ],
+        "summary": "Cancel a PENDING instruction",
+        "security": [
+          {
+            "institutionKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cancelled"
+          },
+          "409": {
+            "description": "Not pending"
+          }
+        }
+      }
+    },
+    "/settlements/{id}": {
+      "get": {
+        "tags": [
+          "Settlements"
+        ],
+        "summary": "Status of any settlement you own, with custody proof and on-chain finality stated separately",
+        "security": [
+          {
+            "institutionKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Settlement",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Settlement"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/webhooks/endpoints": {
+      "post": {
+        "tags": [
+          "Webhooks"
+        ],
+        "summary": "Register a signed webhook endpoint (secret returned once)",
+        "description": "Deliveries carry `X-AxLink-Signature: t=<unix seconds>,v1=<hex HMAC-SHA256(secret, t + \".\" + body)>` and `X-AxLink-Event-Id`. Retries 1m, 5m, 30m, 2h, 12h.",
+        "security": [
+          {
+            "institutionKey": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "url"
+                ],
+                "properties": {
+                  "url": {
+                    "type": "string",
+                    "format": "uri"
+                  },
+                  "events": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "*",
+                        "deposit.settled",
+                        "deposit.expired"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Endpoint with one-time secret"
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Webhooks"
+        ],
+        "summary": "List endpoints in this environment",
+        "security": [
+          {
+            "institutionKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Endpoints"
+          }
+        }
+      }
+    },
+    "/webhooks/endpoints/{id}": {
+      "delete": {
+        "tags": [
+          "Webhooks"
+        ],
+        "summary": "Disable an endpoint",
+        "security": [
+          {
+            "institutionKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Disabled"
+          },
+          "404": {
+            "description": "Not found"
           }
         }
       }

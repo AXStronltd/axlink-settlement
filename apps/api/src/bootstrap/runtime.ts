@@ -20,4 +20,9 @@ export async function startRuntime(cfg: AppConfig): Promise<void> {
     const { startOutboxWorker } = await import('../../../../packages/core/events/outbox.service');
     startOutboxWorker();
   }
+  // Step 2: expire stale deposit instructions (emits deposit.expired).
+  if (process.env.DEPOSIT_SWEEPER_ENABLED !== 'false') {
+    const { startDepositInstructionSweeper } = await import('../../../../packages/settlement/deposits/deposit-instruction.service');
+    startDepositInstructionSweeper();
+  }
 }

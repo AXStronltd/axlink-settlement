@@ -15,6 +15,7 @@
  */
 
 import { createHmac } from 'crypto';
+import { decryptSecret, isEncryptedSecret } from '../../shared/secrets';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../ledger/ledger.service';
 
@@ -25,7 +26,7 @@ const DELIVERY_TIMEOUT_MS = Number(process.env.OUTBOX_DELIVERY_TIMEOUT_MS ?? 10_
 // ── Enqueue ───────────────────────────────────────────────────────────────────
 
 export interface OutboxEnqueue {
-  channel: 'bank.webhook' | 'internal.event';
+  channel: 'bank.webhook' | 'internal.event' | 'institution.webhook';
   eventType: string;
   targetUrl?: string | null;
   targetSecret?: string | null;
@@ -76,6 +77,7 @@ async function deliverOne(event: {
   eventType: string;
   attempts: number;
   maxAttempts: number;
+  channel?: string;
 }): Promise<void> {
   if (!event.targetUrl) {
     await prisma.outboxEvent.update({
@@ -86,7 +88,12 @@ async function deliverOne(event: {
   }
 
   const body = JSON.stringify(event.payload);
-  const timestamp = Date.now().toString();
+  const institution = event.channel === 'institution.webhook';
+  // Institution webhooks (Step 2): documented format — unix seconds, `t=…,v1=…`, event id header —
+  // and the secret is stored encrypted, decrypted only here, never logged.
+  const timestamp = institution ? Math.floor(Date.now() / 1000).toString() : Date.now().toString();
+  const secret = event.targetSecret ? (isEncryptedSecret(event.targetSecret) ? decryptSecret(event.targetSecret) : event.targetSecret) : null;
+  const payloadId = institution ? (event.payload as { id?: string } | null)?.id ?? event.id : event.id;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), DELIVERY_TIMEOUT_MS);
@@ -99,7 +106,8 @@ async function deliverOne(event: {
         'x-axlink-event': event.eventType,
         'x-axlink-timestamp': timestamp,
         'x-axlink-delivery': event.id,
-        ...(event.targetSecret ? { 'x-axlink-signature': sign(event.targetSecret, body, timestamp) } : {}),
+        ...(institution ? { 'x-axlink-event-id': payloadId } : {}),
+        ...(secret ? { 'x-axlink-signature': institution ? `t=${timestamp},v1=${sign(secret, body, timestamp)}` : sign(secret, body, timestamp) } : {}),
       },
       body,
       signal: controller.signal,
@@ -125,7 +133,7 @@ async function deliverOne(event: {
 }
 
 async function fail(
-  event: { id: string; attempts: number; maxAttempts: number },
+  event: { id: string; attempts: number; maxAttempts: number; channel?: string },
   message: string,
   status: number | null,
   permanent: boolean,
@@ -140,13 +148,19 @@ async function fail(
       attempts,
       lastError: message.slice(0, 1000),
       lastStatus: status,
-      nextAttemptAt: exhausted ? new Date() : new Date(Date.now() + backoffMs(attempts)),
+      nextAttemptAt: exhausted ? new Date() : new Date(Date.now() + (event.channel === 'institution.webhook' ? institutionRetryMs(attempts) : backoffMs(attempts))),
     },
   });
 
   if (exhausted) {
     console.error(`[outbox] event ${event.id} abandoned after ${attempts} attempt(s): ${message}`);
   }
+}
+
+/** Institution webhooks: the documented schedule — 1 m, 5 m, 30 m, 2 h, 12 h after the first failure. */
+export const INSTITUTION_RETRY_SCHEDULE_S = [60, 300, 1800, 7200, 43200] as const;
+export function institutionRetryMs(attempt: number): number {
+  return (INSTITUTION_RETRY_SCHEDULE_S[Math.min(attempt, INSTITUTION_RETRY_SCHEDULE_S.length) - 1] ?? 43200) * 1000;
 }
 
 /** Exponential to a 30-minute ceiling, jittered so retries do not synchronise. */

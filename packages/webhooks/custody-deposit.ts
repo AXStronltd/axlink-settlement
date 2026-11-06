@@ -14,6 +14,7 @@ import { post } from '../core/ledger/journal.service';
 import { AccountCode } from '../core/ledger/accounts';
 import { EventIgnored, type EventOutcome, type Tx } from './provider-event.service';
 import { walletForVault, applyWalletCredit, custodyEnvironmentKind } from '../core/wallets/wallet.service';
+import { emitInstitutionEvent } from '../core/webhooks/webhook-endpoint.service';
 
 export interface CustodyCompletion {
   provider: 'fireblocks';
@@ -28,6 +29,7 @@ export interface CustodyCompletion {
   sourceVaultId?: string;
   network?: string;
   contract?: string;
+  txHash?: string;
 }
 
 export class DepositAlreadySettled extends Error {
@@ -41,6 +43,12 @@ export async function applyCustodyDeposit(tx: Tx, ev: CustodyCompletion): Promis
   }
   if (!ev.destinationVaultId) {
     throw new EventIgnored({ status: 'IGNORED', reason: 'no destination vault', assetId: asset.id });
+  }
+
+  // ── Step 2 path: a deposit INSTRUCTION on a wallet (no legacy user row) ─────────────────────
+  if ((ev.externalTxId ?? '').startsWith('dep_')) {
+    const instr = await tx.depositInstruction.findUnique({ where: { trackingId: ev.externalTxId! }, include: { wallet: { include: { environment: { select: { kind: true } } } } } });
+    if (instr) return settleInstruction(tx, ev, asset, instr);
   }
 
   const user = await tx.user.findUnique({ where: { vaultId: ev.destinationVaultId }, select: { id: true, institutionId: true, vaultId: true } });
@@ -133,4 +141,60 @@ export async function applyCustodyDeposit(tx: Tx, ev: CustodyCompletion): Promis
     outcome: { status: 'PROCESSED', ...attribution, entityType: 'BankDeposit', entityId: deposit.id },
     result: { credited: amount!, currency: asset.id, asset },
   };
+}
+
+// ── Instruction settlement (Step 2, slice 2) ─────────────────────────────────────────────────
+type InstrRow = Prisma.DepositInstructionGetPayload<{ include: { wallet: { include: { environment: { select: { kind: true } } } } } }>;
+
+async function settleInstruction(tx: Tx, ev: CustodyCompletion, asset: AssetDefinition, instr: InstrRow): Promise<{ outcome: EventOutcome; result: { credited: Prisma.Decimal; currency: string; asset: AssetDefinition } }> {
+  const w = instr.wallet;
+  const attribution = { assetId: asset.id, institutionId: instr.institutionId, vaultId: w.custodyVaultId, walletId: w.id, entityType: 'DepositInstruction', entityId: instr.id };
+  const reject = (reason: string): never => { throw new EventIgnored({ status: 'REJECTED', reason, ...attribution }); };
+  // Same evidence rules as the legacy path (Step 1 F3): transfer into a vault, not an internal move,
+  // network/contract consistent with the signed asset, exact net amount.
+  if (ev.operation !== 'TRANSFER' || ev.destinationType !== 'VAULT_ACCOUNT') reject('only custody transfer receipts can settle deposits');
+  if (ev.sourceType === 'VAULT_ACCOUNT' || (ev.sourceVaultId && await tx.wallet.findUnique({ where: { custodyProvider_custodyVaultId: { custodyProvider: ev.provider, custodyVaultId: ev.sourceVaultId } }, select: { id: true } }))) {
+    reject('internal wallet movements must not create a fresh deposit liability');
+  }
+  if ((ev.network !== undefined && ev.network !== asset.network) || (ev.contract !== undefined && ev.contract !== asset.contract)) reject('network or token contract conflicts with signed provider asset identity');
+  if (ev.destinationVaultId !== w.custodyVaultId) reject('receipt landed in a different vault than the instruction\'s wallet');
+  if (w.environment.kind !== custodyEnvironmentKind()) reject(`custody is ${custodyEnvironmentKind()} but wallet is ${w.environment.kind}`);
+  if (w.status === 'CLOSED') reject('wallet is CLOSED');
+  if (w.status === 'SUSPENDED') throw Object.assign(new Error(`wallet ${w.id} is SUSPENDED; receipt deferred`), { code: 'WALLET_SUSPENDED', retryable: true });
+  if (instr.assetId !== asset.id) reject(`instruction expects ${instr.assetId}, received ${asset.id}`);
+  if (instr.status !== 'PENDING') throw new EventIgnored({ status: 'IGNORED', reason: `instruction is ${instr.status}`, ...attribution });
+  if (instr.expiresAt <= new Date()) reject('instruction expired before the receipt; operator review for the funds in custody');
+  let amount: Prisma.Decimal;
+  try {
+    if (ev.amount === undefined) reject('missing received amount');
+    amount = new Prisma.Decimal(ev.amount!);
+    if (!amount.isFinite() || !amount.isPositive() || amount.isZero()) reject('invalid received amount');
+    toMinorUnits(amount, asset);
+  } catch { reject('invalid received amount or unsupported asset precision'); }
+  if (!amount!.eq(instr.expectedAmount)) reject(`received ${amount!.toFixed()} differs from instructed ${instr.expectedAmount.toFixed()}`);
+
+  // Claim first: only one event can flip PENDING → SETTLED; the rest see IGNORED above on retry.
+  const claimed = await tx.depositInstruction.updateMany({
+    where: { id: instr.id, status: 'PENDING', expectedAmount: instr.expectedAmount, assetId: instr.assetId },
+    data: { status: 'SETTLED', providerTxId: ev.providerTxId ?? null, txHash: ev.txHash ?? null, receivedAmount: amount!, settledAt: new Date() },
+  });
+  if (claimed.count !== 1) throw new EventIgnored({ status: 'IGNORED', reason: 'instruction already settled or changed', ...attribution });
+
+  const journal = await post(tx, {
+    eventType: 'DEPOSIT', entityType: 'DepositInstruction', entityId: instr.id,
+    postingKey: `DepositInstruction:${instr.id}:custody:${asset.id}`,
+    narrative: `Custody receipt ${asset.id} on ${asset.network} for institution ${instr.institutionId} (wallet ${w.id})`,
+    lines: [
+      { account: AccountCode.custody(w.custodyVaultId, asset.id), currency: asset.id, amount: amount!, usdAmount: amount! },
+      { account: AccountCode.institution(instr.institutionId, asset.id), currency: asset.id, amount: amount!.negated(), usdAmount: amount!.negated() },
+    ],
+  });
+  if (!journal.created) reject('deposit journal already exists; operator reconciliation required');
+  await applyWalletCredit(tx, w.id, asset.id, amount!);
+  await emitInstitutionEvent(tx, { institutionId: instr.institutionId, environmentId: instr.environmentId }, 'deposit.settled', {
+    settlementId: instr.id, kind: 'DEPOSIT', status: 'COMPLETED', walletId: w.id, asset: asset.id, amount: amount!.toFixed(),
+    reference: instr.reference, trackingId: instr.trackingId, custodyTxId: ev.providerTxId ?? null, txHash: ev.txHash ?? null,
+  }, { entityType: 'DepositInstruction', entityId: instr.id });
+
+  return { outcome: { status: 'PROCESSED', ...attribution }, result: { credited: amount!, currency: asset.id, asset } };
 }

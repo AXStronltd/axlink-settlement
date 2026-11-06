@@ -43,3 +43,44 @@ rep("""DATA.custody = {
 
 open('index.html', 'w', encoding='utf-8').write(src)
 print('step-2 alignment applied')
+
+# ── Slice 2: deposit instructions, settlement status, institution webhooks are live ──
+src = open('index.html', encoding='utf-8').read()
+rep("""    ['POST','/settlements','Settle to a whitelisted counterparty (USDC or USDT) or a fiat beneficiary','planned'],
+    ['GET','/settlements/{id}','Status: PROCESSING · COMPLETED · FAILED, with on-chain proof','planned'],""",
+"""    ['POST','/deposits/instructions','Announce an incoming USDC/USDT deposit to a wallet: returns the deposit address and a tracking id','live'],
+    ['GET','/settlements/{id}','Status: PROCESSING · COMPLETED · FAILED, with custody proof and on-chain finality','live'],
+    ['POST','/settlements','Settle to a whitelisted counterparty (USDC or USDT) or a fiat beneficiary','planned'],""")
+rep("""    ['POST','/webhooks/endpoints','Register a signed webhook endpoint','planned']""",
+"""    ['POST','/webhooks/endpoints','Register a signed webhook endpoint (secret shown once); events deposit.settled · deposit.expired','live']""")
+rep("""  var sig="X-AxLink-Signature: t=1762400000,v1=<hex HMAC-SHA256(secret, t + \\".\\" + body)>\\nX-AxLink-Event-Id: evt_…    (store it; duplicates are redelivered)\\n\\n{ \\"id\\": \\"evt_…\\", \\"type\\": \\"settlement.completed\\", \\"data\\": { \\"settlementId\\": \\"…\\", \\"txHash\\": \\"…\\" } }";""",
+"""  var sig="X-AxLink-Signature: t=1762400000,v1=<hex HMAC-SHA256(secret, t + \\".\\" + body)>\\nX-AxLink-Event-Id: evt_…    (store it; duplicates are redelivered)\\n\\n{ \\"id\\": \\"evt_…\\", \\"type\\": \\"deposit.settled\\",\\n  \\"data\\": { \\"settlementId\\": \\"…\\", \\"kind\\": \\"DEPOSIT\\", \\"status\\": \\"COMPLETED\\", \\"walletId\\": \\"wal_…\\",\\n            \\"asset\\": \\"USDC_SOL\\", \\"amount\\": \\"12.5\\", \\"reference\\": \\"INV-2\\", \\"txHash\\": \\"…\\" } }";
+  var depositShape="POST "+base+"/deposits/instructions   (scope deposits:write)\\n{ \\"walletId\\": \\"wal_…\\", \\"asset\\": \\"USDC_SOL\\", \\"amount\\": \\"12.5\\", \\"reference\\": \\"INV-2\\" }\\n\\n201 Created\\n{ \\"id\\": \\"dep…\\", \\"kind\\": \\"DEPOSIT\\", \\"status\\": \\"PROCESSING\\",\\n  \\"depositAddress\\": \\"…\\",          // send here, on Solana\\n  \\"trackingId\\": \\"dep_…\\",           // put this in the transfer's external id\\n  \\"expiresAt\\": \\"…\\", \\"proof\\": null }\\n\\nGET "+base+"/settlements/{id}   →  after the custody receipt\\n{ \\"status\\": \\"COMPLETED\\", \\"receivedAmount\\": \\"12.5\\",\\n  \\"proof\\": { \\"custodyTxId\\": \\"…\\", \\"txHash\\": \\"…\\", \\"explorerUrl\\": \\"https://solscan.io/tx/…\\",\\n             \\"finality\\": \\"CUSTODY_CONFIRMED\\" | \\"ON_CHAIN_FINALIZED\\" } }";""")
+rep("""   '<div class="chart-card reveal d1" style="margin-bottom:14px"><h4 style="margin-bottom:6px">Wallets — live</h4>""",
+"""   '<div class="chart-card reveal d1" style="margin-bottom:14px"><h4 style="margin-bottom:6px">Deposits and settlement status — live</h4><div style="font-size:12px;color:var(--ink-3);margin-bottom:12px">Announce the deposit, send to the address with the tracking id, read the status. A receipt credits only when asset, amount and wallet match the instruction exactly; custody confirmation and on-chain finality are reported separately, never conflated.</div><pre style="background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:14px;font-size:11.5px;line-height:1.55;overflow-x:auto;color:var(--ink)">'+depositShape+'</pre></div>'+
+   '<div class="chart-card reveal d1" style="margin-bottom:14px"><h4 style="margin-bottom:6px">Wallets — live</h4>""")
+rep("""  var rows=[['evt_8f21','settlement.completed','200','2 min ago','Delivered'],['evt_8f1c','settlement.processing','200','2 min ago','Delivered'],['evt_8e90','deposit.credited','503 → retry in 5m','14 min ago','Pending'],['evt_8d77','counterparty.approved','200','1 hr ago','Delivered']]""",
+"""  var rows=[['evt_8f21','deposit.settled','200','2 min ago','Delivered'],['evt_8f1c','deposit.settled','200','9 min ago','Delivered'],['evt_8e90','deposit.expired','503 → retry in 5m','14 min ago','Pending'],['evt_8d77','deposit.settled','200','1 hr ago','Delivered']]""")
+# Client deposit modal describes the instruction flow in the API's terms
+rep("""     '<p class="lead" style="font-size:13.5px;margin-bottom:20px">Send USDC or USDT on Solana to your vault address, or wire fiat and AxLink converts it through its liquidity providers.</p>'+
+     '<div class="field"><label>Method</label><select><option>USDC on-chain → vault deposit address</option><option>USDT on-chain → vault deposit address</option><option>USD wire → converted to USDC or USDT</option></select></div>'+
+     '<div class="field"><label>Amount (USD)</label><input placeholder="5,000,000" value="5,000,000"/><div class="hint">Credited after on-chain finality · no deposit fee</div></div>'+""",
+"""     '<p class="lead" style="font-size:13.5px;margin-bottom:20px">Announce the exact amount you will send; AxLink gives you the wallet address and a tracking id to put in the transfer. The receipt credits only when asset and amount match.</p>'+
+     '<div class="field"><label>Asset</label><select><option>USDC_SOL · USDC on Solana</option><option>USDT_SOL · USDT on Solana</option></select></div>'+
+     '<div class="field"><label>Amount (exact, in the asset)</label><input placeholder="5000000.000000" value="5000000.000000"/><div class="hint">Instruction valid 72 h · credited on custody receipt · no deposit fee</div></div>'+
+     '<div class="field"><label>Your reference</label><input placeholder="INV-2026-0142"/></div>'+""")
+rep("""onclick="closeModal();toast(\\'Deposit expected — $5,000,000\\')">Create deposit</button>""",
+"""onclick="closeModal();toast(\\'Deposit instruction created — tracking id dep_…\\')">Create instruction</button>""")
+open('index.html', 'w', encoding='utf-8').write(src)
+print('slice 2 applied')
+
+# ── Slice 2b: tighten endpoint copy for the narrow column; quick-start shows real scopes ──
+src = open('index.html', encoding='utf-8').read()
+rep("['GET','/wallets','Your wallets in this environment: custody vault, deposit address, balance per asset','live']", "['GET','/wallets','Wallets: vault, deposit address, balances','live']")
+rep("['GET','/wallets/{id}/balances','Exact balances per asset (USDC_SOL, USDT_SOL) as decimal strings, from the journal','live']", "['GET','/wallets/{id}/balances','Exact balance per asset, from the journal','live']")
+rep("['POST','/deposits/instructions','Announce an incoming USDC/USDT deposit to a wallet: returns the deposit address and a tracking id','live']", "['POST','/deposits/instructions','Announce a deposit: address + tracking id','live']")
+rep("['GET','/settlements/{id}','Status: PROCESSING · COMPLETED · FAILED, with custody proof and on-chain finality','live']", "['GET','/settlements/{id}','PROCESSING · COMPLETED · FAILED, with proof','live']")
+rep("['POST','/webhooks/endpoints','Register a signed webhook endpoint (secret shown once); events deposit.settled · deposit.expired','live']", "['POST','/webhooks/endpoints','Signed webhooks: deposit.settled · deposit.expired','live']")
+rep("""\\"scopes\\": [\\"settlement:*\\", \\"custody:read\\"],\\n  \\"assets\\": [\\"USDC\\", \\"USDT\\"]""", """\\"scopes\\": [\\"wallets:read\\", \\"deposits:write\\", \\"settlements:read\\", \\"webhooks:write\\"]""")
+open('index.html', 'w', encoding='utf-8').write(src)
+print('slice 2b applied')

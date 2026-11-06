@@ -180,7 +180,7 @@ router.post(['/fireblocks', '/fireboks'], async (req: Request, res: Response) =>
       (t) => applyCustodyDeposit(t, {
         provider: 'fireblocks', providerAssetId: tx.assetId, destinationVaultId: tx.destination?.id,
         externalTxId: tx.externalTxId, providerTxId: tx.id, amount: tx.amountInfo?.netAmount ?? tx.netAmount, operation: tx.operation,
-        destinationType: tx.destination?.type, sourceType: tx.source?.type, sourceVaultId: tx.source?.id, network: tx.network, contract: tx.contract,
+        destinationType: tx.destination?.type, sourceType: tx.source?.type, sourceVaultId: tx.source?.id, network: tx.network, contract: tx.contract, txHash: tx.txHash,
       }),
     );
     if (r.duplicate) { res.status(200).json({ received: true, duplicate: true }); return; }

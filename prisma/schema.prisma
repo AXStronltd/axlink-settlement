@@ -745,6 +745,8 @@ model Institution {
   banks         Bank[]
   users         User[]
   wallets       Wallet[]
+  depositInstructions DepositInstruction[]
+  webhookEndpoints    WebhookEndpoint[]
 
   @@index([status])
 }
@@ -765,6 +767,8 @@ model ApiEnvironment {
 
   credentials     ApiCredential[]
 
+  depositInstructions DepositInstruction[]
+  webhookEndpoints    WebhookEndpoint[]
   wallets         Wallet[]
   @@unique([institutionId, kind])
 }
@@ -839,6 +843,7 @@ model Wallet {
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
   balances        WalletBalance[]
+  depositInstructions DepositInstruction[]
 
   @@unique([custodyProvider, custodyVaultId])
   @@index([institutionId])
@@ -857,4 +862,64 @@ model WalletBalance {
   updatedAt DateTime @updatedAt
 
   @@unique([walletId, assetId])
+}
+
+// ── Deposit instructions (Step 2, slice 2) ───────────────────────────────────
+// An institution announces an incoming stablecoin deposit to one of its wallets. The custody
+// receipt must name this instruction (externalTxId = trackingId) and match its asset and exact
+// amount; nothing else credits a wallet. No legacy User row is involved.
+enum DepositInstructionStatus {
+  PENDING
+  SETTLED
+  CANCELLED
+  EXPIRED
+}
+
+model DepositInstruction {
+  id              String                   @id @default(cuid())
+  institutionId   String
+  institution     Institution              @relation(fields: [institutionId], references: [id])
+  environmentId   String
+  environment     ApiEnvironment           @relation(fields: [environmentId], references: [id])
+  walletId        String
+  wallet          Wallet                   @relation(fields: [walletId], references: [id])
+  assetId         String                   // registry AssetId
+  expectedAmount  Decimal                  @db.Decimal(36, 18)
+  reference       String?                  // institution's own reference, echoed in webhooks
+  trackingId      String                   @unique // dep_… — what the sender puts in the custody transfer's externalTxId
+  status          DepositInstructionStatus @default(PENDING)
+  providerTxId    String?
+  txHash          String?
+  receivedAmount  Decimal?                 @db.Decimal(36, 18)
+  settledAt       DateTime?
+  expiresAt       DateTime
+  createdAt       DateTime                 @default(now())
+  updatedAt       DateTime                 @updatedAt
+
+  @@index([institutionId, environmentId, status])
+  @@index([walletId])
+}
+
+// ── Institution webhook endpoints (Step 2, slice 2) ──────────────────────────
+// Secret is stored encrypted (AES-256-GCM, WEBHOOK_ENCRYPTION_KEY) because signing needs the raw
+// value; it is shown to the institution once, at creation.
+enum WebhookEndpointStatus {
+  ACTIVE
+  DISABLED
+}
+
+model WebhookEndpoint {
+  id               String                @id @default(cuid())
+  institutionId    String
+  institution      Institution           @relation(fields: [institutionId], references: [id])
+  environmentId    String
+  environment      ApiEnvironment        @relation(fields: [environmentId], references: [id])
+  url              String
+  secretCiphertext String
+  events           String[]              @default(["*"])
+  status           WebhookEndpointStatus @default(ACTIVE)
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+
+  @@index([institutionId, environmentId, status])
 }

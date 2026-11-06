@@ -30,6 +30,9 @@ export const AccountCode = {
   /** What we owe a member bank on the AxLink network. */
   bank: (bankId: string, currency: string) => `BANK:${bankId}:${up(currency)}`,
 
+  /** What we owe an institution (Step 2): its stablecoin held in custody on its behalf. */
+  institution: (institutionId: string, asset: string) => `INSTITUTION:${institutionId}:${up(asset)}`,
+
   /** Our own funds. */
   treasury: (currency: string) => `TREASURY:${up(currency)}`,
 
@@ -67,7 +70,8 @@ function up(s: string): string {
 
 const PREFIX_TYPE: Record<string, AccountType> = {
   USER: 'LIABILITY',       // we owe the customer their balance
-  BANK: 'LIABILITY',       // we owe the member bank its position
+  BANK: 'LIABILITY',
+  INSTITUTION: 'LIABILITY', // we owe the institution the stablecoin we hold in custody for it (Step 2)
   TREASURY: 'ASSET',
   CUSTODY: 'ASSET',
   ONCHAIN: 'ASSET',
