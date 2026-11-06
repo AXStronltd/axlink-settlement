@@ -52,9 +52,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ConfigReport {
     if (cfg.DEMO_ENABLED) prodProblems.push('DEMO_ENABLED must be false in production');
     if (cfg.ALLOW_UNVERIFIED_WEBHOOKS) prodProblems.push('ALLOW_UNVERIFIED_WEBHOOKS must be false in production');
     // F2: a crypto-settlement webhook that cannot be verified is refused at runtime (503); in production
-    // that is an outage, so the keys are required at boot.
+    // that is an outage, so custody verification is required at boot. Optional
+    // liquidity verification is required only when that adapter is configured.
     if (!cfg.FIREBLOCKS_WEBHOOK_PUBLIC_KEY || PLACEHOLDER.test(cfg.FIREBLOCKS_WEBHOOK_PUBLIC_KEY)) prodProblems.push('FIREBLOCKS_WEBHOOK_PUBLIC_KEY is required in production');
-    if (!cfg.B2BINPAY_CALLBACK_SECRET || PLACEHOLDER.test(cfg.B2BINPAY_CALLBACK_SECRET)) prodProblems.push('B2BINPAY_CALLBACK_SECRET is required in production');
+    const b2binpayConfigured = [cfg.B2BINPAY_CLIENT_ID, cfg.B2BINPAY_CLIENT_SECRET].some(v => v && !PLACEHOLDER.test(v));
+    if (b2binpayConfigured && (!cfg.B2BINPAY_CALLBACK_SECRET || PLACEHOLDER.test(cfg.B2BINPAY_CALLBACK_SECRET))) {
+      prodProblems.push('B2BINPAY_CALLBACK_SECRET is required in production when B2INPAY is configured');
+    }
     if (prodProblems.length) throw new ConfigError(prodProblems);
   }
   const sandboxProviders = PROVIDER_KEYS.filter(k => { const v = cfg[k]; return !v || PLACEHOLDER.test(String(v)); }).map(String);

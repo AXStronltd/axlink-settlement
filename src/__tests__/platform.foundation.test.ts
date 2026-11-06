@@ -16,6 +16,14 @@ describe('config validation', () => {
     const r = loadConfig({ DATABASE_URL: 'postgresql://u@localhost:5432/db', API_BASE_URL: 'http://localhost:4000/api', FIREBLOCKS_API_KEY: 'your_key' });
     expect(r.config.PORT).toBe(4000); expect(r.sandboxProviders).toContain('FIREBLOCKS_API_KEY');
   });
+  it('production foundation boots without an optional B2INPAY adapter, but configured adapters require a webhook secret', () => {
+    const env = { NODE_ENV: 'production', DATABASE_URL: 'postgresql://u@localhost/db', API_BASE_URL: 'https://api.example.test/api', OPS_API_KEY: 'k'.repeat(32), FIREBLOCKS_WEBHOOK_PUBLIC_KEY: 'test-public-key' };
+    expect(() => loadConfig(env)).not.toThrow();
+    for (const key of ['B2BINPAY_CLIENT_ID', 'B2BINPAY_CLIENT_SECRET']) {
+      expect(() => loadConfig({ ...env, [key]: 'configured' })).toThrow(/B2BINPAY_CALLBACK_SECRET/);
+    }
+    expect(() => loadConfig({ ...env, B2BINPAY_CLIENT_ID: 'configured', B2BINPAY_CALLBACK_SECRET: 'callback-secret' })).not.toThrow();
+  });
   it('production refuses simulator/demo flags and requires OPS_API_KEY', () => {
     expect(() => loadConfig({ NODE_ENV: 'production', DATABASE_URL: 'postgresql://u@h/db', API_BASE_URL: 'https://api.axlink.io/api', SIMULATOR_ENABLED: 'true' })).toThrow(/SIMULATOR_ENABLED|OPS_API_KEY/);
   });

@@ -1,26 +1,50 @@
-# Scope — crypto settlement only
+# AxLink development scope — Leg A, Step 1
 
-*Set by the owner on 2026-11-06. Binding for every milestone from Step 2 onward.*
+Owner instruction, 2026-11-06. This scope supersedes conflicting roadmap statements,
+including earlier references to fiat payout coordination or alternative meanings of Leg B.
 
-AxLink is built as **crypto settlement infrastructure**: digital asset custody, stablecoin deposits
-and transfers, cross-chain settlement, liquidity and FX access, bank-to-bank settlement in the asset,
-and local fiat payout coordination for receivers that cannot take the asset.
+## Product boundary
 
-**Out of scope — not built, not integrated, not referenced in new code or docs:**
+Leg A is institutional digital asset settlement infrastructure, from the sending
+institution to verified receipt by the receiving institution. It covers:
 
-- The NDD ("Narrow Digital Dollar") settlement leg and any N3XT integration ("Leg B" in the earlier
-  two-leg designs). Those designs are reference material only.
-- Any issuance or minting of a settlement instrument. AxLink is not an issuer: it settles existing,
-  publicly issued stablecoins (USDC by Circle, USDT by Tether) on a public network (Solana mainnet),
-  held in regulated custody. No private or permissioned network.
+1. Institutional authentication and multi-tenancy.
+2. Asset and blockchain network registry.
+3. Institutional wallets and receiving addresses.
+4. Immutable double-entry ledger.
+5. Fireblocks custody adapter.
+6. Stablecoin deposits and transfers (USDT and USDC).
+7. Cross-chain routing and settlement through verified, approved mechanisms.
+8. Compliance, transaction monitoring and risk controls.
+9. Settlement state machine and transaction status.
+10. Signed webhooks and reconciliation.
 
-**Where the old scope still shows, and what happens to it:**
+Keep core services provider-agnostic. B2INPAY (named `b2binpay` in existing code)
+is a future optional liquidity adapter for digital asset conversion; it is not
+required for basic USDT settlement. Neither an interface nor a passing stub test
+means a live provider or cross-chain mechanism has been verified or approved.
 
-| Location | Status |
-|---|---|
-| `apps/web/index.html` (AxLink front end) | Positions NDD as a rail and has NDD reserve views. Preserved unchanged in Step 1; receives a crypto-settlement-only content pass in the milestone that wires the portal to the API. |
-| `docs/ARCHITECTURE.md`, `docs/AxLink-Settlement-Blueprint.*` | Historical. Superseded by `docs/FINANCIAL-MODULES-ARCHITECTURE.md` for anything NDD-related. |
-| Backend `src/` | Contains no NDD code. Keep it that way; CI may add a word-guard. |
+## Leg B — excluded from current development
 
-Providers in scope today: Fireblocks (custody, chain execution), B2BinPay (liquidity), Solana RPC
-(finality), plus fiat payout partners for local delivery. All behind `src/providers/ports`.
+- Kenyan shilling payouts and mobile money disbursements.
+- Local bank transfers to beneficiaries.
+- Receiving bank fiat FX pricing.
+- Local fiat liquidity management.
+- Beneficiary payout execution.
+
+Existing fiat modules remain legacy code for compatibility and regression checks.
+Their presence, routes and tests do not place them in the active development scope.
+Do not extend them or describe them as a Leg A dependency.
+
+## Current authorization: Step 1 only
+
+Audit and organize the existing repository, establish the backend foundation, run
+relevant checks and report results. Preserve both existing frontends. Do not
+implement the full Leg A module list or unrelated modules. Do not start Step 2
+without explicit owner approval. No production deployment is authorized here.
+
+Current work includes a documented repository map, testable HTTP application,
+explicit process startup, environment validation, existing institutional foundation,
+provider boundaries and verification evidence. Physical monorepo migration,
+shared frontend type rewiring, wallet models, live custody integration and
+cross-chain execution await a separately approved step.

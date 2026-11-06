@@ -24,6 +24,7 @@ RUN npm ci
 COPY tsconfig.json prisma.config.ts ./
 COPY prisma ./prisma
 COPY src ./src
+COPY openapi ./openapi
 
 RUN npx prisma generate
 RUN npm run build
@@ -43,6 +44,7 @@ COPY package*.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 
 COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/openapi ./openapi
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
 

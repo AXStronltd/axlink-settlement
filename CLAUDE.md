@@ -1,5 +1,15 @@
 # AxLink Settlement — working notes
 
+**Owner scope: Leg A, Step 1 only.** Read [SCOPE.md](docs/SCOPE.md) and
+[AGENTS.md](AGENTS.md). Leg A ends at verified digital asset receipt by the
+receiving institution. Fiat payouts, local FX and liquidity are Leg B. B2INPAY
+is optional. Preserve both frontends; report Step 1 results and stop before Step 2.
+
+The older running notes below contain historical statements. Committed migrations
+now exist: use `npx prisma migrate deploy` on an isolated database, followed by
+`npx prisma generate`. See the current audit report for verification evidence.
+
+
 Crypto-rail settlement service. Express + Prisma/Postgres backend (`src/`), React/Vite frontend (`frontend/`).
 Users see fiat only; USDT on Solana via Fireblocks is the internal settlement layer.
 
