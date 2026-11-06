@@ -25,6 +25,8 @@
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 
+import { ASSETS } from '../../core/assets/registry';
+
 const RPC_URL = () => process.env.SOLANA_RPC_URL ?? 'https://api.mainnet-beta.solana.com';
 const RPC_TIMEOUT_MS = Number(process.env.SOLANA_RPC_TIMEOUT_MS ?? 10_000);
 
@@ -40,8 +42,9 @@ const RPC_TIMEOUT_MS = Number(process.env.SOLANA_RPC_TIMEOUT_MS ?? 10_000);
  * refactor. Nothing hard-codes a mint outside this table.
  */
 export const SOLANA_MINTS: Record<string, { mint: string; decimals: number }> = {
-  USDT: { mint: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', decimals: 6 },
-  USDC: { mint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', decimals: 6 },
+  // Derived from the asset registry (F6) — the registry is the only place a mint is written.
+  USDT: { mint: ASSETS.USDT_SOL.contract, decimals: ASSETS.USDT_SOL.decimals },
+  USDC: { mint: ASSETS.USDC_SOL.contract, decimals: ASSETS.USDC_SOL.decimals },
 };
 
 /** The asset settlements are denominated in. Override per environment. */
