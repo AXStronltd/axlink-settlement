@@ -11,7 +11,7 @@ import { z } from 'zod';
 const bool = z.enum(['true', 'false']).default('false').transform(v => v === 'true');
 
 const schema = z.object({
-  NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+  NODE_ENV: z.enum(['development', 'test', 'production', 'demo']).default('development'),
   PORT: z.coerce.number().int().positive().default(4000),
   DATABASE_URL: z.string().url().refine(u => /^postgres(ql)?:\/\//.test(u), 'DATABASE_URL must be a postgres:// URL'),
   API_BASE_URL: z.string().url(),
@@ -54,7 +54,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ConfigReport {
     throw new ConfigError(lines);
   }
   const cfg = r.data;
-  if (cfg.NODE_ENV === 'production') {
+  if (cfg.NODE_ENV === 'production' || cfg.NODE_ENV === 'demo') {
+    // demo mode skips provider credential checks but keeps security checks
+    if (cfg.NODE_ENV === 'demo') {
+      const sandboxProviders2 = PROVIDER_KEYS.filter(k => { const v = cfg[k]; return !v || PLACEHOLDER.test(String(v)); }).map(String);
+      return { config: cfg, sandboxProviders: sandboxProviders2 };
+    }
     const prodProblems: string[] = [];
     if (!cfg.FIREBLOCKS_WORKSPACE_ID || PLACEHOLDER.test(cfg.FIREBLOCKS_WORKSPACE_ID)) prodProblems.push('FIREBLOCKS_WORKSPACE_ID is required in production');
     if (!cfg.OPS_API_KEY) prodProblems.push('OPS_API_KEY is required in production');
