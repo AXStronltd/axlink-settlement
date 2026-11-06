@@ -315,7 +315,7 @@ export default function Dashboard() {
             <Stat label="Service"  value={health.service} />
             <Stat label="Status"   value="Online" green />
             <Stat label="Mode"     value={health.sandbox ? 'Sandbox' : 'Production'} highlight={!health.sandbox} />
-            <Stat label="API Base" value={health.callbackBase.replace('http://', '')} mono />
+            <Stat label="API Base" value={(health.callbackBase ?? '').replace('http://', '') || 'localhost:4000'} mono />
           </div>
         ) : healthErr ? (
           <p className="text-sm text-red-400">Backend unreachable at <code className="mono">localhost:4000</code> — run <code className="mono">npm run dev</code></p>
