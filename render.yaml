@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: axlink-api
+    name: axlink-settlement   # must match the existing Render service, or the Blueprint creates a duplicate
     runtime: docker
     dockerfilePath: ./infra/Dockerfile
     dockerContext: .
@@ -53,9 +53,15 @@ services:
       - path: /*
         name: Cache-Control
         value: no-cache
-    envVars:
-      - key: VITE_API_URL
-        value: https://axlink-settlement.onrender.com
+    # The dashboard calls /api on its own origin (apps/web/ops/src/api.ts, BASE = '/api'); it does not
+    # read VITE_API_URL. Order matters: the API proxy must come before the SPA fallback.
+    routes:
+      - type: rewrite
+        source: /api/*
+        destination: https://axlink-settlement.onrender.com/api/*
+      - type: rewrite
+        source: /*
+        destination: /index.html
 
 databases:
   - name: axlink-db
