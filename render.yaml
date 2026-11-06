@@ -1,7 +1,8 @@
 services:
   - type: web
-    name: axlink-settlement   # must match the existing Render service, or the Blueprint creates a duplicate
+    name: axlink-api   # Render service name (its URL is axlink-settlement.onrender.com); must match or a sync creates a duplicate
     runtime: docker
+    region: frankfurt
     dockerfilePath: ./infra/Dockerfile
     dockerContext: .
     plan: starter
@@ -64,7 +65,10 @@ services:
         destination: /index.html
 
 databases:
+  # Must match the existing database exactly: plan, major version, database name and region cannot be
+  # changed by a sync (Render refuses a downgrade instead of applying it).
   - name: axlink-db
-    plan: free
-    databaseName: axlink_settlement
-    postgresMajorVersion: 16
+    plan: basic-256mb
+    region: frankfurt
+    databaseName: axlink_db
+    postgresMajorVersion: "18"
