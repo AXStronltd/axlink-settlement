@@ -1,6 +1,7 @@
 # AxLink Settlement — working notes
 
-**Owner scope: Leg A, Step 1.** Read [docs/SCOPE.md](docs/SCOPE.md) and [AGENTS.md](AGENTS.md).
+**Owner scope: Leg A, Step 1.** Read [docs/SCOPE.md](docs/SCOPE.md), [AGENTS.md](AGENTS.md) and
+[docs/WORKING-TOGETHER.md](docs/WORKING-TOGETHER.md) (Claude builds slices and merges; Codex reviews independently; GitHub PRs are the only channel).
 Leg A ends at verified digital asset receipt by the receiving institution; fiat payouts, local FX and
 liquidity are Leg B. Preserve the front end; Step 2 needs explicit owner approval.
 
@@ -16,7 +17,7 @@ in-process EventEmitter bus when `KAFKA_BROKERS` is unset.
 ```bash
 npm install                       # npm 11 blocks install scripts; see below
 cp .env.example .env              # then set DATABASE_URL
-npx prisma db push                # NOT `migrate deploy` — see below
+npx prisma migrate deploy         # applies the committed migrations
 npx prisma generate
 npm run dev                       # backend  → http://localhost:4000
 cd apps/web/ops && npm install && npm run dev   # ops dashboard → http://localhost:5173 (proxies /api → :4000)
@@ -27,12 +28,9 @@ Tests: `npx vitest run`
 
 ## Gotchas
 
-- **`prisma migrate deploy` does nothing** until the baseline exists. There is still no
-  `prisma/migrations/` directory. Run `./scripts/create-baseline-migration.sh` once (on macOS —
-  Prisma's engine downloads are blocked inside the sandboxed Linux VM) and commit the result;
-  after that use the normal `npx prisma migrate dev --name <change>` flow. Until then,
-  `npx prisma db push` still works locally, but a DigitalOcean deploy will silently succeed
-  against an unmigrated database. See `docs/DEPLOY.md`.
+- **Migrations exist** (`prisma/migrations/`: baseline, Step 1 institutions, remediation). Use
+  `npx prisma migrate deploy` on an isolated database, then `npx prisma generate`; new changes go
+  through `npx prisma migrate dev --name <change>`. See `docs/DEPLOY.md`.
 
 - **npm 11 blocks postinstall scripts.** `prisma`, `@prisma/engines` (root) and `esbuild` (apps/web/ops)
   need them. Approvals are recorded in the `allowScripts` field of each `package.json`, so a fresh

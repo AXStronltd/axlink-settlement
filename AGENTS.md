@@ -1,6 +1,7 @@
 # AxLink working scope
 
-Read `docs/SCOPE.md` before changing code. The owner's current authorization is
+Read `docs/SCOPE.md` before changing code, and `docs/WORKING-TOGETHER.md` for how Claude and Codex
+collaborate (roles, the per-slice flow, review lines). GitHub PRs are the only channel between the two agents. The owner's current authorization is
 **Leg A, Step 1: repository audit, organization and backend foundation only**.
 
 - Leg A ends at verified digital asset receipt by the receiving institution.
