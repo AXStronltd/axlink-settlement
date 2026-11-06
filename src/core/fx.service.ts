@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 // AxLink FX Engine — AXSTRON-managed conversion layer.
 //
 // USD is the internal value unit. All cross-currency conversions route through USD.
@@ -65,6 +66,18 @@ export async function toUSD(amount: number, currency: string): Promise<number> {
   const fromN = normalise(currency);
   if (fromN === 'USD' || fromN === 'USDT') return amount;
   return parseFloat((amount / usdUnitsFor(fromN)).toFixed(8));
+}
+
+/**
+ * Exact variant for posting paths (remediation F5): never passes the amount through a JS float.
+ * The rate table itself is numeric sandbox data; the division is done in Decimal at 8 dp, the
+ * precision of the ledger columns.
+ */
+export function toUSDDecimal(amount: Prisma.Decimal.Value, currency: string): Prisma.Decimal {
+  const fromN = normalise(currency);
+  const d = new Prisma.Decimal(amount);
+  if (fromN === 'USD' || fromN === 'USDT' || fromN === 'USDC') return d;
+  return d.div(new Prisma.Decimal(usdUnitsFor(fromN))).toDecimalPlaces(8);
 }
 
 // Convert USD to a local currency

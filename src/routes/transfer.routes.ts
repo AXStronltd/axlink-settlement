@@ -106,7 +106,8 @@ router.get('/users/:id/balance/:currency', async (req: Request, res: Response) =
     String(req.params['id']),
     String(req.params['currency']).toUpperCase(),
   );
-  res.json({ balance, currency: String(req.params['currency']).toUpperCase() });
+  // Display only (not a posting path): the exact Decimal is reduced to a JSON number at the edge.
+  res.json({ balance: balance.toNumber(), currency: String(req.params['currency']).toUpperCase() });
 });
 
 // POST /api/users/:id/card — issue a debit card via Brainrock (or configured card provider)

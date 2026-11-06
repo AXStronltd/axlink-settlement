@@ -192,7 +192,7 @@ router.post('/brainrock/card/authorize', async (req: Request, res: Response) => 
 
     // 3. Check balance (fast path — single DB read)
     const balance = await getBalance(card.userId, debitCcy);
-    if (balance < debitAmt) {
+    if (balance.lt(debitAmt)) {
       const auth = await prisma.cardAuthorization.create({
         data: {
           cardId: card.id, userId: card.userId,

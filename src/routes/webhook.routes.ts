@@ -100,7 +100,7 @@ router.post('/b2binpay', async (req: Request, res: Response) => {
         if (statusLabel === 'failed' || statusLabel === 'cancelled') {
           // B2BinPay failed to convert USDT → fiat — reverse the ledger debit
           await prisma.$transaction(async (tx) => {
-            await credit(tx as Parameters<typeof credit>[0], withdrawal.userId, withdrawal.currency, Number(withdrawal.amount));
+            await credit(tx as Parameters<typeof credit>[0], withdrawal.userId, withdrawal.currency, withdrawal.amount);
           });
           await prisma.withdrawal.update({
             where: { id: withdrawal.id },
@@ -171,7 +171,7 @@ router.post(['/fireblocks', '/fireboks'], async (req: Request, res: Response) =>
       if (deposit) {
         // ✅ USDT confirmed in Fireblocks vault — credit the user's fiat ledger
         await prisma.$transaction(async (tx2: Parameters<typeof credit>[0]) => {
-          await credit(tx2, user.id, deposit.currency, Number(deposit.amount));
+          await credit(tx2, user.id, deposit.currency, deposit.amount);
         });
 
         await prisma.bankDeposit.update({

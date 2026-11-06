@@ -1,6 +1,6 @@
 import { PrismaClient, Prisma } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
-import { toUSD } from './fx.service';
+import { toUSDDecimal } from './fx.service';
 
 // PrismaPg adapter requires a standard postgres:// URL, not prisma+postgres://.
 // Lazy init so env vars are loaded (dotenv runs in index.ts before first request).
@@ -62,20 +62,24 @@ export async function getOrCreateAccount(userId: string, currency: string) {
 
 // ── Balance checks ────────────────────────────────────────────────────────────
 
-export async function getBalance(userId: string, currency: string) {
+/** Exact balance. Read paths that must emit JSON numbers call `.toNumber()` at the edge, never here. */
+export async function getBalance(userId: string, currency: string): Promise<Prisma.Decimal> {
   const account = await prisma.account.findUnique({
     where: { userId_currency: { userId, currency } },
   });
-  return account ? Number(account.balance) : 0;
+  return account ? account.balance : new Prisma.Decimal(0);
 }
+
+/** @deprecated alias kept for callers written against the remediation branch. */
+export const getBalanceDecimal = getBalance;
 
 export async function checkSufficientBalance(
   userId: string,
   currency: string,
   amount: number,
 ): Promise<void> {
-  const balance = await getBalance(userId, currency);
-  if (balance < amount) {
+  const balance = await getBalanceDecimal(userId, currency);
+  if (balance.lt(new Prisma.Decimal(amount))) {
     throw new Error(
       `Insufficient balance. Available: ${balance} ${currency}, Required: ${amount} ${currency}`,
     );
@@ -88,23 +92,27 @@ export async function debit(
   tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0],
   userId: string,
   currency: string,
-  amount: number,
+  amount: Prisma.Decimal.Value,
 ) {
-  const usdAmount = await toUSD(amount, currency);
+  // F5: Decimal end to end. Callers may still pass a number for small sandbox amounts; it is
+  // converted once, here, and never compared or summed as a float.
+  const amt = new Prisma.Decimal(amount);
+  if (!amt.isPositive() || amt.isZero()) throw new Error(`debit amount must be positive, got ${amt.toString()}`);
+  const usdAmount = toUSDDecimal(amt, currency);
 
   const account = await tx.account.findUniqueOrThrow({
     where: { userId_currency: { userId, currency } },
   });
 
-  if (Number(account.balance) < amount) {
-    throw new Error(`Insufficient balance: ${account.balance} ${currency} < ${amount}`);
+  if (account.balance.lt(amt)) {
+    throw new Error(`Insufficient balance: ${account.balance} ${currency} < ${amt.toString()}`);
   }
 
   return tx.account.update({
     where: { userId_currency: { userId, currency } },
     data: {
-      balance: { decrement: new Prisma.Decimal(amount) },
-      balanceUsd: { decrement: new Prisma.Decimal(usdAmount) },
+      balance: { decrement: amt },
+      balanceUsd: { decrement: usdAmount },
     },
   });
 }
@@ -115,21 +123,23 @@ export async function credit(
   tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0],
   userId: string,
   currency: string,
-  amount: number,
+  amount: Prisma.Decimal.Value,
 ) {
-  const usdAmount = await toUSD(amount, currency);
+  const amt = new Prisma.Decimal(amount);
+  if (!amt.isPositive() || amt.isZero()) throw new Error(`credit amount must be positive, got ${amt.toString()}`);
+  const usdAmount = toUSDDecimal(amt, currency);
 
   await tx.account.upsert({
     where: { userId_currency: { userId, currency } },
     update: {
-      balance: { increment: new Prisma.Decimal(amount) },
-      balanceUsd: { increment: new Prisma.Decimal(usdAmount) },
+      balance: { increment: amt },
+      balanceUsd: { increment: usdAmount },
     },
     create: {
       userId,
       currency,
-      balance: new Prisma.Decimal(amount),
-      balanceUsd: new Prisma.Decimal(usdAmount),
+      balance: amt,
+      balanceUsd: usdAmount,
     },
   });
 }
