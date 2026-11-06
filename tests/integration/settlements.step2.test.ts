@@ -11,6 +11,8 @@ import { Prisma } from '@prisma/client';
 process.env.OPS_API_KEY ??= 'test-ops-key-0123456789abcdef';
 process.env.API_BASE_URL ??= 'http://localhost:4000/api';
 process.env.FIREBLOCKS_WORKSPACE_ID = 'test-workspace';
+process.env.WEBHOOK_ALLOW_INSECURE_URLS = 'true'; // the test receiver is http://127.0.0.1
+process.env.SIMULATOR_ENABLED = 'true';            // lets the test stub the chain port for finality
 const pair = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
 process.env.FIREBLOCKS_WEBHOOK_PUBLIC_KEY = pair.publicKey.export({ type: 'spki', format: 'pem' }).toString();
 
@@ -68,8 +70,9 @@ db('deposit instructions, settlement status, institution webhooks', () => {
     const r = await signedPost(ev).expect(200);
     expect(r.body.outcome).toBe('PROCESSED');
 
+    // Custody confirmed → wallet credited, but the public status is still PROCESSING: a custodian's word is not finality.
     const s = await request(app).get(`/api/settlements/${instr.id}`).set(A.auth).expect(200);
-    expect(s.body).toMatchObject({ status: 'COMPLETED', instructionStatus: 'SETTLED', receivedAmount: '12.5' });
+    expect(s.body).toMatchObject({ status: 'PROCESSING', instructionStatus: 'RECEIVED', receivedAmount: '12.5', attention: null });
     expect(s.body.proof).toMatchObject({ custodyTxId: ev.data.id, txHash: ev.data.txHash, explorerUrl: `https://solscan.io/tx/${ev.data.txHash}`, finality: 'CUSTODY_CONFIRMED' });
     const bal = (await request(app).get(`/api/wallets/${A.wallet.id}/balances`).set(A.auth).expect(200)).body.balances.find((b: any) => b.asset === 'USDC_SOL');
     expect(bal.available).toBe('12.5'); expect(bal.drift).toBe(false);
@@ -88,11 +91,46 @@ db('deposit instructions, settlement status, institution webhooks', () => {
     const hit = received.find(h => h.body.includes(instr.id));
     expect(hit).toBeTruthy();
     const payload = JSON.parse(hit!.body);
-    expect(payload).toMatchObject({ type: 'deposit.settled', data: { settlementId: instr.id, status: 'COMPLETED', amount: '12.5', reference: 'INV-2', asset: 'USDC_SOL' } });
+    expect(payload).toMatchObject({ type: 'deposit.received', data: { settlementId: instr.id, status: 'PROCESSING', finality: 'CUSTODY_CONFIRMED', amount: '12.5', reference: 'INV-2', asset: 'USDC_SOL' } });
     expect(hit!.headers['x-axlink-event-id']).toBe(payload.id);
     const sig = String(hit!.headers['x-axlink-signature']); const m = /^t=(\d+),v1=([0-9a-f]{64})$/.exec(sig);
     expect(m).toBeTruthy();
     expect(crypto.createHmac('sha256', ep.body.secret).update(`${m![1]}.${hit!.body}`).digest('hex')).toBe(m![2]);
+
+    // On-chain finality: a Solana node (stubbed) reports the signature finalized with the right mint and amount → COMPLETED + deposit.settled
+    const { useTestPorts } = await import('../../packages/providers/ports/runtime');
+    const { finalizeReceivedInstructions } = await import('../../packages/settlement/deposits/deposit-instruction.service');
+    const { ASSETS } = await import('../../packages/core/assets/registry');
+    const restore = useTestPorts({ chain: {
+      awaitFinality: async (signature: string) => ({ signature, found: true, slot: 1234, confirmations: null, commitment: 'finalized', err: null }),
+      getTransaction: async (signature: string) => ({ signature, slot: 1234, blockTime: new Date(), feeLamports: 5000n, err: null, tokenTransfers: [{ mint: ASSETS.USDC_SOL.contract, owner: null, decimals: 6, changeRaw: 12_500_000n }] }),
+    } as any });
+    try { expect((await finalizeReceivedInstructions()).settled).toBeGreaterThanOrEqual(1); } finally { restore(); }
+    const done = await request(app).get(`/api/settlements/${instr.id}`).set(A.auth).expect(200);
+    expect(done.body).toMatchObject({ status: 'COMPLETED', instructionStatus: 'SETTLED' });
+    expect(done.body.proof.finality).toBe('ON_CHAIN_FINALIZED'); expect(done.body.proof.onChain.slot).toBe('1234');
+    received.length = 0; await drain();
+    expect(received.some(h => h.body.includes('"type":"deposit.settled"') && h.body.includes(instr.id))).toBe(true);
+  });
+
+  it('on-chain mismatch after custody confirmation is recorded and announced, never COMPLETED', async () => {
+    const A = await institution('mismatch');
+    await request(app).post('/api/webhooks/endpoints').set(A.auth).send({ url: hookUrl }).expect(201);
+    const instr = (await request(app).post('/api/deposits/instructions').set(A.auth).send({ walletId: A.wallet.id, asset: 'USDC_SOL', amount: '12.5' }).expect(201)).body;
+    await signedPost(fbEvent(instr, A.wallet.custody.vaultId)).expect(200);
+    const { useTestPorts } = await import('../../packages/providers/ports/runtime');
+    const { finalizeReceivedInstructions } = await import('../../packages/settlement/deposits/deposit-instruction.service');
+    const { ASSETS } = await import('../../packages/core/assets/registry');
+    const restore = useTestPorts({ chain: {
+      awaitFinality: async (signature: string) => ({ signature, found: true, slot: 1, confirmations: null, commitment: 'finalized', err: null }),
+      getTransaction: async (signature: string) => ({ signature, slot: 1, blockTime: new Date(), feeLamports: 5000n, err: null, tokenTransfers: [{ mint: ASSETS.USDT_SOL.contract, owner: null, decimals: 6, changeRaw: 12_500_000n }] }), // wrong mint on chain
+    } as any });
+    try { expect((await finalizeReceivedInstructions()).failed).toBeGreaterThanOrEqual(1); } finally { restore(); }
+    const s = await request(app).get(`/api/settlements/${instr.id}`).set(A.auth).expect(200);
+    expect(s.body.status).toBe('PROCESSING'); expect(s.body.instructionStatus).toBe('RECEIVED'); expect(s.body.attention.reason).toMatch(/on-chain proof failed/);
+    const { drain } = await import('../../packages/core/events/outbox.service');
+    received.length = 0; await drain();
+    expect(received.some(h => h.body.includes('"type":"deposit.rejected"') && h.body.includes(instr.id))).toBe(true);
   });
 
   it('wrong amount, wrong asset, wrong vault, expired or cancelled instruction never credit', async () => {
@@ -112,6 +150,12 @@ db('deposit instructions, settlement status, institution webhooks', () => {
     expect(rej.every((r: any) => r.status !== 'PROCESSED')).toBe(true);
     expect(rej.find((r: any) => r.entityId === i1.id).reason).toMatch(/differs from instructed/);
     expect(rej.find((r: any) => r.entityId === i3.id).reason).toMatch(/different vault/);
+    // the institution can see the rejection on the instruction and receives deposit.rejected
+    const s1 = await request(app).get(`/api/settlements/${i1.id}`).set(A.auth).expect(200);
+    expect(s1.body.status).toBe('PROCESSING'); expect(s1.body.attention.reason).toMatch(/differs from instructed/);
+    expect(await prisma.outboxEvent.count({ where: { entityType: 'DepositInstruction', entityId: i1.id, eventType: 'deposit.rejected' } })).toBe(0); // no endpoint registered for A → nothing queued
+    // expired-before-receipt is REJECTED (funds arrived), not silently ignored
+    expect(rej.find((r: any) => r.entityId === i5.id).status).toBe('REJECTED');
   });
 
   it('ten concurrent copies of one receipt settle the instruction exactly once', async () => {
@@ -138,6 +182,31 @@ db('deposit instructions, settlement status, institution webhooks', () => {
     expect((await request(app).get('/api/webhooks/endpoints').set(B.auth).expect(200)).body).toEqual([]);
     await request(app).post('/api/webhooks/endpoints').set(A.auth).send({ url: 'ftp://x' }).expect(400);
     await request(app).post('/api/webhooks/endpoints').set(A.auth).send({ url: hookUrl, events: ['nope'] }).expect(400);
+    await request(app).get('/api/deposits/instructions?status=bogus').set(A.auth).expect(400);
+    await request(app).post('/api/deposits/instructions').set(A.auth).send({ walletId: A.wallet.id, asset: 'USDC_SOL', amount: '1'.repeat(40) }).expect(400);
+  });
+
+  it('webhook URLs can never point the API at private networks (SSRF), and redirects are not followed', async () => {
+    const { assertDeliverableUrl, isPrivateAddress } = await import('../../packages/core/webhooks/url-policy');
+    const saved = process.env.WEBHOOK_ALLOW_INSECURE_URLS; delete process.env.WEBHOOK_ALLOW_INSECURE_URLS;
+    try {
+      for (const bad of ['http://example.com/x', 'https://localhost/x', 'https://127.0.0.1/x', 'https://10.0.0.5/x', 'https://169.254.169.254/latest/meta-data', 'https://192.168.1.1/x', 'https://[::1]/x', 'https://user:pw@example.com/x', 'https://intranet/x', 'https://api.internal/x']) {
+        await expect(assertDeliverableUrl(bad)).rejects.toThrow();
+      }
+      expect(isPrivateAddress('172.16.0.1')).toBe(true); expect(isPrivateAddress('100.64.0.1')).toBe(true); expect(isPrivateAddress('8.8.8.8')).toBe(false); expect(isPrivateAddress('::ffff:127.0.0.1')).toBe(true);
+    } finally { process.env.WEBHOOK_ALLOW_INSECURE_URLS = saved; }
+    // a receiver that answers 302 is a failed delivery, never followed
+    const A = await institution('redir');
+    await request(app).post('/api/webhooks/endpoints').set(A.auth).send({ url: hookUrl }).expect(201);
+    const instr = (await request(app).post('/api/deposits/instructions').set(A.auth).send({ walletId: A.wallet.id, asset: 'USDC_SOL', amount: '1' }).expect(201)).body;
+    await prisma.depositInstruction.update({ where: { id: instr.id }, data: { expiresAt: new Date(Date.now() - 1000) } });
+    const { expireDepositInstructions, } = await import('../../packages/settlement/deposits/deposit-instruction.service');
+    const { drain } = await import('../../packages/core/events/outbox.service');
+    await expireDepositInstructions();
+    hookStatus = 302; try { await drain(); } finally { hookStatus = 200; }
+    const ob = await prisma.outboxEvent.findFirst({ where: { entityType: 'DepositInstruction', entityId: instr.id } });
+    expect(ob.status).not.toBe('DELIVERED');
+    expect(ob.lastStatus).toBe(302);
   });
 
   it('expiry sweep: a stale instruction becomes EXPIRED (status FAILED) and emits deposit.expired; failed deliveries follow the 1m/5m/30m/2h/12h schedule', async () => {

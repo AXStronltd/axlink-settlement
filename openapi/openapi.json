@@ -263,12 +263,14 @@
               "PROCESSING",
               "COMPLETED",
               "FAILED"
-            ]
+            ],
+            "description": "PROCESSING until a Solana node reports the receipt finalized; COMPLETED only then; FAILED when expired or cancelled."
           },
           "instructionStatus": {
             "type": "string",
             "enum": [
               "PENDING",
+              "RECEIVED",
               "SETTLED",
               "CANCELLED",
               "EXPIRED"
@@ -355,6 +357,30 @@
                 ]
               }
             }
+          },
+          "attention": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Set when a receipt arrived but could not be credited, or on-chain proof failed.",
+            "properties": {
+              "at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "reason": {
+                "type": "string"
+              }
+            }
+          },
+          "receivedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Custody confirmation"
           }
         }
       }
@@ -994,7 +1020,7 @@
           "Webhooks"
         ],
         "summary": "Register a signed webhook endpoint (secret returned once)",
-        "description": "Deliveries carry `X-AxLink-Signature: t=<unix seconds>,v1=<hex HMAC-SHA256(secret, t + \".\" + body)>` and `X-AxLink-Event-Id`. Retries 1m, 5m, 30m, 2h, 12h.",
+        "description": "Deliveries carry `X-AxLink-Signature: t=<unix seconds>,v1=<hex HMAC-SHA256(secret, t + \".\" + body)>` and `X-AxLink-Event-Id`. Events: deposit.received (custody confirmed, status PROCESSING), deposit.settled (on-chain finalized, COMPLETED), deposit.rejected (a receipt could not be credited; needs attention), deposit.expired. Retries on 5xx/408/429/timeouts at 1m, 5m, 30m, 2h, 12h; other 4xx are final; redirects are never followed. URLs must be public https hosts.",
         "security": [
           {
             "institutionKey": []
@@ -1020,7 +1046,9 @@
                       "type": "string",
                       "enum": [
                         "*",
+                        "deposit.received",
                         "deposit.settled",
+                        "deposit.rejected",
                         "deposit.expired"
                       ]
                     }
