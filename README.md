@@ -368,6 +368,10 @@ fireblocks_secret.key
 fireblocks.csr
 ```
 
+## Scope
+
+Crypto settlement only — see `docs/SCOPE.md`. No NDD leg.
+
 ## Step 1 — platform foundation (2026-11-06)
 
 Added without changing any financial behaviour: validated configuration (`src/platform/config.ts`),
