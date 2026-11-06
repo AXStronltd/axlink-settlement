@@ -9,8 +9,8 @@
  *  - Webhook event dispatch
  */
 
-import { prisma } from '../../core/ledger/ledger.service';
-import { log }    from '../../shared/logger';
+import { prisma } from '../../../core/ledger/ledger.service';
+import { log }    from '../../../shared/logger';
 import {
   createNetworkDirectTransfer,
   createSmartTransferTicket,
@@ -26,7 +26,7 @@ import {
   logSettlementStatusChange,
   type CreateSmartTransferParams,
   type NetworkDirectTransferParams,
-} from '../../providers/custody/fireblocks/fireblocks-network';
+} from './fireblocks-network';
 
 // ── Counterparty connection registry ─────────────────────────────────────────
 

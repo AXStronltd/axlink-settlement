@@ -1,0 +1,40 @@
+{
+  "name": "@axlink/sdk",
+  "version": "0.1.0",
+  "description": "AxLink Settlement Network — Institution SDK",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm --dts --clean",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "axlink",
+    "settlement",
+    "stablecoin",
+    "usdt",
+    "usdc",
+    "solana",
+    "b2b",
+    "fintech"
+  ],
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "tsup": "^8.0.0",
+    "typescript": "^5.3.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

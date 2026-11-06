@@ -30,7 +30,7 @@ import {
   cancelTicket,
   initiateDirectSettlement,
   handleFireblocksWebhook,
-} from '../../../../packages/settlement/network/network-settlement.service';
+} from '../../../../packages/providers/custody/fireblocks/network-settlement.service';
 import { log } from '../../../../packages/shared/logger';
 
 const router = Router();
