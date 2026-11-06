@@ -157,7 +157,7 @@ function liveDevelopers(){
    exception queue, Approvals = transfers and counterparties awaiting a decision, Providers = adapters
    and health. Same rules as the institution side: the key lives in sessionStorage only, every value
    from the API is escaped at the boundary, every button is one call. */
-var OPS={on:false,exceptions:null,summary:null,pending:[],pendingCps:[],providers:[],error:null};
+var OPS={on:false,exceptions:null,summary:null,pending:[],pendingCps:[],review:[],providers:[],error:null};
 function opsBase(){ return location.pathname.indexOf('/portal')===0?location.origin+'/api/settlement':null; }
 function opsKey(){ try{ return sessionStorage.getItem('AX_OPS_KEY')||''; }catch(e){ return ''; } }
 function opsApi(method,path,body){
@@ -175,13 +175,14 @@ function connectAsOperator(key){
   }).catch(function(e){ OPS.on=false; toast('Could not connect: '+e.message,'!'); });
   return false;
 }
-function disconnectOps(){ OPS={on:false,exceptions:null,summary:null,pending:[],pendingCps:[],providers:[],error:null}; try{ sessionStorage.removeItem('AX_OPS_KEY'); }catch(e){} }
+function disconnectOps(){ OPS={on:false,exceptions:null,summary:null,pending:[],pendingCps:[],review:[],providers:[],error:null}; try{ sessionStorage.removeItem('AX_OPS_KEY'); }catch(e){} }
 function refreshOps(){
   if(!OPS.on) return Promise.resolve();
   return Promise.all([
     opsApi('GET','/exceptions?status=OPEN').then(function(v){ OPS.exceptions=v.exceptions; OPS.summary=v.summary; }),
     opsApi('GET','/transfers/pending').then(function(v){ OPS.pending=v; }),
     opsApi('GET','/counterparties/pending').then(function(v){ OPS.pendingCps=v; }),
+    opsApi('GET','/transfers/under-review').then(function(v){ OPS.review=v; }),
     opsApi('GET','/providers?health=true').then(function(v){ OPS.providers=v.providers||[]; }),
   ]).catch(function(e){ OPS.error=liveEsc(e.message); }).then(function(){ render(); });
 }
@@ -205,11 +206,15 @@ function opsRunRecon(){ toast('Reconciliation running…'); opsApi('POST','/reco
 function opsApprovals(){
   var ts=OPS.pending||[]; var cps=OPS.pendingCps||[];
   var tRows=ts.map(function(t){ return '<tr><td class="txid">'+t.id+'</td><td>'+t.institution+' · '+t.environment+'</td><td>'+(t.counterparty&&t.counterparty.label||'')+'</td><td class="mono" style="font-size:12px">'+t.amount+' '+t.asset+'</td><td style="font-size:11.5px;color:var(--ink-2)">'+(t.policy?('available '+(t.policy.available||'?')+' · limit '+(t.policy.maxPerTransfer||'?')):'')+'</td><td><button class="btn btn-primary btn-sm" onclick="opsDecide(\'transfers\',\''+t.id+'\',\'approve\')">Approve</button> <button class="btn btn-ghost btn-sm" onclick="opsDecide(\'transfers\',\''+t.id+'\',\'reject\')">Reject</button></td></tr>'; }).join('')||'<tr><td colspan="6" style="color:var(--ink-3)">No transfers awaiting approval.</td></tr>';
+  var rRows=(OPS.review||[]).map(function(t){ return '<tr><td class="txid">'+t.id+'</td><td>'+t.institution+' · '+t.environment+'</td><td class="mono" style="font-size:12px">'+t.amount+' '+t.asset+'</td><td style="font-size:11.5px;color:#f87171">'+(t.reason||'')+'</td><td class="mono" style="font-size:10.5px">'+(t.proof&&t.proof.txHash?'<a href="'+t.proof.explorerUrl+'" target="_blank" rel="noopener" style="color:var(--teal)">'+t.proof.txHash.slice(0,10)+'…</a>':'—')+'</td><td><button class="btn btn-primary btn-sm" onclick="opsOpenReview(\''+t.id+'\')">Decide</button></td></tr>'; }).join('')||'<tr><td colspan="6" style="color:var(--ink-3)">Nothing under review.</td></tr>';
   var cRows=cps.map(function(c){ return '<tr><td>'+c.institution+' · '+c.environment+'</td><td style="font-weight:500">'+c.label+'</td><td class="mono" style="font-size:11px" title="'+c.address+'">'+c.address.slice(0,10)+'…'+c.address.slice(-6)+'</td><td style="color:var(--ink-2)">'+(c.note||'')+'</td><td><button class="btn btn-primary btn-sm" onclick="opsApproveCp(\''+c.id+'\')">Approve (whitelisted at custodian)</button> <button class="btn btn-ghost btn-sm" onclick="opsDecide(\'counterparties\',\''+c.id+'\',\'reject\')">Reject</button></td></tr>'; }).join('')||'<tr><td colspan="5" style="color:var(--ink-3)">No counterparties awaiting approval.</td></tr>';
   return appShell('#/app/approvals', opsHead()+pageHead('Approvals','Four-eyes on money out: an institution asks, an operator approves. Approving a transfer writes its journal entry; nothing leaves custody before that. Approving a counterparty records your attestation that the address is whitelisted at the custodian.','')+
    tableCard('Transfers awaiting approval — GET /api/settlement/transfers/pending',['Transfer','Institution','Counterparty','Amount','Policy',''],tRows)+'<div style="height:14px"></div>'+
-   tableCard('Counterparties awaiting approval (production) — GET /api/settlement/counterparties/pending',['Institution','Label','Address','Note',''],cRows));
+   tableCard('Counterparties awaiting approval (production) — GET /api/settlement/counterparties/pending',['Institution','Label','Address','Note',''],cRows)+'<div style="height:14px"></div>'+
+   tableCard('Transfers under review — custody and the chain disagree; decide with evidence',['Transfer','Institution','Amount','Reason','Tx',''],rRows));
 }
+function opsOpenReview(id){ openModal('<h3 style="font-size:19px;margin-bottom:6px">Decide transfer</h3><div style="font-size:12px;color:var(--ink-3);margin-bottom:12px">Check the signature on a Solana explorer and the custodian console first. Your decision and evidence are recorded on the transfer and the exception.</div><div class="field"><label>Decision</label><select id="rv-decision"><option value="settled">SETTLED — funds verified at the recipient on chain</option><option value="failed">FAILED — funds verified never left the vault (journal reversed)</option></select></div><div class="field"><label>Evidence (required)</label><input id="rv-evidence" placeholder="e.g. solscan slot 2981114, 40 USDC credited to 7xKX…; custodian tx id fb-…"/></div><div style="display:flex;gap:10px"><button class="btn btn-ghost" style="flex:1;justify-content:center" onclick="closeModal()">Cancel</button><button class="btn btn-primary" style="flex:1;justify-content:center" onclick="opsReview(\''+id+'\')">Record decision</button></div>'); }
+function opsReview(id){ var d=document.getElementById('rv-decision').value, e=(document.getElementById('rv-evidence').value||'').trim(); opsApi('POST','/transfers/'+id+'/review',{decision:d,evidence:e}).then(function(){ closeModal(); toast('Decision recorded: '+d.toUpperCase()); refreshOps(); }).catch(function(x){ toast(x.message,'!'); }); }
 function opsDecide(kind,id,action){ var body={}; if(action==='reject'){ var r=prompt('Reason for rejection (kept on record):'); if(r===null) return; body.reason=r; } opsApi('POST','/'+kind+'/'+id+'/'+action,body).then(function(){ toast(action==='approve'?'Approved':'Rejected'); refreshOps(); }).catch(function(e){ toast(e.message,'!'); }); }
 function opsApproveCp(id){ if(!confirm('Confirm: this address has been whitelisted at the custodian (Fireblocks TAP). This is recorded as your attestation.')) return; opsApi('POST','/counterparties/'+id+'/approve',{custodyWhitelisted:true}).then(function(){ toast('Counterparty approved'); refreshOps(); }).catch(function(e){ toast(e.message,'!'); }); }
 function opsProviders(){

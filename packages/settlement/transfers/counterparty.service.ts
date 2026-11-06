@@ -50,8 +50,10 @@ async function registerNetworkCounterparty(scope: Scope & { environmentKind: 'SA
 }
 
 /** The wallet that receives network settlements for an institution in one environment kind: its oldest ACTIVE wallet there. */
-export async function settlementWalletFor(institutionId: string, environmentKind: 'SANDBOX' | 'PRODUCTION', db: Prisma.TransactionClient | typeof prisma = prisma) {
-  return db.wallet.findFirst({ where: { institutionId, status: 'ACTIVE', environment: { kind: environmentKind, status: 'ACTIVE' } }, orderBy: { createdAt: 'asc' } });
+export async function settlementWalletFor(institutionId: string, environmentKind: 'SANDBOX' | 'PRODUCTION', db: Prisma.TransactionClient | typeof prisma = prisma, match: { network?: string; custodyProvider?: string } = {}) {
+  // The participant itself must be ACTIVE (a suspended institution receives nothing), its environment too,
+  // and the wallet must sit on the same network and custodian as the sender's so an internal move is possible.
+  return db.wallet.findFirst({ where: { institutionId, status: 'ACTIVE', ...(match.network ? { network: match.network } : {}), ...(match.custodyProvider ? { custodyProvider: match.custodyProvider } : {}), environment: { kind: environmentKind, status: 'ACTIVE' }, institution: { status: 'ACTIVE' } }, orderBy: { createdAt: 'asc' } });
 }
 
 export async function registerCounterparty(scope: Scope & { environmentKind: 'SANDBOX' | 'PRODUCTION' }, input: RegisterCounterpartyInput) {

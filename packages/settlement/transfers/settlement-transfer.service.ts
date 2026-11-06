@@ -131,7 +131,7 @@ async function approveInTx(tx: Prisma.TransactionClient, t: SettlementTransfer, 
   let receivingWalletId: string | null = null;
   if (cp.kind === 'NETWORK') {
     const env = await tx.apiEnvironment.findUnique({ where: { id: t.environmentId }, select: { kind: true } });
-    const rw = cp.participantInstitutionId ? await settlementWalletFor(cp.participantInstitutionId, env!.kind, tx) : null;
+    const rw = cp.participantInstitutionId ? await settlementWalletFor(cp.participantInstitutionId, env!.kind, tx, { network: w.network, custodyProvider: w.custodyProvider }) : null;
     if (!rw) throw new ApiError('PARTICIPANT_NOT_READY', 'the receiving participant has no active wallet in this environment', 409);
     if (rw.id === t.walletId) throw new ApiError('PARTICIPANT_IS_SELF', 'source and destination wallet are the same', 400);
     receivingWalletId = rw.id;
@@ -187,11 +187,12 @@ export async function getTransfer(id: string, scope: { institutionId: string; en
   if (!t) throw new ApiError('NOT_FOUND', 'transfer not found', 404);
   return t;
 }
-const STATUSES = ['AWAITING_APPROVAL', 'APPROVED', 'SUBMITTING', 'SUBMITTED', 'CONFIRMED', 'SETTLED', 'FAILED', 'REJECTED', 'CANCELLED'] as const;
+const STATUSES = ['AWAITING_APPROVAL', 'APPROVED', 'SUBMITTING', 'SUBMITTED', 'CONFIRMED', 'UNDER_REVIEW', 'SETTLED', 'FAILED', 'REJECTED', 'CANCELLED'] as const;
 export function listTransfers(scope: { institutionId: string; environmentId: string }, status?: string) {
   if (status !== undefined && !(STATUSES as readonly string[]).includes(status)) throw new ApiError('VALIDATION_ERROR', `status must be one of ${STATUSES.join(', ')}`, 400);
   return prisma.settlementTransfer.findMany({ where: { ...where(scope), ...(status ? { status: status as typeof STATUSES[number] } : {}) }, orderBy: { createdAt: 'desc' }, take: 100, include: { counterparty: true } });
 }
+export function listUnderReview() { return prisma.settlementTransfer.findMany({ where: { status: 'UNDER_REVIEW' }, orderBy: { updatedAt: 'asc' }, include: { counterparty: true, institution: { select: { slug: true } }, environment: { select: { kind: true } } } }); }
 export function listAwaitingApproval() { return prisma.settlementTransfer.findMany({ where: { status: 'AWAITING_APPROVAL' }, orderBy: { createdAt: 'asc' }, include: { counterparty: true, institution: { select: { slug: true } }, environment: { select: { kind: true } } } }); }
 
 // ── Events ────────────────────────────────────────────────────────────────────
@@ -289,9 +290,7 @@ export async function applyCustodyStatus(providerTxId: string, s: { status: 'PEN
   if (s.status === 'FAILED' && s.final) {
     if (t.status === 'SUBMITTED' && !t.txHash && !s.txHash) { await failTransfer(t.id, 'custody reported the transaction failed/rejected before broadcast', tx); return 'updated'; }
     // Broadcast already happened (a signature exists): funds may have moved. Flag for a person; never reverse here.
-    const u = await db.settlementTransfer.update({ where: { id: t.id }, data: { failureReason: 'custody reported FAILED after broadcast; on-chain outcome must be verified by operations'.slice(0, 500), txHash: s.txHash ?? t.txHash } });
-    await emit(u, 'transfer.failed', { attention: true, status: 'PROCESSING', reason: u.failureReason }, tx);
-    await raiseException({ kind: 'TRANSFER_ATTENTION', severity: 'CRITICAL', subject: t.id, currency: t.assetId, expected: t.amount, detail: { reason: u.failureReason, txHash: u.txHash, stage: t.status }, institutionId: t.institutionId, entityType: 'SettlementTransfer', entityId: t.id }, db);
+    await moveToReview({ ...t, txHash: s.txHash ?? t.txHash }, 'custody reported FAILED after broadcast; on-chain outcome must be verified by operations', db);
     return 'updated';
   }
   if (s.status === 'CONFIRMED' && s.final && t.status === 'SUBMITTED') {
@@ -333,6 +332,81 @@ export async function failTransfer(id: string, reason: string, tx?: Prisma.Trans
   return tx ? run(tx) : prisma.$transaction(run);
 }
 
+/** The receiving participant's side of a network settlement: posted once (posting key), only at SETTLED. */
+async function creditReceiver(tx: Prisma.TransactionClient, t: SettlementTransfer & { counterparty: Counterparty }, receiving: { id: string; custodyVaultId: string; institutionId: string; environmentId: string }, finality: string) {
+  const credit = await post(tx, {
+    eventType: 'SETTLEMENT', entityType: 'SettlementTransfer', entityId: t.id, postingKey: `SettlementTransfer:${t.id}:credit`,
+    narrative: `Network settlement received ${t.assetId} ${t.amount.toFixed()} from institution ${t.institutionId} (transfer ${t.id})`,
+    lines: [
+      { account: AccountCode.custody(receiving.custodyVaultId, t.assetId), currency: t.assetId, amount: t.amount, usdAmount: t.amount },
+      { account: AccountCode.institution(receiving.institutionId, t.assetId), currency: t.assetId, amount: t.amount.negated(), usdAmount: t.amount.negated() },
+    ],
+  });
+  await applyWalletCredit(tx, receiving.id, t.assetId, t.amount);
+  await tx.settlementTransfer.update({ where: { id: t.id }, data: { creditEntryId: credit.id } });
+  const sender = await tx.institution.findUnique({ where: { id: t.institutionId }, select: { slug: true, legalName: true } });
+  const { emitInstitutionEvent } = await import('../../core/webhooks/webhook-endpoint.service');
+  await emitInstitutionEvent(tx, { institutionId: receiving.institutionId, environmentId: receiving.environmentId }, 'settlement.received' as never,
+    { transferId: t.id, kind: 'NETWORK_SETTLEMENT', status: 'COMPLETED', walletId: receiving.id, asset: t.assetId, amount: t.amount.toFixed(), reference: t.reference, from: { participant: sender?.slug ?? null, name: sender?.legalName ?? null }, finality, txHash: t.txHash } as Prisma.InputJsonValue,
+    { entityType: 'SettlementTransfer', entityId: t.id });
+}
+
+/**
+ * UNDER_REVIEW: custody and the chain (or our own records) disagree after broadcast. The sweeper stops
+ * touching the row, the institution hears once, and one CRITICAL exception waits for an operator who
+ * decides with evidence (`reviewTransfer`). Nothing is reversed or credited until then.
+ */
+async function moveToReview(t: SettlementTransfer, reason: string, db?: Prisma.TransactionClient) {
+  const run = async (tx: Prisma.TransactionClient) => {
+    const c = await tx.settlementTransfer.updateMany({ where: { id: t.id, status: { in: ['SUBMITTED', 'CONFIRMED'] } }, data: { status: 'UNDER_REVIEW', failureReason: reason.slice(0, 500), txHash: t.txHash } });
+    if (c.count !== 1) return;
+    const u = (await tx.settlementTransfer.findUnique({ where: { id: t.id } }))!;
+    await emit(u, 'transfer.failed', { attention: true, status: 'PROCESSING', reason: u.failureReason }, tx);
+    log.error('transfer.under_review', { transferId: t.id, reason });
+    return u;
+  };
+  const u = db ? await run(db) : await prisma.$transaction(run);
+  // The queue item is written outside the money transaction: a unique-violation on a concurrent raise must
+  // never abort the state change above, and the item is still raised on the next sweep if this write fails.
+  if (u) await raiseException({ kind: 'TRANSFER_ATTENTION', severity: 'CRITICAL', subject: t.id, currency: t.assetId, expected: t.amount, detail: { reason: u.failureReason, txHash: u.txHash, previousStage: t.status }, institutionId: t.institutionId, entityType: 'SettlementTransfer', entityId: t.id }).catch(e => log.error('exception.raise_failed', { transferId: t.id, message: (e as Error).message }));
+  return u;
+}
+
+/**
+ * Operator decision on an UNDER_REVIEW transfer, with the evidence recorded on the exception:
+ *   - 'settled': the operator verified on chain that the funds reached the recipient → SETTLED (and the
+ *     receiver credited for a network settlement), proof row recorded as operator-attested;
+ *   - 'failed': the operator verified the funds never left the vault → FAILED, journal reversed.
+ */
+export async function reviewTransfer(id: string, decision: 'settled' | 'failed', by: string, evidence: string) {
+  if (!evidence.trim()) throw new ApiError('VALIDATION_ERROR', 'evidence is required (what was checked, where)', 400);
+  return prisma.$transaction(async tx => {
+    const t = await tx.settlementTransfer.findUnique({ where: { id }, include: { counterparty: true } });
+    if (!t) throw new ApiError('NOT_FOUND', 'transfer not found', 404);
+    if (t.status !== 'UNDER_REVIEW') throw new ApiError('NOT_UNDER_REVIEW', `transfer is ${t.status}`, 409);
+    const { resolveOpenException } = await import('../operations/exception.service');
+    if (decision === 'failed') {
+      if (t.journalEntryId) { await reverse(tx, t.journalEntryId, `operator review: ${evidence}`.slice(0, 200)); await applyWalletCredit(tx, t.walletId, t.assetId, t.amount); }
+      const u = await tx.settlementTransfer.update({ where: { id }, data: { status: 'FAILED', failureReason: `operator review (${by}): funds did not leave custody — ${evidence}`.slice(0, 500) } });
+      await emit(u, 'transfer.failed', { reason: u.failureReason }, tx);
+      await resolveOpenException('TRANSFER_ATTENTION', id, t.assetId, by, `decided FAILED: ${evidence}`, tx);
+      log.warn('transfer.review_failed', { transferId: id, by });
+      return u;
+    }
+    await tx.settlementTransfer.update({ where: { id }, data: { status: 'SETTLED', settledAt: new Date(), failureReason: null, finality: 'OPERATOR_ATTESTED' } });
+    if (t.counterparty.kind === 'NETWORK') {
+      const rw = t.receivingWalletId ? await tx.wallet.findUnique({ where: { id: t.receivingWalletId }, include: { institution: { select: { status: true } } } }) : null;
+      if (!rw || rw.institution.status !== 'ACTIVE') throw new ApiError('PARTICIPANT_NOT_READY', 'receiving wallet is missing or its institution is not active; cannot credit', 409);
+      await creditReceiver(tx, t, rw, 'OPERATOR_ATTESTED');
+    }
+    const u = (await tx.settlementTransfer.findUnique({ where: { id } }))!;
+    await emit({ ...u, counterparty: t.counterparty }, 'transfer.settled', { finality: 'OPERATOR_ATTESTED', slot: null, evidence: evidence.slice(0, 300), counterpartyAddress: t.counterparty.kind === 'NETWORK' ? null : t.counterparty.address, participant: t.counterparty.kind === 'NETWORK' ? t.counterparty.address.replace(/^network:/, '') : null }, tx);
+    await resolveOpenException('TRANSFER_ATTENTION', id, t.assetId, by, `decided SETTLED: ${evidence}`, tx);
+    log.warn('transfer.review_settled', { transferId: id, by });
+    return u;
+  });
+}
+
 // ── Finality (sweeper) ────────────────────────────────────────────────────────
 export async function finalizeConfirmedTransfers(limit = 50): Promise<{ settled: number; pending: number; attention: number }> {
   const rows = await prisma.settlementTransfer.findMany({ where: { status: 'CONFIRMED' }, include: { counterparty: true }, take: limit, orderBy: { confirmedAt: 'asc' } });
@@ -341,8 +415,13 @@ export async function finalizeConfirmedTransfers(limit = 50): Promise<{ settled:
     const asset = getAsset(t.assetId);
     try {
       let finality: 'ON_CHAIN_FINALIZED' | 'SANDBOX_SIMULATED'; let slot: string | null = null;
-      const receiving = t.receivingWalletId ? await prisma.wallet.findUnique({ where: { id: t.receivingWalletId } }) : null;
-      const recipient = t.counterparty.kind === 'NETWORK' ? receiving?.depositAddress ?? undefined : t.counterparty.address;
+      const receiving = t.receivingWalletId ? await prisma.wallet.findUnique({ where: { id: t.receivingWalletId }, include: { institution: { select: { status: true } } } }) : null;
+      if (t.counterparty.kind === 'NETWORK' && (!receiving || !receiving.depositAddress || receiving.institution.status !== 'ACTIVE')) {
+        // Funds are in a vault we cannot attribute: never mark SETTLED without the credit. A person decides.
+        await moveToReview(t, `receiving wallet ${t.receivingWalletId ?? '(none)'} is ${receiving ? (receiving.depositAddress ? `on a ${receiving.institution.status} institution` : 'missing its deposit address') : 'missing'}; credit not posted`);
+        out.attention++; continue;
+      }
+      const recipient = t.counterparty.kind === 'NETWORK' ? receiving!.depositAddress! : t.counterparty.address;
       if (t.txHash) {
         const r = await proveSettlement({ entityType: 'SettlementTransfer', entityId: t.id, signature: t.txHash, asset: asset.id, expectedAmount: t.amount, toAddress: recipient, requireRecipient: true });
         if (r.status === 'PENDING_BROADCAST') { out.pending++; continue; }
@@ -351,25 +430,16 @@ export async function finalizeConfirmedTransfers(limit = 50): Promise<{ settled:
         finality = 'SANDBOX_SIMULATED'; // the stub custodian has no chain; say so rather than pretend
       } else { out.pending++; continue; } // real custody said completed but no hash yet — wait for the webhook/poll
       await prisma.$transaction(async tx => {
-        const c = await tx.settlementTransfer.updateMany({ where: { id: t.id, status: 'CONFIRMED' }, data: { status: 'SETTLED', settledAt: new Date(), failureReason: null } });
+        const c = await tx.settlementTransfer.updateMany({ where: { id: t.id, status: 'CONFIRMED' }, data: { status: 'SETTLED', settledAt: new Date(), failureReason: null, finality } });
         if (c.count !== 1) return;
-        if (t.counterparty.kind === 'NETWORK' && receiving) {
+        if (t.counterparty.kind === 'NETWORK') {
+          // Re-read under the transaction: the wallet must still be the one fixed at approval, on an active institution.
+          const rw = await tx.wallet.findUnique({ where: { id: t.receivingWalletId! }, include: { institution: { select: { status: true } } } });
+          if (!rw || rw.institutionId !== receiving!.institutionId || rw.institution.status !== 'ACTIVE') throw Object.assign(new Error('receiving wallet changed during finality; settlement rolled back for review'), { code: 'RECEIVER_CHANGED', retryable: false });
+          const receivingW = rw;
           // Credit the receiving participant now: custody + / its liability −, same entity, its own posting key.
           // The custody-deposit path refuses vault-sourced receipts, so this is the only credit for a network move.
-          const credit = await post(tx, {
-            eventType: 'SETTLEMENT', entityType: 'SettlementTransfer', entityId: t.id, postingKey: `SettlementTransfer:${t.id}:credit`,
-            narrative: `Network settlement received ${t.assetId} ${t.amount.toFixed()} from institution ${t.institutionId} (transfer ${t.id})`,
-            lines: [
-              { account: AccountCode.custody(receiving.custodyVaultId, t.assetId), currency: t.assetId, amount: t.amount, usdAmount: t.amount },
-              { account: AccountCode.institution(receiving.institutionId, t.assetId), currency: t.assetId, amount: t.amount.negated(), usdAmount: t.amount.negated() },
-            ],
-          });
-          await applyWalletCredit(tx, receiving.id, t.assetId, t.amount);
-          await tx.settlementTransfer.update({ where: { id: t.id }, data: { creditEntryId: credit.id } });
-          const { emitInstitutionEvent } = await import('../../core/webhooks/webhook-endpoint.service');
-          await emitInstitutionEvent(tx, { institutionId: receiving.institutionId, environmentId: receiving.environmentId }, 'settlement.received' as never,
-            { transferId: t.id, kind: 'NETWORK_SETTLEMENT', status: 'COMPLETED', walletId: receiving.id, asset: t.assetId, amount: t.amount.toFixed(), reference: t.reference, from: { institutionId: t.institutionId }, finality, txHash: t.txHash } as Prisma.InputJsonValue,
-            { entityType: 'SettlementTransfer', entityId: t.id });
+          await creditReceiver(tx, t, receivingW, finality);
         }
         await emit({ ...t, status: 'SETTLED' }, 'transfer.settled', { finality, slot, counterpartyAddress: t.counterparty.kind === 'NETWORK' ? null : t.counterparty.address, participant: t.counterparty.kind === 'NETWORK' ? t.counterparty.address.replace(/^network:/, '') : null }, tx);
       });
@@ -380,14 +450,10 @@ export async function finalizeConfirmedTransfers(limit = 50): Promise<{ settled:
       if (e instanceof ProofMismatchError || e instanceof SettlementNotFinalError) {
         // Custody says it completed; the chain disagrees. Money may have left: never auto-reverse. A human decides.
         out.attention++;
-        await prisma.$transaction(async tx => {
-          const u = await tx.settlementTransfer.update({ where: { id: t.id }, data: { failureReason: `on-chain proof failed: ${err.message}`.slice(0, 500) } });
-          await emit(u, 'transfer.failed', { attention: true, status: 'PROCESSING', reason: u.failureReason }, tx);
-          await raiseException({ kind: 'TRANSFER_ATTENTION', severity: 'CRITICAL', subject: t.id, currency: t.assetId, expected: t.amount, detail: { reason: u.failureReason, txHash: t.txHash, stage: 'CONFIRMED' }, institutionId: t.institutionId, entityType: 'SettlementTransfer', entityId: t.id }, tx);
-        });
-        log.error('transfer.proof_failed', { transferId: t.id, message: err.message });
+        await moveToReview(t, `on-chain proof failed: ${err.message}`);
         continue;
       }
+      if (err.code === 'RECEIVER_CHANGED') { out.attention++; await moveToReview(t, err.message); continue; }
       out.pending++; log.warn('transfer.proof_error', { transferId: t.id, message: err.message });
     }
   }
@@ -422,7 +488,7 @@ export async function serializeTransfer(t: SettlementTransfer & { counterparty?:
     asset: t.assetId, amount: t.amount.toFixed(), reference: t.reference, idempotencyKey: t.idempotencyKey,
     approval: t.status === 'AWAITING_APPROVAL' ? { required: true, by: 'operator' } : t.approvedAt ? { required: false, by: t.approvedBy, at: t.approvedAt } : null,
     proof: t.providerTxId || t.txHash ? { custodyTxId: t.providerTxId, txHash: t.txHash, explorerUrl: t.txHash ? `https://solscan.io/tx/${t.txHash}` : null,
-      finality: t.status === 'SETTLED' ? (proven ? 'ON_CHAIN_FINALIZED' : 'SANDBOX_SIMULATED') : t.status === 'CONFIRMED' ? 'CUSTODY_CONFIRMED' : 'PENDING', slot: proven?.slot ?? null } : null,
+      finality: t.status === 'SETTLED' ? (t.finality ?? (proven ? 'ON_CHAIN_FINALIZED' : 'SANDBOX_SIMULATED')) : t.status === 'UNDER_REVIEW' ? 'UNDER_REVIEW' : t.status === 'CONFIRMED' ? 'CUSTODY_CONFIRMED' : 'PENDING', slot: proven?.slot ?? null } : null,
     ...(t.failureReason ? { attention: true, reason: t.failureReason } : {}),
     submittedAt: t.submittedAt, confirmedAt: t.confirmedAt, settledAt: t.settledAt, createdAt: t.createdAt,
   };

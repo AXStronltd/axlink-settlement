@@ -89,7 +89,7 @@ db('network settlement between two AxLink institutions', () => {
     const types = received.filter(r => r.body.data?.transferId === t.id).map(r => r.body.type);
     expect(types).toEqual(expect.arrayContaining(['transfer.submitted', 'transfer.settled', 'settlement.received']));
     const recv = received.find(r => r.body.type === 'settlement.received' && r.body.data.transferId === t.id)!;
-    expect(recv.body.data).toMatchObject({ kind: 'NETWORK_SETTLEMENT', status: 'COMPLETED', walletId: B.wallet.id, amount: '250', reference: 'NET-1', from: { institutionId: A.id } });
+    expect(recv.body.data).toMatchObject({ kind: 'NETWORK_SETTLEMENT', status: 'COMPLETED', walletId: B.wallet.id, amount: '250', reference: 'NET-1', from: { participant: A.slug, name: 'Net a' } });
     // B cannot read A's transfer; the blueprint alias answers for A
     await request(app).get(`/api/v1/transfers/${t.id}`).set(B.auth).expect(404);
     expect((await request(app).get(`/api/v1/settlements/${t.id}`).set(A.auth).expect(200)).body.id).toBe(t.id);
@@ -111,6 +111,79 @@ db('network settlement between two AxLink institutions', () => {
   });
 });
 
+db('review fixes: receiver invariants and operator review', () => {
+  let app: import('express').Express; let prisma: any; let svc: typeof import('../../packages/settlement/transfers/settlement-transfer.service');
+  let reg: typeof import('../../packages/providers/registry/provider-registry'); let fbAdapter: any;
+  beforeAll(async () => {
+    ({ app } = await import('../../apps/api/src/index')); ({ prisma } = await import('../../packages/core/ledger/ledger.service'));
+    svc = await import('../../packages/settlement/transfers/settlement-transfer.service'); reg = await import('../../packages/providers/registry/provider-registry');
+    ({ fireblocksCustodyProvider: fbAdapter } = await import('../../packages/providers/custody/fireblocks/fireblocks.custody-provider'));
+  });
+  afterEach(() => { reg.registerCustodyProvider(fbAdapter); });
+  async function institution(tag: string) {
+    const id = randomUUID().slice(0, 8); const slug = `rv-${tag}-${id}`;
+    const inst = await request(app).post('/api/institutions').set(ops).send({ slug, legalName: `Rv ${tag}`, country: 'KE', kind: 'BANK' }).expect(201);
+    await prisma.institution.update({ where: { id: inst.body.id }, data: { status: 'ACTIVE' } });
+    const key = await request(app).post(`/api/institutions/${inst.body.id}/credentials`).set(ops).send({ environment: 'SANDBOX', label: 'k', scopes: ALL }).expect(201);
+    const auth = { Authorization: `Bearer ${key.body.apiKey}` };
+    const wallet = (await request(app).post('/api/v1/wallets').set(auth).send({ label: 'Main' }).expect(201)).body;
+    return { id: inst.body.id as string, slug, auth, wallet };
+  }
+  async function fund(A: { auth: any; wallet: any }, asset: 'USDC_SOL' | 'USDT_SOL', amount: number) {
+    const d = (await request(app).post('/api/v1/deposits').set(A.auth).send({ walletId: A.wallet.id, asset, amount: String(amount) }).expect(201)).body;
+    const raw = JSON.stringify({ type: 'TRANSACTION_STATUS_UPDATED', tenantId: 'test-workspace', data: { id: `fb-${randomUUID()}`, status: 'COMPLETED', assetId: asset, operation: 'TRANSFER', netAmount: amount, amount, txHash: `sig${randomUUID().replace(/-/g, '')}`, destination: { type: 'VAULT_ACCOUNT', id: A.wallet.custody.vaultId }, source: { type: 'EXTERNAL_WALLET' }, externalTxId: d.trackingId } });
+    const signature = crypto.sign('RSA-SHA512', Buffer.from(raw), pair.privateKey).toString('base64');
+    await request(app).post('/api/webhooks/fireblocks').set({ 'Content-Type': 'application/json', 'fireblocks-signature': signature }).send(raw).expect(200);
+  }
+  const bal = async (X: { auth: any }, asset: string) => (await request(app).get('/api/v1/balances').set(X.auth).expect(200)).body.balances.find((b: any) => b.asset === asset).available;
+  const key = () => `idem-${randomUUID()}`;
+
+  it('a suspended participant cannot be settled to; a receiver whose institution is suspended at finality goes UNDER_REVIEW (never SETTLED without the credit); the operator decides with evidence', async () => {
+    const A = await institution('a'); const B = await institution('b'); await fund(A, 'USDC_SOL', 100);
+    const cp = (await request(app).post('/api/v1/counterparties').set(A.auth).send({ label: 'B', participant: B.slug }).expect(201)).body;
+    await prisma.institution.update({ where: { id: B.id }, data: { status: 'SUSPENDED' } });
+    expect((await request(app).post('/api/v1/transfers').set(A.auth).set('Idempotency-Key', key()).send({ walletId: A.wallet.id, counterpartyId: cp.id, asset: 'USDC_SOL', amount: '10' }).expect(409)).body.error.code).toBe('PARTICIPANT_NOT_READY');
+    await prisma.institution.update({ where: { id: B.id }, data: { status: 'ACTIVE' } });
+    reg.registerCustodyProvider({ ...fbAdapter, transferInternal: async (p: any) => ({ providerTxId: `fbint-${p.clientRef}`, status: 'CONFIRMED' as const }) });
+    const t = (await request(app).post('/api/v1/transfers').set(A.auth).set('Idempotency-Key', key()).send({ walletId: A.wallet.id, counterpartyId: cp.id, asset: 'USDC_SOL', amount: '10' }).expect(202)).body;
+    await svc.submitApprovedTransfers();
+    await prisma.institution.update({ where: { id: B.id }, data: { status: 'SUSPENDED' } }); // between confirmation and finality
+    const r = await svc.finalizeConfirmedTransfers(); expect(r.attention).toBeGreaterThanOrEqual(1);
+    let cur = (await request(app).get(`/api/v1/transfers/${t.id}`).set(A.auth)).body;
+    expect(cur).toMatchObject({ status: 'PROCESSING', stage: 'UNDER_REVIEW', attention: true }); expect(cur.proof.finality).toBe('UNDER_REVIEW');
+    expect(await bal(A, 'USDC_SOL')).toBe('90'); expect(await prisma.journalEntry.count({ where: { entityId: t.id } })).toBe(1); // debit only, no credit
+    const open = await prisma.operationalException.findFirst({ where: { kind: 'TRANSFER_ATTENTION', subject: t.id, status: 'OPEN' } }); expect(open).toBeTruthy();
+    await svc.finalizeConfirmedTransfers(); // the sweeper leaves it alone
+    expect((await prisma.settlementTransfer.findUnique({ where: { id: t.id } })).status).toBe('UNDER_REVIEW');
+    expect((await request(app).get('/api/settlement/transfers/under-review').set(ops).expect(200)).body.map((x: any) => x.id)).toContain(t.id);
+    // operator: evidence required; with B suspended, 'settled' cannot credit → 409; reactivate, then settled credits B and closes the exception
+    await request(app).post(`/api/settlement/transfers/${t.id}/review`).set(ops).send({ decision: 'settled' }).expect(400);
+    await request(app).post(`/api/settlement/transfers/${t.id}/review`).set(ops).send({ decision: 'maybe', evidence: 'x' }).expect(400);
+    expect((await request(app).post(`/api/settlement/transfers/${t.id}/review`).set(ops).send({ decision: 'settled', evidence: 'solscan: 10 USDC to B vault' }).expect(409)).body.error.code).toBe('PARTICIPANT_NOT_READY');
+    await prisma.institution.update({ where: { id: B.id }, data: { status: 'ACTIVE' } });
+    const done = (await request(app).post(`/api/settlement/transfers/${t.id}/review`).set(ops).send({ decision: 'settled', evidence: 'solscan: 10 USDC to B vault', by: 'ops' }).expect(200)).body;
+    expect(done).toMatchObject({ status: 'COMPLETED', stage: 'SETTLED' }); expect(done.proof.finality).toBe('OPERATOR_ATTESTED');
+    expect(await bal(B, 'USDC_SOL')).toBe('10'); expect(await prisma.journalEntry.count({ where: { entityId: t.id } })).toBe(2);
+    expect((await prisma.operationalException.findUnique({ where: { id: open.id } })).status).toBe('RESOLVED');
+    await request(app).post(`/api/settlement/transfers/${t.id}/review`).set(ops).send({ decision: 'failed', evidence: 'x' }).expect(409);
+
+    // and the other decision: proof mismatch → UNDER_REVIEW → operator says FAILED → journal reversed, balance back
+    const C = await institution('c'); await fund(C, 'USDT_SOL', 50);
+    const ext = (await request(app).post('/api/v1/counterparties').set(C.auth).send({ label: 'X', address: crypto.randomBytes(32).toString('hex').replace(/[0lIO]/g, 'a').slice(0, 44) }).expect(201)).body;
+    reg.registerCustodyProvider({ ...fbAdapter, transferExternal: async (p: any) => ({ providerTxId: `fbx-${p.clientRef}`, status: 'CONFIRMED' as const, txHash: `sig${randomUUID().replace(/-/g, '')}` }) });
+    const t2 = (await request(app).post('/api/v1/transfers').set(C.auth).set('Idempotency-Key', key()).send({ walletId: C.wallet.id, counterpartyId: ext.id, asset: 'USDT_SOL', amount: '20' }).expect(202)).body;
+    await svc.submitApprovedTransfers();
+    const { useTestPorts } = await import('../../packages/providers/ports/runtime'); const { ASSETS } = await import('../../packages/core/assets/registry');
+    const restore = useTestPorts({ chain: { awaitFinality: async (s: string) => ({ signature: s, found: true, slot: 9, confirmations: null, commitment: 'finalized', err: null }), getTransaction: async (s: string) => ({ signature: s, slot: 9, blockTime: new Date(), feeLamports: 1n, err: null, tokenTransfers: [{ mint: ASSETS.USDT_SOL.contract, owner: 'SomeoneElse111111111111111111111111111111111', decimals: 6, changeRaw: 20_000_000n }] }) } as any });
+    try { await svc.finalizeConfirmedTransfers(); } finally { restore(); }
+    expect((await prisma.settlementTransfer.findUnique({ where: { id: t2.id } })).status).toBe('UNDER_REVIEW');
+    expect(await bal(C, 'USDT_SOL')).toBe('30');
+    const failed = (await request(app).post(`/api/settlement/transfers/${t2.id}/review`).set(ops).send({ decision: 'failed', evidence: 'custodian: tx rejected by TAP, nothing broadcast' }).expect(200)).body;
+    expect(failed).toMatchObject({ status: 'FAILED', stage: 'FAILED' });
+    expect(await bal(C, 'USDT_SOL')).toBe('50');
+  });
+});
+
 db('operator exception queue', () => {
   let app: import('express').Express; let prisma: any; let ex: typeof import('../../packages/settlement/operations/exception.service');
   beforeAll(async () => { ({ app } = await import('../../apps/api/src/index')); ({ prisma } = await import('../../packages/core/ledger/ledger.service')); ex = await import('../../packages/settlement/operations/exception.service'); });
@@ -127,7 +200,8 @@ db('operator exception queue', () => {
     const ack = (await request(app).post(`/api/settlement/exceptions/${a.id}/acknowledge`).set(ops).send({ by: 'ops' }).expect(200)).body;
     expect(ack.status).toBe('ACKNOWLEDGED'); expect(ack.acknowledged.by).toBe('operator:ops');
     await request(app).post(`/api/settlement/exceptions/${a.id}/acknowledge`).set(ops).send({}).expect(409);
-    expect((await ex.raiseException({ kind: 'CUSTODY_MISMATCH', severity: 'CRITICAL', subject, currency: 'USDC_SOL' })).status).toBe('ACKNOWLEDGED'); // stays with its owner
+    const bumped = await ex.raiseException({ kind: 'CUSTODY_MISMATCH', severity: 'WARN', subject, currency: 'USDC_SOL' });
+    expect(bumped.status).toBe('ACKNOWLEDGED'); expect(bumped.severity).toBe('CRITICAL'); expect(bumped.actual!.toFixed()).toBe('8'); // stays with its owner; never downgraded or blanked
     await request(app).post(`/api/settlement/exceptions/${a.id}/resolve`).set(ops).send({}).expect(400); // note required
     const res = (await request(app).post(`/api/settlement/exceptions/${a.id}/resolve`).set(ops).send({ by: 'ops', resolution: 'custodian hold released; balances agree' }).expect(200)).body;
     expect(res).toMatchObject({ status: 'RESOLVED', resolved: { by: 'operator:ops', note: 'custodian hold released; balances agree' } });
@@ -144,5 +218,8 @@ db('operator exception queue', () => {
     // breaks found by the run are open items with the run id
     const open = await prisma.operationalException.findMany({ where: { lastRunId: run.runId, status: { in: ['OPEN', 'ACKNOWLEDGED'] } } });
     expect(open.length).toBe(run.breaks === 0 ? 0 : open.length); // consistent with the run
+    // query validation
+    await request(app).get('/api/settlement/exceptions?limit=abc').set(ops).expect(400);
+    await request(app).get('/api/settlement/exceptions?severity=loud').set(ops).expect(400);
   });
 });

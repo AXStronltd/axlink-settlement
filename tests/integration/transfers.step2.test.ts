@@ -270,7 +270,7 @@ db('outbound settlement transfers', () => {
     held.set(t.id, { providerTxId: `fb-${t.id}`, status: 'FAILED', final: true, txHash: 'sigbroadcast' });
     await svc.pollSubmittedTransfers();
     cur = (await request(app).get(`/api/v1/transfers/${t.id}`).set(A.auth)).body;
-    expect(cur.stage).toBe('SUBMITTED'); expect(cur.attention).toBe(true); expect(cur.reason).toMatch(/after broadcast/);
+    expect(cur.stage).toBe('UNDER_REVIEW'); expect(cur.attention).toBe(true); expect(cur.reason).toMatch(/after broadcast/); // a person decides; the sweeper leaves it alone
     expect((await request(app).get('/api/v1/balances').set(A.auth)).body.balances.find((b: any) => b.asset === 'USDT_SOL').available).toBe('30');
 
     // a "configured" custodian answering a sandbox id is refused (not recorded as confirmed)

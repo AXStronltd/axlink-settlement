@@ -981,6 +981,7 @@ enum SettlementTransferStatus {
   SUBMITTING        // claimed by one sweeper (lease in nextAttemptAt) while the custodian is being called
   SUBMITTED         // custody accepted the transaction (providerTxId)
   CONFIRMED         // custody reports completion; txHash known; finality not yet proven
+  UNDER_REVIEW      // custody and the chain (or our records) disagree after broadcast; an operator decides with evidence
   SETTLED           // Solana node reports the signature finalized (SettlementProof row)
   FAILED            // custody rejected/failed or on-chain failure — journal reversed
   REJECTED          // operator declined, or policy refused after creation
@@ -1009,6 +1010,8 @@ model SettlementTransfer {
   /// NETWORK settlements: the receiving participant's wallet, fixed at approval, and the credit posting at SETTLED
   receivingWalletId String?
   creditEntryId   String?
+  /// ON_CHAIN_FINALIZED | SANDBOX_SIMULATED | OPERATOR_ATTESTED — how SETTLED was established
+  finality        String?
   providerTxId    String?        @unique
   txHash          String?
   submittedAt     DateTime?

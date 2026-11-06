@@ -28,7 +28,7 @@ import { assetForSymbolOnNetwork, isAssetId, ASSETS, fromMinorUnits } from '../.
 export type BreakSeverity = 'INFO' | 'WARN' | 'CRITICAL';
 
 /** Kinds this service raises; a FULL run that no longer sees one of them auto-closes its queue item. */
-const RECON_KINDS = ['TRIAL_BALANCE', 'UNBALANCED_ENTRY', 'PROJECTION_DRIFT', 'CUSTODY_MISMATCH', 'ONCHAIN_MISMATCH', 'ORPHAN_LEG', 'UNPROVEN_SETTLEMENT', 'SUSPENSE_NONZERO', 'NEGATIVE_CUSTODY'];
+const RECON_KINDS = ['TRIAL_BALANCE', 'UNBALANCED_ENTRY', 'PROJECTION_DRIFT', 'CUSTODY_MISMATCH', 'CUSTODY_UNREADABLE', 'ONCHAIN_MISMATCH', 'ORPHAN_LEG', 'UNPROVEN_SETTLEMENT', 'SUSPENSE_NONZERO', 'NEGATIVE_CUSTODY'];
 
 interface Break {
   kind: string;
@@ -106,7 +106,13 @@ export async function runReconciliation(
       seen.add(`${b.kind}|${b.subject}|${b.currency ?? ''}`);
       await raiseException({ kind: b.kind, severity: b.severity, subject: b.subject, currency: b.currency, expected: b.expected, actual: b.actual, detail: b.detail, runId: run.id });
     }
-    if (kind === 'FULL') summary['exceptionsAutoClosed'] = await autoCloseNotSeenSince(RECON_KINDS, run.id, seen);
+    if (kind === 'FULL') {
+      // Only kinds whose check actually ran (and was not skipped for want of configuration) may close items.
+      const ran = ['TRIAL_BALANCE', 'UNBALANCED_ENTRY', 'PROJECTION_DRIFT', 'ORPHAN_LEG', 'UNPROVEN_SETTLEMENT', 'SUSPENSE_NONZERO', 'NEGATIVE_CUSTODY'];
+      ran.push('CUSTODY_UNREADABLE'); if (!(summary.custody as { unreadable?: number } | undefined)?.unreadable) ran.push('CUSTODY_MISMATCH');
+      if (!(summary.onchain as { skipped?: unknown } | undefined)?.skipped) ran.push('ONCHAIN_MISMATCH');
+      summary['exceptionsAutoClosed'] = await autoCloseNotSeenSince(ran.filter(k => RECON_KINDS.includes(k)), run.id, seen);
+    }
 
     if (critical > 0) {
       console.error(`[recon] ${critical} CRITICAL break(s) in run ${run.id} — books are not trustworthy until resolved`);
@@ -237,6 +243,7 @@ async function checkCustody(breaks: Break[]) {
   });
 
   const results: Array<Record<string, string | boolean>> = [];
+  let unreadable = 0;
 
   for (const account of custodyAccounts) {
     const [, vaultId, asset] = account.code.split(':');
@@ -253,8 +260,10 @@ async function checkCustody(breaks: Break[]) {
       // Fireblocks' total includes frozen/locked holds (AML) that are still ours on the ledger; available+pending alone would report a spurious break.
       custodianBalance = bal.total !== undefined ? new Prisma.Decimal(bal.total) : new Prisma.Decimal(bal.available).add(new Prisma.Decimal(bal.pending));
     } catch (err) {
+      // A read failure is its own kind: it must neither mask nor downgrade a real CUSTODY_MISMATCH on the same account.
+      unreadable++;
       breaks.push({
-        kind: 'CUSTODY_MISMATCH',
+        kind: 'CUSTODY_UNREADABLE',
         severity: 'WARN',
         subject: account.code,
         currency: asset,
@@ -284,7 +293,7 @@ async function checkCustody(breaks: Break[]) {
     });
   }
 
-  return results;
+  return { accounts: results, unreadable };
 }
 
 // ── 4. On chain ───────────────────────────────────────────────────────────────

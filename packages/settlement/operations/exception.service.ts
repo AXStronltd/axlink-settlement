@@ -14,6 +14,8 @@ import { prisma } from '../../core/ledger/ledger.service';
 import { ApiError } from '../../shared/errors';
 import { log } from '../../shared/logger';
 
+const RANK = { INFO: 0, WARN: 1, CRITICAL: 2 } as const;
+
 export interface RaiseInput {
   kind: string; severity: 'INFO' | 'WARN' | 'CRITICAL'; subject: string; currency?: string | null;
   expected?: Prisma.Decimal | null; actual?: Prisma.Decimal | null; detail?: Prisma.InputJsonValue;
@@ -24,9 +26,11 @@ export interface RaiseInput {
 export async function raiseException(input: RaiseInput, db: Prisma.TransactionClient | typeof prisma = prisma): Promise<OperationalException> {
   const currency = input.currency ?? null;
   const base = { severity: input.severity, expected: input.expected ?? null, actual: input.actual ?? null, detail: input.detail ?? Prisma.JsonNull, institutionId: input.institutionId ?? null, entityType: input.entityType ?? null, entityId: input.entityId ?? null, lastRunId: input.runId ?? null, lastSeenAt: new Date() };
-  // An ACKNOWLEDGED item that recurs stays acknowledged (someone is on it) but is bumped and re-severed.
+  // An ACKNOWLEDGED item that recurs stays acknowledged (someone is on it). A recurrence never lowers
+  // the severity and never blanks the figures: a transient read failure must not hide a real break.
   const open = await db.operationalException.findFirst({ where: { kind: input.kind, subject: input.subject, currency, status: { in: ['OPEN', 'ACKNOWLEDGED'] } } });
-  if (open) return db.operationalException.update({ where: { id: open.id }, data: { ...base, occurrences: { increment: 1 } } });
+  const bump = (o: OperationalException) => ({ ...base, severity: RANK[input.severity] >= RANK[o.severity as keyof typeof RANK] ? input.severity : o.severity, expected: input.expected ?? o.expected, actual: input.actual ?? o.actual, occurrences: { increment: 1 } });
+  if (open) return db.operationalException.update({ where: { id: open.id }, data: bump(open) });
   try {
     const row = await db.operationalException.create({ data: { kind: input.kind, subject: input.subject, currency, ...base } });
     log.warn('exception.raised', { id: row.id, kind: row.kind, severity: row.severity, subject: row.subject });
@@ -34,10 +38,15 @@ export async function raiseException(input: RaiseInput, db: Prisma.TransactionCl
   } catch (e) {
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
       const again = await db.operationalException.findFirst({ where: { kind: input.kind, subject: input.subject, currency, status: { in: ['OPEN', 'ACKNOWLEDGED'] } } });
-      if (again) return db.operationalException.update({ where: { id: again.id }, data: { ...base, occurrences: { increment: 1 } } });
+      if (again) return db.operationalException.update({ where: { id: again.id }, data: bump(again) });
     }
     throw e;
   }
+}
+
+/** Close the open item for an entity as part of an operator decision taken elsewhere (e.g. a transfer review). */
+export async function resolveOpenException(kind: string, subject: string, currency: string | null, by: string, resolution: string, db: Prisma.TransactionClient | typeof prisma = prisma) {
+  await db.operationalException.updateMany({ where: { kind, subject, currency, status: { in: ['OPEN', 'ACKNOWLEDGED'] } }, data: { status: 'RESOLVED', resolvedBy: by, resolvedAt: new Date(), resolution: resolution.slice(0, 1000) } });
 }
 
 /** A break that stopped recurring is closed automatically with a note — nobody should chase a ghost. */
@@ -56,7 +65,7 @@ export function listExceptions(q: { status?: 'OPEN' | 'ACKNOWLEDGED' | 'RESOLVED
   const status = q.status ?? 'OPEN';
   return prisma.operationalException.findMany({
     where: { ...(status === 'ALL' ? {} : status === 'OPEN' ? { status: { in: ['OPEN', 'ACKNOWLEDGED'] } } : { status }), ...(q.severity ? { severity: q.severity } : {}), ...(q.kind ? { kind: q.kind } : {}), ...(q.institutionId ? { institutionId: q.institutionId } : {}) },
-    orderBy: [{ severity: 'asc' }, { lastSeenAt: 'desc' }], take: Math.min(q.limit ?? 100, 500),
+    orderBy: [{ lastSeenAt: 'desc' }], take: Math.min(q.limit ?? 100, 500),
   });
 }
 

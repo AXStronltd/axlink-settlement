@@ -209,3 +209,19 @@ Screens that are still illustrative in live mode (no API behind them yet): Trans
 Files: `packages/settlement/operations/exception.service.ts`, `counterparty.service.ts` (NETWORK, `settlementWalletFor`), `settlement-transfer.service.ts` (receiving wallet at approval, internal submission, credit at SETTLED, exceptions on attention), `reconciliation.service.ts` (queue feed + auto-close), `settlement.routes.ts` (exceptions), `transfer-v1.routes.ts` (participant), `live_portal.js` (operator console), migration `step2_network_settlement_exceptions`. Tests: `tests/integration/network.step2.test.ts` (3: A→B end to end with both ledgers, webhooks and idempotent finality; participant not ready / failure before broadcast; queue lifecycle with reconciliation feed and auto-close), `portal.step2.test.ts` (+1: operator console in a real browser).
 
 Out of scope, still: velocity/daily limits and sanctions screening of external addresses (slice 7 with production readiness).
+
+**Independent review (fresh reviewer, ab8caa0, money-between-institutions lens) and what changed.**
+
+| Finding | Severity | Fix |
+|---|---|---|
+| A network transfer whose receiving wallet row was missing (or without an address) would have been marked SETTLED **without the credit** and with the recipient check silently disabled — sender debited, funds in the receiver's vault, no liability to the receiver | High | Receiver (wallet, address, active institution) is required *before* proving and re-read inside the settling transaction; otherwise the transfer goes `UNDER_REVIEW`, never SETTLED |
+| Receiving participant's institution status was not checked after registration — funds could be settled into a SUSPENDED institution's vault | High | `settlementWalletFor` requires an ACTIVE institution (and same network/custodian); checked at registration, approval and finality |
+| Recurrence lowered an exception's severity and blanked its figures (a transient custodian read failure could hide a real break) | Medium | Severity never lowered, figures kept; read failures are their own kind `CUSTODY_UNREADABLE` |
+| A FULL reconciliation could auto-close items for checks it had skipped (on-chain unconfigured, custodian unreadable) | Medium | Auto-close only for kinds whose check ran |
+| A transfer needing a person was re-proved every 15 s, re-notified the institution and re-opened its exception after resolution; operators had no way to decide it | Medium | New `UNDER_REVIEW` stage: the sweeper stops, the institution hears once, one exception waits; `POST /api/settlement/transfers/{id}/review { decision: settled \| failed, evidence }` records the operator's decision (credits the receiver / reverses the journal) and resolves the exception; finality `OPERATOR_ATTESTED` is stated as such |
+| The exception write could abort the money transaction on a concurrent unique violation | Medium | Raised after the state change commits |
+| Operators approving production transfers saw only the counterparty label | Medium | Approvals show the destination (address or `network participant · slug`) |
+| `settlement.received` named the payer by an internal id | Medium | `from: { participant, name }` |
+| Query validation on the exceptions list; ordering; wallet network/custodian match | Low | Fixed |
+
+Noted, not changed: "oldest ACTIVE wallet" as the participant's receiving wallet is implicit — an explicit, operator-set settlement wallet per environment is on the list for slice 7; slug-existence responses (404 vs 409) are acceptable for directory identifiers.

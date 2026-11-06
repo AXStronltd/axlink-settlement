@@ -106,6 +106,19 @@ router.post('/transfers/:id/reject', wrap(async (req, res) => {
   const by = typeof req.body?.by === 'string' && req.body.by.trim() ? `operator:${req.body.by.trim().slice(0, 80)}` : 'operator';
   res.json(await serializeTransfer(await rejectTransfer(param(req.params.id), by, reason)));
 }));
+router.get('/transfers/under-review', wrap(async (_req, res) => {
+  const { listUnderReview, serializeTransfer } = await import('../../../../packages/settlement/transfers/settlement-transfer.service');
+  const rows = await listUnderReview();
+  res.json(await Promise.all(rows.map(async t => ({ ...(await serializeTransfer(t)), institution: t.institution.slug, environment: t.environment.kind }))));
+}));
+// Operator decision with evidence on an UNDER_REVIEW transfer: 'settled' (verified on chain) or 'failed' (verified never left custody).
+router.post('/transfers/:id/review', wrap(async (req, res) => {
+  const { reviewTransfer, serializeTransfer } = await import('../../../../packages/settlement/transfers/settlement-transfer.service');
+  const decision = req.body?.decision;
+  if (decision !== 'settled' && decision !== 'failed') { res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: "decision must be 'settled' or 'failed'" } }); return; }
+  const by = typeof req.body?.by === 'string' && req.body.by.trim() ? `operator:${req.body.by.trim().slice(0, 80)}` : 'operator';
+  res.json(await serializeTransfer(await reviewTransfer(param(req.params.id), decision, by, typeof req.body?.evidence === 'string' ? req.body.evidence : '')));
+}));
 router.post('/transfers/sweep', wrap(async (_req, res) => {
   const { runTransferSweep, submitApprovedTransfers, pollSubmittedTransfers, finalizeConfirmedTransfers } = await import('../../../../packages/settlement/transfers/settlement-transfer.service');
   void runTransferSweep; const submitted = await submitApprovedTransfers(); const polled = await pollSubmittedTransfers(); const finalized = await finalizeConfirmedTransfers();
@@ -132,7 +145,13 @@ router.get('/exceptions', wrap(async (req, res) => {
   const q = req.query as Record<string, string | undefined>;
   const status = (['OPEN', 'ACKNOWLEDGED', 'RESOLVED', 'ALL'] as const).find(s => s === (q.status ?? 'OPEN').toUpperCase());
   if (!status) { res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'status must be OPEN, ACKNOWLEDGED, RESOLVED or ALL' } }); return; }
-  const rows = await listExceptions({ status, severity: q.severity?.toUpperCase(), kind: q.kind?.toUpperCase(), institutionId: q.institutionId, limit: q.limit ? Number(q.limit) : undefined });
+  const severity = q.severity ? q.severity.toUpperCase() : undefined;
+  if (severity && !['INFO', 'WARN', 'CRITICAL'].includes(severity)) { res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'severity must be INFO, WARN or CRITICAL' } }); return; }
+  const limit = q.limit !== undefined ? Number(q.limit) : undefined;
+  if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) { res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'limit must be a positive integer' } }); return; }
+  const kind = q.kind ? q.kind.toUpperCase() : undefined;
+  if (kind && !/^[A-Z_]{3,40}$/.test(kind)) { res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'kind must be an upper-case identifier' } }); return; }
+  const rows = await listExceptions({ status, severity, kind, institutionId: q.institutionId, limit });
   res.json({ summary: await exceptionSummary(), exceptions: rows.map(serializeException) });
 }));
 router.post('/exceptions/:id/acknowledge', wrap(async (req, res) => {

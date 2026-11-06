@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "AxLink API",
-    "version": "2.4.0-step2",
+    "version": "2.4.1-step2",
     "description": "AxLink \u2014 provider-agnostic institutional settlement network. `/v1/*` is the institution contract (Architecture Blueprint names). Older paths under /api are aliases of the same services. Leg A: USDC and USDT on Solana in regulated custody; fiat legs are out of scope."
   },
   "servers": [
@@ -691,6 +691,7 @@
               "SUBMITTING",
               "SUBMITTED",
               "CONFIRMED",
+              "UNDER_REVIEW",
               "SETTLED",
               "FAILED",
               "REJECTED",
@@ -767,8 +768,10 @@
                 "enum": [
                   "PENDING",
                   "CUSTODY_CONFIRMED",
+                  "UNDER_REVIEW",
                   "ON_CHAIN_FINALIZED",
-                  "SANDBOX_SIMULATED"
+                  "SANDBOX_SIMULATED",
+                  "OPERATOR_ATTESTED"
                 ]
               },
               "slot": {
@@ -3274,6 +3277,9 @@
           },
           "401": {
             "description": "Unauthorized"
+          },
+          "400": {
+            "description": "Invalid status, severity, kind or limit"
           }
         }
       }
@@ -3392,6 +3398,96 @@
             }
           }
         ]
+      }
+    },
+    "/settlement/transfers/under-review": {
+      "get": {
+        "tags": [
+          "Operations"
+        ],
+        "summary": "Operator: transfers where custody and the chain (or our records) disagree after broadcast; each has one CRITICAL TRANSFER_ATTENTION exception",
+        "security": [
+          {
+            "opsKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        }
+      }
+    },
+    "/settlement/transfers/{id}/review": {
+      "post": {
+        "tags": [
+          "Operations"
+        ],
+        "summary": "Operator decision with evidence on an UNDER_REVIEW transfer: 'settled' (verified at the recipient on chain \u2192 SETTLED, receiver credited for a network settlement, finality OPERATOR_ATTESTED) or 'failed' (verified never left the vault \u2192 FAILED, journal reversed). Resolves the exception.",
+        "security": [
+          {
+            "opsKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "decision",
+                  "evidence"
+                ],
+                "properties": {
+                  "decision": {
+                    "type": "string",
+                    "enum": [
+                      "settled",
+                      "failed"
+                    ]
+                  },
+                  "evidence": {
+                    "type": "string"
+                  },
+                  "by": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "400": {
+            "description": "decision/evidence invalid"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "409": {
+            "description": "NOT_UNDER_REVIEW, PARTICIPANT_NOT_READY"
+          }
+        }
       }
     }
   }
