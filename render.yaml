@@ -4,7 +4,7 @@ services:
     runtime: docker
     dockerfilePath: ./infra/Dockerfile
     dockerContext: .
-    plan: free
+    plan: starter
     healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
@@ -39,7 +39,7 @@ services:
     runtime: static
     buildCommand: echo "static"
     staticPublishPath: apps/web
-    plan: free
+    plan: starter
     headers:
       - path: /*
         name: Cache-Control
@@ -51,7 +51,7 @@ services:
     buildCommand: npm install && npm run build
     rootDir: apps/web/ops
     staticPublishPath: apps/web/ops/dist
-    plan: free
+    plan: starter
     headers:
       - path: /*
         name: Cache-Control
