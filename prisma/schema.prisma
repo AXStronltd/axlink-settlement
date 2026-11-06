@@ -775,7 +775,7 @@ model ApiCredential {
   environmentId   String
   environment     ApiEnvironment @relation(fields: [environmentId], references: [id])
   label           String
-  prefix          String         @unique                      // first 12 chars of the raw key
+  prefix          String         @unique                      // first 20 chars of the raw key (12 for keys issued before 2026-11-06)
   keyHash         String         @unique                      // SHA-256(raw key + server pepper)
   scopes          String[]       @default([])
   lastUsedAt      DateTime?

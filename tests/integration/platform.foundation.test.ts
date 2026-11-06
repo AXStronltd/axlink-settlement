@@ -67,7 +67,7 @@ d('http foundation (requires DATABASE_URL)', () => {
     expect(c.body.environments.map((e: any) => `${e.kind}:${e.status}`).sort()).toEqual(['PRODUCTION:DISABLED', 'SANDBOX:ACTIVE']);
     const bad = await request(app).post('/api/institutions').set(ops).send({ slug: 'BAD SLUG', legalName: 'x', country: 'Kenya', kind: 'BANK' }).expect(400); expect(bad.body.error.code).toBe('VALIDATION_ERROR');
     const k = await request(app).post(`/api/institutions/${c.body.id}/credentials`).set(ops).send({ environment: 'SANDBOX', label: 'ci', scopes: ['settlement:read'] }).expect(201);
-    expect(k.body.apiKey).toMatch(/^axlk_test_/); expect(k.body.credential.prefix).toBe(k.body.apiKey.slice(0, 12));
+    expect(k.body.apiKey).toMatch(/^axlk_test_/); expect(k.body.credential.prefix).toBe(k.body.apiKey.slice(0, 20));
     await request(app).post(`/api/institutions/${c.body.id}/credentials`).set(ops).send({ environment: 'PRODUCTION', label: 'x' }).expect(409); // production disabled
     // institution is PENDING → key refused until ACTIVE
     await request(app).get('/api/institutions/me').set('Authorization', `Bearer ${k.body.apiKey}`).expect(401);

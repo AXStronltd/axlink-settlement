@@ -21,6 +21,16 @@ export type CreateInstitutionInput = z.infer<typeof CreateInstitution>;
 const PEPPER = () => process.env.API_KEY_PEPPER ?? ''; // optional server-side pepper; rotate with care (re-issue keys)
 export function hashKey(raw: string) { return createHash('sha256').update(raw + PEPPER()).digest('hex'); }
 
+/**
+ * Lookup prefix: `axlk_test_` / `axlk_live_` (10 chars) + the first 10 random characters (~60 bits).
+ * The original 12-char prefix carried only 2 random characters (4,096 values) under a unique index,
+ * so issuance started failing with collisions after a few hundred keys. Keys issued before this
+ * change are found by their stored 12-char prefix (see authenticateKey).
+ */
+export const PREFIX_LEN = 20;
+const LEGACY_PREFIX_LEN = 12;
+export function keyPrefix(raw: string) { return raw.slice(0, PREFIX_LEN); }
+
 /** Raw key format: axlk_<env>_<32 url-safe chars>. Prefix (first 12 chars) is the lookup key. */
 export function generateRawKey(kind: 'SANDBOX' | 'PRODUCTION') {
   return `axlk_${kind === 'SANDBOX' ? 'test' : 'live'}_${randomBytes(24).toString('base64url')}`;
@@ -43,7 +53,7 @@ export async function issueCredential(institutionId: string, kind: 'SANDBOX' | '
   if (!env) throw new ApiError('NOT_FOUND', 'environment not found', 404);
   if (env.status !== 'ACTIVE') throw new ApiError('ENVIRONMENT_DISABLED', `${kind} environment is ${env.status}`, 409);
   const raw = generateRawKey(kind);
-  const cred = await prisma.apiCredential.create({ data: { environmentId: env.id, label, prefix: raw.slice(0, 12), keyHash: hashKey(raw), scopes } });
+  const cred = await prisma.apiCredential.create({ data: { environmentId: env.id, label, prefix: keyPrefix(raw), keyHash: hashKey(raw), scopes } });
   log.info('credential.issued', { institutionId, environmentId: env.id, credentialId: cred.id, scopes });
   return { credential: cred, rawKey: raw }; // raw key is returned exactly once
 }
@@ -53,7 +63,9 @@ export async function revokeCredential(id: string) {
 /** Resolve a bearer key to its institution + environment. Returns null on any failure (callers answer 401, never say why). */
 export async function authenticateKey(raw: string) {
   if (!/^axlk_(test|live)_[A-Za-z0-9_-]{20,}$/.test(raw)) return null;
-  const cred = await prisma.apiCredential.findUnique({ where: { prefix: raw.slice(0, 12) }, include: { environment: { include: { institution: true } } } });
+  const include = { environment: { include: { institution: true } } } as const;
+  const cred = await prisma.apiCredential.findUnique({ where: { prefix: keyPrefix(raw) }, include })
+    ?? await prisma.apiCredential.findUnique({ where: { prefix: raw.slice(0, LEGACY_PREFIX_LEN) }, include }); // keys issued before PREFIX_LEN=20
   if (!cred || cred.revokedAt || (cred.expiresAt && cred.expiresAt < new Date())) return null;
   if (cred.keyHash !== hashKey(raw)) return null;
   if (cred.environment.status !== 'ACTIVE' || cred.environment.institution.status !== 'ACTIVE') return null;

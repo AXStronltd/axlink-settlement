@@ -30,6 +30,9 @@ const CreateWallet = z.object({ environment: z.enum(['SANDBOX', 'PRODUCTION']), 
 router.post('/:id/wallets', wrap(async (req, res) => {
   const body = CreateWallet.parse(req.body);
   const w = await createWallet({ institutionId: req.params.id as string, environmentKind: body.environment, label: body.label, network: body.network });
-  res.status(201).json(serializeWallet({ ...w, environment: { kind: body.environment } }));
+  res.status(201).json(await serializeWallet({ ...w, environment: { kind: body.environment } }));
 }));
-router.get('/:id/wallets', wrap(async (req, res) => { res.json((await listInstitutionWallets(req.params.id as string)).map(serializeWallet)); }));
+router.get('/:id/wallets', wrap(async (req, res) => {
+  if (!(await getInstitution(req.params.id as string))) throw notFound('institution');
+  res.json(await Promise.all((await listInstitutionWallets(req.params.id as string)).map(serializeWallet)));
+}));

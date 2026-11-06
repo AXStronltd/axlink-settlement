@@ -19,6 +19,7 @@
  */
 
 import { Prisma } from '@prisma/client';
+import { journalBalance } from '../../core/wallets/wallet.service';
 import { prisma } from '../../core/ledger/ledger.service';
 import { trialBalance } from '../../core/ledger/journal.service';
 import { ports } from '../../providers/ports/runtime';
@@ -58,6 +59,7 @@ export async function runReconciliation(
       summary.trialBalance = await checkTrialBalance(breaks);
       summary.projection = await checkProjectionDrift(breaks);
       summary.hygiene = await checkHygiene(breaks);
+      summary['walletProjection'] = await checkWalletProjectionDrift(breaks);
     }
 
     if (kind === 'CUSTODY' || kind === 'FULL') {
@@ -180,6 +182,26 @@ async function checkProjectionDrift(breaks: Break[]) {
     }
   }
 
+  return { checked, drifted };
+}
+
+/**
+ * Step 2: WalletBalance is a projection of CUSTODY:<vault>:<ASSET>. Any debit path that moves the
+ * journal without moving the projection shows up here, so the institution API (which serves the
+ * journal figure) and the projection can never silently disagree.
+ */
+async function checkWalletProjectionDrift(breaks: Break[]) {
+  const rows = await prisma.walletBalance.findMany({ include: { wallet: { select: { id: true, custodyVaultId: true, institutionId: true } } } });
+  let checked = 0, drifted = 0;
+  for (const r of rows) {
+    const expected = await journalBalance(r.wallet, r.assetId);
+    checked += 1;
+    if (!expected.equals(r.available)) {
+      drifted += 1;
+      breaks.push({ kind: 'PROJECTION_DRIFT', severity: 'CRITICAL', subject: `WALLET:${r.wallet.id}:${r.assetId}`, currency: r.assetId, expected, actual: r.available,
+        detail: { note: 'WalletBalance disagrees with the journal custody account — a posting bypassed applyWalletCredit/Debit', institutionId: r.wallet.institutionId } });
+    }
+  }
   return { checked, drifted };
 }
 

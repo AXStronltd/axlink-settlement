@@ -15,6 +15,7 @@ import { prisma } from '../ledger/ledger.service';
 import { ASSETS, NETWORKS, type AssetDefinition, type NetworkId } from '../assets/registry';
 import { ApiError } from '../../shared/errors';
 import { log } from '../../shared/logger';
+import { AccountCode } from '../ledger/accounts';
 
 export interface WalletCustody {
   readonly provider: 'fireblocks';
@@ -36,10 +37,24 @@ const sandboxStub: WalletCustody = {
   async createDepositAddress(vaultId, asset) { return { address: `sbx_${asset.network}_${vaultId}`.slice(0, 44) }; },
 };
 
-function activeCustody(): WalletCustody {
+/**
+ * Which environment this deployment's custody can serve. Real Fireblocks credentials on the
+ * production workspace → PRODUCTION; the Fireblocks sandbox workspace, or no credentials (stub) →
+ * SANDBOX. One deployment serves one kind: a production receipt can never land in a sandbox wallet
+ * and a sandbox wallet can never be created on real custody.
+ */
+export function custodyEnvironmentKind(): 'SANDBOX' | 'PRODUCTION' {
   const c = custody ?? sandboxStub;
-  if (!c.configured() && process.env.NODE_ENV === 'production') {
-    throw new ApiError('CUSTODY_NOT_CONFIGURED', 'custody provider is not configured; refusing to create a wallet in production', 503);
+  return c.configured() && process.env.FIREBLOCKS_SANDBOX !== 'true' ? 'PRODUCTION' : 'SANDBOX';
+}
+
+function activeCustody(environmentKind: 'SANDBOX' | 'PRODUCTION'): WalletCustody {
+  const c = custody ?? sandboxStub;
+  if (environmentKind === 'PRODUCTION' && custodyEnvironmentKind() !== 'PRODUCTION') {
+    throw new ApiError('CUSTODY_NOT_CONFIGURED', 'production wallets need real custody credentials on the production workspace; refusing to persist a sandbox vault as production', 503);
+  }
+  if (environmentKind === 'SANDBOX' && custodyEnvironmentKind() === 'PRODUCTION') {
+    throw new ApiError('CUSTODY_ENVIRONMENT_MISMATCH', 'this deployment is bound to production custody; sandbox wallets are created on a sandbox deployment', 409);
   }
   return c;
 }
@@ -54,20 +69,27 @@ export interface CreateWalletInput {
 export async function createWallet(input: CreateWalletInput): Promise<Wallet & { balances: WalletBalance[] }> {
   const network = input.network ?? 'solana-mainnet';
   if (!NETWORKS[network]) throw new ApiError('UNSUPPORTED_NETWORK', `network ${network} is not supported`, 400);
-  const env = await prisma.apiEnvironment.findUnique({ where: { institutionId_kind: { institutionId: input.institutionId, kind: input.environmentKind } } });
+  const env = await prisma.apiEnvironment.findUnique({ where: { institutionId_kind: { institutionId: input.institutionId, kind: input.environmentKind } }, include: { institution: { select: { status: true } } } });
   if (!env) throw new ApiError('NOT_FOUND', 'environment not found', 404);
+  if (env.institution.status !== 'ACTIVE') throw new ApiError('INSTITUTION_INACTIVE', `institution is ${env.institution.status}`, 409);
   if (env.status !== 'ACTIVE') throw new ApiError('ENVIRONMENT_DISABLED', `${input.environmentKind} environment is ${env.status}`, 409);
+  // A label is unique per environment so a retried request finds the wallet instead of minting a second vault.
+  const dup = await prisma.wallet.findFirst({ where: { environmentId: env.id, label: input.label } });
+  if (dup) throw new ApiError('WALLET_EXISTS', `a wallet labelled '${input.label}' already exists in ${input.environmentKind}`, 409, { walletId: dup.id });
 
-  const c = activeCustody();
-  const clientRef = `${input.institutionId}:${env.id}:${Date.now().toString(36)}`;
+  const c = activeCustody(input.environmentKind);
+  const clientRef = `${input.institutionId}:${env.kind}:${input.label}`; // stable: same request → same vault name at the custodian
   const { vaultId } = await c.createVault(`${input.institutionId}/${input.environmentKind}/${input.label}`, clientRef);
   // One address serves every supported asset on the network (Solana: USDC and USDT share it).
+  // A custodian answering two different addresses means we do not understand the vault: refuse,
+  // because the one we would have stored would silently misdirect the other asset.
   const assets = Object.values(ASSETS).filter(a => a.network === network);
   let address: string | null = null;
   for (const a of assets) {
     const r = await c.createDepositAddress(vaultId, a);
     if (address && r.address !== address) {
-      log.warn('wallet.address_mismatch', { vaultId, asset: a.id, address: r.address, expected: address });
+      log.error('wallet.address_mismatch', { vaultId, asset: a.id, address: r.address, expected: address });
+      throw new ApiError('CUSTODY_ADDRESS_MISMATCH', `custodian issued different deposit addresses for ${assets[0].id} and ${a.id} in vault ${vaultId}; wallet not created`, 502);
     }
     address ??= r.address;
   }
@@ -102,7 +124,28 @@ export async function getWallet(id: string, scope: { institutionId: string; envi
 
 /** Resolve the wallet that owns a custody vault (used by the deposit path). */
 export function walletForVault(tx: Prisma.TransactionClient, provider: string, custodyVaultId: string) {
-  return tx.wallet.findUnique({ where: { custodyProvider_custodyVaultId: { custodyProvider: provider, custodyVaultId } } });
+  return tx.wallet.findUnique({ where: { custodyProvider_custodyVaultId: { custodyProvider: provider, custodyVaultId } }, include: { environment: { select: { kind: true } } } });
+}
+
+/**
+ * Authoritative balance of one wallet asset: the journal's CUSTODY:<vault>:<ASSET> account
+ * (debit-normal: deposits increase it, settlements out decrease it). `WalletBalance` is only a
+ * projection of this and is reconciled against it.
+ */
+export async function journalBalance(walletOrVault: { custodyVaultId: string }, assetId: string, db: Prisma.TransactionClient | typeof prisma = prisma): Promise<Prisma.Decimal> {
+  const code = AccountCode.custody(walletOrVault.custodyVaultId, assetId);
+  const ledger = await db.ledgerAccount.findUnique({ where: { code }, select: { id: true } });
+  if (!ledger) return new Prisma.Decimal(0);
+  const sum = (await db.journalLine.aggregate({ where: { accountId: ledger.id }, _sum: { amount: true } }))._sum.amount;
+  return sum ?? new Prisma.Decimal(0);
+}
+
+/** Balances as the API serves them: journal-derived, with the projection beside it for drift visibility. */
+export async function walletBalances(w: Wallet & { balances: WalletBalance[] }) {
+  return Promise.all(w.balances.map(async b => {
+    const available = await journalBalance(w, b.assetId);
+    return { asset: b.assetId, available: available.toFixed(), pending: b.pending.toFixed(), projected: b.available.toFixed(), drift: !available.equals(b.available), updatedAt: b.updatedAt };
+  }));
 }
 
 /** Move the projection with the journal. Must run inside the same transaction as the posting. */
@@ -114,13 +157,13 @@ export async function applyWalletCredit(tx: Prisma.TransactionClient, walletId: 
   });
 }
 
-export function serializeWallet(w: Wallet & { balances: WalletBalance[]; environment?: { kind: string } }) {
+export async function serializeWallet(w: Wallet & { balances: WalletBalance[]; environment?: { kind: string } }) {
   return {
     id: w.id, label: w.label, status: w.status, network: w.network,
     custody: { provider: w.custodyProvider, vaultId: w.custodyVaultId },
     depositAddress: w.depositAddress,
     ...(w.environment ? { environment: w.environment.kind } : {}),
-    balances: w.balances.map(b => ({ asset: b.assetId, available: b.available.toString(), pending: b.pending.toString(), updatedAt: b.updatedAt })),
+    balances: await walletBalances(w),
     createdAt: w.createdAt,
   };
 }

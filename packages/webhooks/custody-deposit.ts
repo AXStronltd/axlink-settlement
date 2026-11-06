@@ -13,7 +13,7 @@ import { resolveProviderAsset, toMinorUnits, type AssetDefinition } from '../cor
 import { post } from '../core/ledger/journal.service';
 import { AccountCode } from '../core/ledger/accounts';
 import { EventIgnored, type EventOutcome, type Tx } from './provider-event.service';
-import { walletForVault, applyWalletCredit } from '../core/wallets/wallet.service';
+import { walletForVault, applyWalletCredit, custodyEnvironmentKind } from '../core/wallets/wallet.service';
 
 export interface CustodyCompletion {
   provider: 'fireblocks';
@@ -55,8 +55,18 @@ export async function applyCustodyDeposit(tx: Tx, ev: CustodyCompletion): Promis
   if (wallet && user.institutionId && wallet.institutionId !== user.institutionId) {
     throw new EventIgnored({ status: 'REJECTED', reason: 'wallet and legacy user disagree on owning institution', ...attribution });
   }
-  if (wallet && wallet.status !== 'ACTIVE') {
-    throw new EventIgnored({ status: 'REJECTED', reason: `wallet is ${wallet.status}`, ...attribution });
+  if (wallet && wallet.environment.kind !== custodyEnvironmentKind()) {
+    // A production-workspace receipt into a sandbox wallet (or the reverse) is a configuration error,
+    // not a deposit. Rejected and recorded; the funds stay in the vault for operator action.
+    throw new EventIgnored({ status: 'REJECTED', reason: `custody is ${custodyEnvironmentKind()} but wallet is ${wallet.environment.kind}`, ...attribution });
+  }
+  if (wallet && wallet.status === 'CLOSED') {
+    throw new EventIgnored({ status: 'REJECTED', reason: 'wallet is CLOSED', ...attribution });
+  }
+  if (wallet && wallet.status === 'SUSPENDED') {
+    // Transient: throw a plain error so the transaction rolls back WITHOUT recording the event —
+    // the provider's retry settles it once the wallet is active again.
+    throw Object.assign(new Error(`wallet ${wallet.id} is SUSPENDED; receipt deferred`), { code: 'WALLET_SUSPENDED', retryable: true });
   }
   if (wallet && wallet.network !== asset.network) {
     throw new EventIgnored({ status: 'REJECTED', reason: 'asset network differs from wallet network', ...attribution });
