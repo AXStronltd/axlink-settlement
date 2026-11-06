@@ -10,46 +10,24 @@
  * vault ids and addresses — refused in production.
  */
 import { Prisma, type Wallet, type WalletBalance } from '@prisma/client';
-import { randomBytes } from 'crypto';
 import { prisma } from '../ledger/ledger.service';
 import { ASSETS, NETWORKS, type AssetDefinition, type NetworkId } from '../assets/registry';
 import { ApiError } from '../../shared/errors';
 import { log } from '../../shared/logger';
 import { AccountCode } from '../ledger/accounts';
-
-export interface WalletCustody {
-  readonly provider: 'fireblocks';
-  /** Create a custody vault for the institution. `clientRef` is our idempotency handle. */
-  createVault(label: string, clientRef: string): Promise<{ vaultId: string }>;
-  /** Issue (or return the existing) deposit address for one asset in the vault. */
-  createDepositAddress(vaultId: string, asset: AssetDefinition): Promise<{ address: string; tag?: string }>;
-  /** True when real provider credentials are configured. */
-  configured(): boolean;
-}
-
-let custody: WalletCustody | null = null;
-export function setWalletCustody(c: WalletCustody | null): void { custody = c; }
-
-const sandboxStub: WalletCustody = {
-  provider: 'fireblocks',
-  configured: () => false,
-  async createVault(_label, clientRef) { return { vaultId: `vault_sbx_${clientRef.slice(0, 12)}_${randomBytes(6).toString('hex')}` }; },
-  async createDepositAddress(vaultId, asset) { return { address: `sbx_${asset.network}_${vaultId}`.slice(0, 44) }; },
-};
+import { providers } from '../../providers/registry/provider-registry';
+import type { CustodyProvider } from '../../providers/ports';
 
 /**
- * Which environment this deployment's custody can serve. Real Fireblocks credentials on the
- * production workspace → PRODUCTION; the Fireblocks sandbox workspace, or no credentials (stub) →
- * SANDBOX. One deployment serves one kind: a production receipt can never land in a sandbox wallet
- * and a sandbox wallet can never be created on real custody.
+ * Custody is reached through the provider registry (`providers.custody()`), never a vendor module.
+ * `custodyEnvironmentKind()` decides which API environment this deployment's custody can serve.
  */
 export function custodyEnvironmentKind(): 'SANDBOX' | 'PRODUCTION' {
-  const c = custody ?? sandboxStub;
-  return c.configured() && process.env.FIREBLOCKS_SANDBOX !== 'true' ? 'PRODUCTION' : 'SANDBOX';
+  return providers.custody().configured() && process.env.FIREBLOCKS_SANDBOX !== 'true' ? 'PRODUCTION' : 'SANDBOX';
 }
 
-function activeCustody(environmentKind: 'SANDBOX' | 'PRODUCTION'): WalletCustody {
-  const c = custody ?? sandboxStub;
+function activeCustody(environmentKind: 'SANDBOX' | 'PRODUCTION'): CustodyProvider {
+  const c = providers.custody();
   if (environmentKind === 'PRODUCTION' && custodyEnvironmentKind() !== 'PRODUCTION') {
     throw new ApiError('CUSTODY_NOT_CONFIGURED', 'production wallets need real custody credentials on the production workspace; refusing to persist a sandbox vault as production', 503);
   }
@@ -86,7 +64,7 @@ export async function createWallet(input: CreateWalletInput): Promise<Wallet & {
   const assets = Object.values(ASSETS).filter(a => a.network === network);
   let address: string | null = null;
   for (const a of assets) {
-    const r = await c.createDepositAddress(vaultId, a);
+    const r = await c.getDepositAddress(vaultId, { symbol: a.symbol, chain: a.network });
     if (address && r.address !== address) {
       log.error('wallet.address_mismatch', { vaultId, asset: a.id, address: r.address, expected: address });
       throw new ApiError('CUSTODY_ADDRESS_MISMATCH', `custodian issued different deposit addresses for ${assets[0].id} and ${a.id} in vault ${vaultId}; wallet not created`, 502);
@@ -97,7 +75,7 @@ export async function createWallet(input: CreateWalletInput): Promise<Wallet & {
   const wallet = await prisma.wallet.create({
     data: {
       institutionId: input.institutionId, environmentId: env.id, label: input.label,
-      custodyProvider: c.provider, custodyVaultId: vaultId, network, depositAddress: address,
+      custodyProvider: c.id, custodyVaultId: vaultId, network, depositAddress: address,
       balances: { create: assets.map(a => ({ assetId: a.id })) },
     },
     include: { balances: true },

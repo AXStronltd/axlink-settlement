@@ -22,8 +22,8 @@ import { Prisma } from '@prisma/client';
 import { journalBalance } from '../../core/wallets/wallet.service';
 import { prisma } from '../../core/ledger/ledger.service';
 import { trialBalance } from '../../core/ledger/journal.service';
-import { ports } from '../../providers/ports/runtime';
-import { SOLANA_MINTS, formatUnits } from '../../providers/blockchain/solana/solana';
+import { providers } from '../../providers/registry/provider-registry';
+import { assetForSymbolOnNetwork, isAssetId, ASSETS, fromMinorUnits } from '../../core/assets/registry';
 
 export type BreakSeverity = 'INFO' | 'WARN' | 'CRITICAL';
 
@@ -223,8 +223,10 @@ async function checkCustody(breaks: Break[]) {
 
     let custodianBalance: Prisma.Decimal;
     try {
-      const fbAsset = await ports().custody.getVaultAssetBalance(vaultId, process.env.FIREBLOCKS_USDT_ASSET ?? 'USDT_SOL');
-      custodianBalance = new Prisma.Decimal((fbAsset as { total?: string }).total ?? '0');
+      // The account code's asset part is a registry id (USDC_SOL) or a legacy symbol (USDT).
+      const def = isAssetId(asset) ? ASSETS[asset] : assetForSymbolOnNetwork(asset);
+      const bal = await providers.custody().getBalance(vaultId, { symbol: def.symbol, chain: def.network });
+      custodianBalance = new Prisma.Decimal(bal.available).add(new Prisma.Decimal(bal.pending));
     } catch (err) {
       breaks.push({
         kind: 'CUSTODY_MISMATCH',
@@ -272,8 +274,9 @@ async function checkOnChain(breaks: Break[]) {
   const config = process.env.RECON_ONCHAIN_ADDRESSES ?? '';
   if (!config.trim()) return { skipped: 'RECON_ONCHAIN_ADDRESSES not configured' };
 
-  const asset = (process.env.RECON_ONCHAIN_ASSET ?? 'USDT') as keyof typeof SOLANA_MINTS;
-  const mintInfo = SOLANA_MINTS[asset];
+  const asset = (process.env.RECON_ONCHAIN_ASSET ?? 'USDT').toUpperCase();
+  const def = isAssetId(asset) ? ASSETS[asset] : assetForSymbolOnNetwork(asset);
+  const chain = providers.blockchain(def.network);
   const results: Array<Record<string, string | boolean>> = [];
 
   for (const pair of config.split(',').map(s => s.trim()).filter(Boolean)) {
@@ -281,8 +284,8 @@ async function checkOnChain(breaks: Break[]) {
     if (!address) continue;
 
     try {
-      const raw = await ports().chain.getTokenBalanceRaw(address, mintInfo.mint);
-      const onchain = new Prisma.Decimal(formatUnits(raw, mintInfo.decimals));
+      const raw = await chain.getTokenBalanceRaw(address, { symbol: def.symbol, chain: def.network });
+      const onchain = fromMinorUnits(raw, def);
 
       const ledgerAccount = await prisma.ledgerAccount.findUnique({
         where: { code: `CUSTODY:${label}:${asset}` },
@@ -301,7 +304,7 @@ async function checkOnChain(breaks: Break[]) {
           currency: asset,
           expected: ledger,
           actual: onchain,
-          detail: { address, mint: mintInfo.mint },
+          detail: { address, contract: def.contract, network: def.network },
         });
       }
 

@@ -1111,6 +1111,99 @@
           }
         }
       }
+    },
+    "/settlement/providers": {
+      "get": {
+        "tags": [
+          "Operations"
+        ],
+        "summary": "Who fills each provider role (custody, blockchainExecution, liquidity, blockchain), configured or sandbox stub, live health",
+        "security": [
+          {
+            "opsKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "health",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Providers",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "providers": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "role": {
+                            "type": "string",
+                            "enum": [
+                              "custody",
+                              "blockchainExecution",
+                              "liquidity",
+                              "blockchain"
+                            ]
+                          },
+                          "provider": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "network": {
+                            "type": "string"
+                          },
+                          "configured": {
+                            "type": [
+                              "boolean",
+                              "null"
+                            ]
+                          },
+                          "health": {
+                            "type": [
+                              "object",
+                              "null"
+                            ],
+                            "properties": {
+                              "ok": {
+                                "type": "boolean"
+                              },
+                              "latencyMs": {
+                                "type": "number"
+                              },
+                              "detail": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "checkedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Operator key required"
+          }
+        }
+      }
     }
   }
 }

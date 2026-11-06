@@ -17,7 +17,7 @@
 import { randomUUID }         from 'crypto';
 import { prisma }             from '../../core/ledger/ledger.service';
 import { toUSD, usdToUsdt }   from '../fx-quotes/fx.service';
-import { createPaymentSession, type DepositMethod } from '../../providers/banking/brainrock/brainrock';
+import { brainrockCreatePaymentSession as createPaymentSession, type BrainrockDepositMethod as DepositMethod } from '../../providers/legacy';
 
 // Currencies Brainrock supports for user-initiated deposits
 const BRAINROCK_DEPOSIT_CURRENCIES = new Set(['GBP', 'EUR', 'USD', 'CAD', 'AED', 'CHF']);

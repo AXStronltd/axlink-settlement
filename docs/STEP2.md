@@ -52,3 +52,17 @@
 | Tests | `tests/integration/settlements.step2.test.ts` (9): end-to-end settle through a signed Fireblocks event → RECEIVED → finalized COMPLETED with on-chain proof and both webhooks; six rejection cases with institution-visible attention; on-chain mismatch; 10 concurrent copies → one credit; isolation + scopes + validation; SSRF URL policy + redirect refusal; expiry + retry schedule; encryption + production config |
 
 **Independent review (no critical; 1 high, 4 medium, 5 low) and what changed:** SSRF through webhook URLs → URL policy at registration and delivery, `redirect: 'manual'`; decrypt failure stranding outbox rows → inside the try, permanent fail; COMPLETED on custody evidence alone → RECEIVED state + on-chain finalizer; rejected receipts invisible → `attention` + `deposit.rejected`; dev encryption key outside development/test → refused; expiry/settle race reason; 4xx documented; `?status` validated; amount length capped; internal-move guard checks legacy users too.
+
+## Slice 3 — Providers on the ports
+
+**What.** Fireblocks, B2BinPay and Solana are adapters implementing the port interfaces, obtained from one registry. Nothing under `packages/core`, `packages/settlement` or `packages/webhooks` imports a vendor module any more (enforced by `tests/integration/verification.leg-a.test.ts`). Swapping a provider is one adapter registered at boot.
+
+| Piece | Where |
+|---|---|
+| Ports | `packages/providers/ports/*.port.ts` — `CustodyProvider` gains `configured()`; `BlockchainProvider` gains `getTransaction` detail with token movements, `awaitFinality` throwing `ChainTransactionFailed` on a definite on-chain failure |
+| Adapters | `custody/fireblocks/fireblocks.custody-provider.ts`, `liquidity/b2binpay/b2binpay.liquidity-provider.ts`, `blockchain/solana/solana.blockchain-provider.ts` — each routes through the runtime seam (`ports()`) where one exists, so the settlement harness still stubs the rails |
+| Registry | `packages/providers/registry/provider-registry.ts` — `providers.custody() / liquidity() / blockchain(network)`, `register*Provider`, `describeProviders()`; defaults registered lazily and explicitly at boot |
+| Core on the ports | `wallet.service` (vault + address via `CustodyProvider`), `proof.service` (finality + token movements via `BlockchainProvider`, asset by registry id or symbol), `reconciliation.service` (custody balances and on-chain balances via the ports), `accounts.ts` (default settlement symbol from the registry) |
+| Legacy facade | `packages/providers/legacy/index.ts` — the frozen Leg B services (transfer, orchestrator, interbank, treasury, fiat deposit) import the same functions through this one file instead of naming vendors; deleted when the last of them is migrated or retired |
+| Operator view | `GET /api/settlement/providers` (operator key): role, adapter, configured/stub, live health; the Providers screen mirrors it |
+| Tests | `tests/integration/providers.step2.test.ts` (6): adapter conformance in sandbox mode, registry defaults and swap, wallet creation on a swapped adapter, operator endpoint, proof through the blockchain port by id and by symbol; verification test now asserts **zero** vendor imports in core |

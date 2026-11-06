@@ -22,8 +22,7 @@
  */
 
 import { randomUUID } from 'crypto';
-import { createPayout, calculatePayoutFee } from '../../providers/liquidity/b2binpay/b2binpay';
-import { createTransfer as fbTransfer } from '../../providers/custody/fireblocks/fireblocks';
+import { converterCreatePayout as createPayout, converterPayoutFee as calculatePayoutFee, custodyTransfer as fbTransfer } from '../../providers/legacy';
 import { audit } from '../../core/ledger/ledger.service';
 import { toUSD, usdToUsdt } from '../fx-quotes/fx.service';
 

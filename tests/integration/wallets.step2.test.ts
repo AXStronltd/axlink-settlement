@@ -158,7 +158,8 @@ db('wallets', () => {
   it('a receipt from production custody never lands in a sandbox wallet (environment binding)', async () => {
     const { processOnce } = await import('../../packages/webhooks/provider-event.service');
     const { applyCustodyDeposit } = await import('../../packages/webhooks/custody-deposit');
-    const { setWalletCustody } = await import('../../packages/core/wallets/wallet.service');
+    const { registerCustodyProvider } = await import('../../packages/providers/registry/provider-registry');
+    const { fireblocksCustodyProvider } = await import('../../packages/providers/custody/fireblocks/fireblocks.custody-provider');
     const A = await institution('envbind');
     const w = await request(app).post(`/api/institutions/${A.id}/wallets`).set(ops).send({ environment: 'SANDBOX', label: 'S' }).expect(201);
     const id = randomUUID();
@@ -167,13 +168,13 @@ db('wallets', () => {
     const ev = { provider: 'fireblocks' as const, operation: 'TRANSFER', destinationType: 'VAULT_ACCOUNT', providerAssetId: 'USDT_SOL', destinationVaultId: w.body.custody.vaultId, externalTxId: dep.trackingId, providerTxId: id, amount: '1' };
     // Pretend this deployment holds real production custody credentials (and is not the Fireblocks sandbox workspace, whatever .env says).
     const savedSandbox = process.env.FIREBLOCKS_SANDBOX; process.env.FIREBLOCKS_SANDBOX = 'false';
-    setWalletCustody({ provider: 'fireblocks', configured: () => true, createVault: async () => ({ vaultId: 'x' }), createDepositAddress: async () => ({ address: 'x' }) });
+    registerCustodyProvider({ ...fireblocksCustodyProvider, configured: () => true }); // same adapter, pretending real credentials
     try {
       const r = await processOnce({ provider: 'fireblocks', eventId: id, rawBody: 'x' }, tx => applyCustodyDeposit(tx, ev));
       expect(r.outcome?.status).toBe('REJECTED'); expect(r.outcome?.reason).toMatch(/custody is PRODUCTION but wallet is SANDBOX/);
       // and sandbox wallets cannot be created on a production-bound deployment
       await request(app).post(`/api/institutions/${A.id}/wallets`).set(ops).send({ environment: 'SANDBOX', label: 'S2' }).expect(409);
-    } finally { setWalletCustody(null); if (savedSandbox === undefined) delete process.env.FIREBLOCKS_SANDBOX; else process.env.FIREBLOCKS_SANDBOX = savedSandbox; }
+    } finally { registerCustodyProvider(fireblocksCustodyProvider); if (savedSandbox === undefined) delete process.env.FIREBLOCKS_SANDBOX; else process.env.FIREBLOCKS_SANDBOX = savedSandbox; }
     expect((await prisma.bankDeposit.findUnique({ where: { id: dep.id } })).status).toBe('PENDING_FIREBLOCKS');
   });
 

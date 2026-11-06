@@ -25,7 +25,7 @@
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 
-import { ASSETS } from '../../../core/assets/registry';
+import { ASSETS, DEFAULT_SETTLEMENT_SYMBOL } from '../../../core/assets/registry';
 
 const RPC_URL = () => process.env.SOLANA_RPC_URL ?? 'https://api.mainnet-beta.solana.com';
 const RPC_TIMEOUT_MS = Number(process.env.SOLANA_RPC_TIMEOUT_MS ?? 10_000);
@@ -48,7 +48,7 @@ export const SOLANA_MINTS: Record<string, { mint: string; decimals: number }> = 
 };
 
 /** The asset settlements are denominated in. Override per environment. */
-export const SETTLEMENT_ASSET = (process.env.SETTLEMENT_ASSET ?? 'USDT') as keyof typeof SOLANA_MINTS;
+export const SETTLEMENT_ASSET = DEFAULT_SETTLEMENT_SYMBOL as keyof typeof SOLANA_MINTS;
 
 export type Commitment = 'processed' | 'confirmed' | 'finalized';
 

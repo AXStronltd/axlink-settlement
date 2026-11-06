@@ -2,6 +2,8 @@ import type { AssetRef, OpStatus, ProviderHealth, WebhookInput } from './common'
 
 export interface CustodyProvider {
   readonly id: string;
+  /** True when real provider credentials are configured (false = sandbox stub). */
+  configured(): boolean;
   createVault(label: string, clientRef: string): Promise<{ vaultId: string }>;
   getDepositAddress(vaultId: string, asset: AssetRef): Promise<{ address: string; tag?: string }>;
   getBalance(vaultId: string, asset: AssetRef): Promise<{ available: string; pending: string }>;

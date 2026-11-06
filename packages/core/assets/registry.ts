@@ -106,3 +106,15 @@ export function fromMinorUnits(raw: bigint, asset: AssetDefinition): Prisma.Deci
 export function assetsForSymbol(symbol: string): AssetDefinition[] {
   return Object.values(ASSETS).filter(a => a.symbol === symbol.toUpperCase());
 }
+
+/**
+ * The asset the legacy settlement-leg engine settles in when a flow does not say (USDC or USDT by
+ * symbol). Per-wallet asset selection supersedes this for Leg A deposits; it remains for the
+ * corridor engine until that is migrated.
+ */
+export const DEFAULT_SETTLEMENT_SYMBOL = (process.env.SETTLEMENT_ASSET ?? 'USDT').toUpperCase() as 'USDC' | 'USDT';
+export function assetForSymbolOnNetwork(symbol: string, network: NetworkId = 'solana-mainnet'): AssetDefinition {
+  const hit = Object.values(ASSETS).find(a => a.symbol === symbol.toUpperCase() && a.network === network);
+  if (!hit) throw new UnsupportedAssetError(`${symbol} on ${network}`);
+  return hit;
+}

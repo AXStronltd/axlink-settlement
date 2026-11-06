@@ -9,7 +9,7 @@ const CONTENT_TYPE = 'application/vnd.api+json';
 
 // ── Sandbox stub detection ───────────────────────────────────────────────────
 const PLACEHOLDER = ['your_', 'YOUR_'];
-function isConfigured(): boolean {
+export function isConfigured(): boolean {
   const id = process.env.B2BINPAY_CLIENT_ID ?? '';
   return !!(id && !PLACEHOLDER.some(p => id.startsWith(p)));
 }

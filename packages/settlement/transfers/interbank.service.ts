@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto';
 import { prisma } from '../../core/ledger/ledger.service';
 import { classifyRoute, getSpread } from './smart-router.service';
 import { createQuote } from '../fx-quotes/quote.service';
-import { createTransfer as fbTransfer } from '../../providers/custody/fireblocks/fireblocks';
+import { custodyTransfer as fbTransfer } from '../../providers/legacy';
 import { deliverBankWebhook, type BankWebhookPayload } from '../../core/events/bank-webhook.service';
 import { audit } from '../../core/ledger/ledger.service';
 

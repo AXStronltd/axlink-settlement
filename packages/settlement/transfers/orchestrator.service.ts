@@ -39,8 +39,7 @@
 import { randomUUID } from 'crypto';
 import { prisma, debit, credit, checkSufficientBalance, getUser, audit } from '../../core/ledger/ledger.service';
 import { toUSD, usdToUsdt } from '../fx-quotes/fx.service';
-import { createDeposit, createPayout } from '../../providers/liquidity/b2binpay/b2binpay';
-import { createTransfer as fbTransfer } from '../../providers/custody/fireblocks/fireblocks';
+import { converterCreateDeposit as createDeposit, converterCreatePayout as createPayout, custodyTransfer as fbTransfer } from '../../providers/legacy';
 import { type PaymentDestination } from '../../providers/ports/baas.interface';
 import { deliverFiat } from '../../providers/registry/baas-registry.service';
 import { consumeQuote, createQuote } from '../fx-quotes/quote.service';

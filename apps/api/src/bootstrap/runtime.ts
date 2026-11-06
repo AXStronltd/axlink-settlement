@@ -4,10 +4,12 @@ import type { AppConfig } from '../../../../packages/shared/config';
  * Legacy provider registrations are preserved for regression compatibility; Leg B is frozen.
  */
 export async function startRuntime(cfg: AppConfig): Promise<void> {
-  // Wallet custody adapter (Step 2): core never imports the provider; it is handed in here.
-  const { setWalletCustody } = await import('../../../../packages/core/wallets/wallet.service');
-  const { fireblocksWalletCustody } = await import('../../../../packages/providers/custody/fireblocks/fireblocks.wallet-custody');
-  setWalletCustody(fireblocksWalletCustody);
+  // Providers on the ports (Step 2): core never imports a vendor; the registry hands adapters out.
+  const { registerCustodyProvider, registerLiquidityProvider, registerBlockchainProvider } = await import('../../../../packages/providers/registry/provider-registry');
+  const { fireblocksCustodyProvider } = await import('../../../../packages/providers/custody/fireblocks/fireblocks.custody-provider');
+  const { b2binpayLiquidityProvider } = await import('../../../../packages/providers/liquidity/b2binpay/b2binpay.liquidity-provider');
+  const { solanaBlockchainProvider } = await import('../../../../packages/providers/blockchain/solana/solana.blockchain-provider');
+  registerCustodyProvider(fireblocksCustodyProvider); registerLiquidityProvider(b2binpayLiquidityProvider); registerBlockchainProvider('solana-mainnet', solanaBlockchainProvider);
   await import('./lp.bootstrap');
   await import('./baas.bootstrap');
   const { startPaymentValidator } = await import('../../../../packages/settlement/transfers/payment-validator.service');

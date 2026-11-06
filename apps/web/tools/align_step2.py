@@ -100,3 +100,14 @@ rep("""     '<div class="field"><label>Amount (exact, in the asset)</label><inpu
 """     '<div class="field"><label>Amount (exact, in the asset)</label><input placeholder="5000000.000000" value="5000000.000000"/><div class="hint">Instruction valid 72 h · credited on custody receipt · COMPLETED on Solana finality · no deposit fee</div></div>'+""")
 open('index.html', 'w', encoding='utf-8').write(src)
 print('slice 2c applied')
+
+# ── Slice 3: providers on the ports — operator screen mirrors GET /api/settlement/providers ──
+src = open('index.html', encoding='utf-8').read()
+rep("""  var rows=[['Custody','Fireblocks · AxLink workspace','custody.primary','vault-treasury, 5 institution vaults','Healthy'],['Blockchain','Solana RPC (dedicated node)','chain.solana','finality proof, balances','Healthy'],['Liquidity','B2BinPay','lp.usd.primary','USDC / USDT ↔ USD / EUR / GBP','Healthy'],['Fiat payout · KES','Choice Bank','door.ke.primary','M-Pesa B2C · PesaLink · RTGS','Healthy'],['Fiat payout · USD','Brainrock','door.us.primary','ACH · wire','Degraded'],['Screening','— (sandbox stub)','screening.primary','names, addresses','Sandbox']]""",
+"""  var rows=[['custody','fireblocks','CustodyProvider','vaults, deposit addresses, balances, transfers','Healthy'],['blockchainExecution','fireblocks','CustodyProvider','signing and broadcast through the custodian','Healthy'],['liquidity','b2binpay','LiquidityProvider','USDC / USDT ↔ USD (quotes, orders) — flows authorised separately','Sandbox'],['blockchain · solana-mainnet','solana-mainnet','BlockchainProvider','finality, transaction detail, token balances','Healthy']]""", marker="'CustodyProvider','vaults, deposit addresses")
+rep("""<thead><tr><th>Role</th><th>Provider</th><th>Adapter id</th><th>Used for</th><th>Health</th></tr></thead>""",
+"""<thead><tr><th>Role</th><th>Provider</th><th>Port</th><th>Used for</th><th>Health</th></tr></thead>""")
+rep("""   pageHead('Providers','Every provider is an adapter behind a port. The core names none of them; swapping one is one adapter and one config row.')+""",
+"""   pageHead('Providers','Every provider is an adapter behind a port. Nothing under the core names a vendor; swapping one is one adapter registered at boot. This table is GET /api/settlement/providers (operator key): role, adapter, configured or sandbox stub, live health. Fiat payout rails are Leg B and are not registered in this phase.')+""")
+open('index.html', 'w', encoding='utf-8').write(src)
+print('slice 3 applied')

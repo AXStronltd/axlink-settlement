@@ -305,4 +305,13 @@ router.get(
   }),
 );
 
+
+// ── Providers (Step 2, slice 3): who fills each role, configured or stub, live health ──
+router.get('/providers', async (req, res, next) => {
+  try {
+    const { describeProviders } = await import('../../../../packages/providers/registry/provider-registry');
+    res.json({ providers: await describeProviders({ health: req.query.health !== 'false' }), checkedAt: new Date().toISOString() });
+  } catch (e) { next(e); }
+});
+
 export default router;

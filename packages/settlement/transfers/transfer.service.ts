@@ -1,8 +1,7 @@
 import { randomUUID } from 'crypto';
 import { prisma, debit, credit, checkSufficientBalance, getUser, audit } from '../../core/ledger/ledger.service';
 import { toUSD, fromUSD, usdToUsdt } from '../fx-quotes/fx.service';
-import { createDeposit, createPayout, calculatePayoutFee } from '../../providers/liquidity/b2binpay/b2binpay';
-import { createTransfer as fbTransfer } from '../../providers/custody/fireblocks/fireblocks';
+import { converterCreateDeposit as createDeposit, converterCreatePayout as createPayout, converterPayoutFee as calculatePayoutFee, custodyTransfer as fbTransfer } from '../../providers/legacy';
 import { consumeQuote, createQuote, type Quote } from '../fx-quotes/quote.service';
 
 const CALLBACK_URL = `${process.env.API_BASE_URL}/webhooks/b2binpay`;

@@ -16,24 +16,23 @@
 
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../core/ledger/ledger.service';
-import { ports } from '../../providers/ports/runtime';
-import {
-  SOLANA_MINTS,
-  SETTLEMENT_COMMITMENT,
-  SettlementNotFinalError,
-  formatUnits,
-  parseUnits,
-} from '../../providers/blockchain/solana/solana';
+import { providers } from '../../providers/registry/provider-registry';
+import { ChainTransactionFailed } from '../../providers/ports/blockchain.port';
+import { ASSETS, assetForSymbolOnNetwork, isAssetId, toMinorUnits, fromMinorUnits, type AssetDefinition, type AssetId } from '../../core/assets/registry';
+
+/** Kept for callers that still pass a symbol; the registry asset is resolved below. */
+export const SETTLEMENT_COMMITMENT = 'finalized';
+export { ChainTransactionFailed as SettlementNotFinalError };
 
 export interface ProveParams {
   entityType: string;
   entityId: string;
-  /** Fireblocks transaction id, when settlement was signed by the custodian. */
+  /** Custody transaction id, when settlement was signed by the custodian. */
   custodyTxId?: string;
-  /** Solana signature, when already known. One of this or custodyTxId is required. */
+  /** On-chain signature, when already known. One of this or custodyTxId is required. */
   signature?: string;
-  /** Asset key into SOLANA_MINTS. */
-  asset: keyof typeof SOLANA_MINTS;
+  /** Registry asset id (USDC_SOL) or a symbol on the default network (USDC). */
+  asset: AssetId | 'USDC' | 'USDT' | string;
   /** Decimal amount we intended to settle, for the on-chain amount check. */
   expectedAmount: Prisma.Decimal | string | number;
   fromAddress?: string;
@@ -64,21 +63,21 @@ export class ProofMismatchError extends Error {
  * caller should retry rather than fail the settlement.
  */
 export async function resolveChainHash(custodyTxId: string): Promise<string | null> {
-  const tx = (await ports().custody.getTransaction(custodyTxId)) as Record<string, unknown>;
-
-  // Guard against the sandbox stub in fireblocks.ts, which fabricates an id
-  // and reports COMPLETED. Treating that as settlement is exactly the failure
-  // this module exists to prevent.
+  // Guard against a sandbox stub that fabricates an id and reports COMPLETED. Treating that as
+  // settlement is exactly the failure this module exists to prevent.
   if (custodyTxId.includes('_sandbox_')) {
     throw new ProofMismatchError(
       `Refusing to prove settlement for stub custody transaction '${custodyTxId}'. ` +
-      `fireblocks.ts returned a synthetic id, which means Fireblocks is unconfigured ` +
-      `or erroring. No settlement occurred.`,
+      `The custody provider returned a synthetic id, which means it is unconfigured or erroring. No settlement occurred.`,
     );
   }
+  const t = await providers.custody().getTransfer(custodyTxId);
+  return t.txHash && t.txHash.length > 0 ? t.txHash : null;
+}
 
-  const hash = tx.txHash ?? (tx as { transactionHash?: string }).transactionHash;
-  return typeof hash === 'string' && hash.length > 0 ? hash : null;
+function resolveAsset(asset: string): AssetDefinition {
+  if (isAssetId(asset)) return ASSETS[asset];
+  return assetForSymbolOnNetwork(asset);
 }
 
 /**
@@ -88,9 +87,12 @@ export async function resolveChainHash(custodyTxId: string): Promise<string | nu
  * re-verifying, so the resume worker can call this freely.
  */
 export async function proveSettlement(params: ProveParams) {
-  const { entityType, entityId, asset, custodyTxId } = params;
-  const mintInfo = SOLANA_MINTS[asset];
-  if (!mintInfo) throw new Error(`Unknown settlement asset '${asset}'`);
+  const { entityType, entityId, custodyTxId } = params;
+  let assetDef: AssetDefinition;
+  try { assetDef = resolveAsset(params.asset); } catch { throw new Error(`Unknown settlement asset '${params.asset}'`); }
+  const asset = assetDef.symbol;
+  const mintInfo = { mint: assetDef.contract, decimals: assetDef.decimals };
+  const chain = providers.blockchain(assetDef.network);
 
   let signature = params.signature ?? null;
 
@@ -124,11 +126,11 @@ export async function proveSettlement(params: ProveParams) {
 
   // 1 — finality. Distinguish "failed on chain" from "cannot reach a node":
   //     the first is a settlement failure, the second says nothing at all.
-  let status;
+  let status: { finalized: true; slot?: number };
   try {
-    status = await ports().chain.awaitFinality(signature, { commitment: SETTLEMENT_COMMITMENT });
+    status = await chain.awaitFinality(signature);
   } catch (err) {
-    if (err instanceof SettlementNotFinalError) {
+    if (err instanceof ChainTransactionFailed) {
       await recordFailure(entityType, entityId, signature, mintInfo.mint, err.message);
       throw err;
     }
@@ -140,8 +142,8 @@ export async function proveSettlement(params: ProveParams) {
   }
 
   // 2 — detail, for the amount check and the fee record.
-  const tx = await ports().chain.getTransaction(signature, SETTLEMENT_COMMITMENT);
-  if (!tx) {
+  const tx = await chain.getTransaction(signature);
+  if (!tx.found) {
     throw Object.assign(
       new Error(`Signature ${signature} is finalized but the node returned no transaction detail`),
       { code: 'PROOF_UNAVAILABLE', retryable: true },
@@ -149,17 +151,22 @@ export async function proveSettlement(params: ProveParams) {
   }
 
   // 3 — did the right amount of the right asset actually move?
-  const expectedRaw = parseUnits(new Prisma.Decimal(params.expectedAmount).toFixed(mintInfo.decimals), mintInfo.decimals);
-  const credited = tx.tokenTransfers
-    .filter(t => t.mint === mintInfo.mint && t.changeRaw > 0n)
+  if (tx.failed) {
+    await recordFailure(entityType, entityId, signature, mintInfo.mint, tx.error ?? 'failed on chain');
+    throw new ChainTransactionFailed(signature, tx.error ?? 'failed on chain');
+  }
+  const expectedRaw = toMinorUnits(new Prisma.Decimal(params.expectedAmount).toFixed(mintInfo.decimals), assetDef);
+  const credited = tx.tokenMovements
+    .filter(t => t.contract === mintInfo.mint && t.changeRaw > 0n)
     .reduce((s, t) => s + t.changeRaw, 0n);
 
   if (credited === 0n) {
     throw new ProofMismatchError(
-      `Transaction ${signature} finalized but moved no ${asset} (mint ${mintInfo.mint}). ` +
-      `Token movements seen: ${tx.tokenTransfers.map(t => `${t.mint}:${t.changeRaw}`).join(', ') || 'none'}`,
+      `Transaction ${signature} finalized but moved no ${asset} (contract ${mintInfo.mint}). ` +
+      `Token movements seen: ${tx.tokenMovements.map(t => `${t.contract}:${t.changeRaw}`).join(', ') || 'none'}`,
     );
   }
+  const formatUnits = (raw: bigint, decimals: number) => fromMinorUnits(raw, { ...assetDef, decimals }).toFixed();
 
   const tolerance = params.tolerance ?? 0;
   const drift = absDiff(credited, expectedRaw);
@@ -178,23 +185,23 @@ export async function proveSettlement(params: ProveParams) {
       entityType,
       entityId,
       signature,
-      slot: BigInt(status.slot ?? tx.slot),
-      blockTime: tx.blockTime,
-      commitment: status.commitment ?? SETTLEMENT_COMMITMENT,
+      slot: BigInt(status.slot ?? tx.slot ?? 0),
+      blockTime: tx.blockTime ?? null,
+      commitment: SETTLEMENT_COMMITMENT,
       mint: mintInfo.mint,
       amountRaw: credited.toString(),
       decimals: mintInfo.decimals,
       amount: new Prisma.Decimal(formatUnits(credited, mintInfo.decimals)),
       fromAddress: params.fromAddress ?? '',
       toAddress: params.toAddress ?? '',
-      feeLamports: tx.feeLamports,
+      feeLamports: tx.feeRaw ?? null,
       custodyTxId: custodyTxId ?? null,
     },
   });
 
   console.log(
     `[proof] ${entityType}:${entityId} settled — ${formatUnits(credited, mintInfo.decimals)} ${asset} ` +
-    `finalized in slot ${proof.slot}, fee ${tx.feeLamports} lamports, sig ${signature}`,
+    `finalized in slot ${proof.slot}, fee ${tx.feeRaw ?? 0n} lamports, sig ${signature}`,
   );
 
   return { status: 'PROVEN' as const, signature, proof };
@@ -252,8 +259,8 @@ export async function proofsFor(entityType: string, entityId: string) {
 }
 
 function assetForMint(mint: string): string {
-  const hit = Object.entries(SOLANA_MINTS).find(([, v]) => v.mint === mint);
-  return hit?.[0] ?? mint;
+  const hit = Object.values(ASSETS).find(a => a.contract === mint);
+  return hit?.symbol ?? mint;
 }
 
 function absDiff(a: bigint, b: bigint): bigint {

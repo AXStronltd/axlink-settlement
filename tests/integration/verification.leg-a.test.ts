@@ -65,14 +65,16 @@ describe('10 · providers behind interfaces', () => {
     for (const f of await walk('packages/settlement/reconciliation')) if (LIVE.test(fs.readFileSync(f, 'utf8'))) offenders.push(f);
     expect(offenders).toEqual([]);
   });
-  it('GAP: some legacy settlement services still import live providers directly (not yet mapped onto packages/providers/ports)', async () => {
+  it('slice 3: nothing under packages/core, packages/settlement or packages/webhooks imports a vendor module (Fireblocks, B2BinPay, Solana, banking rails)', async () => {
     const fs = await import('fs'); const hits: string[] = [];
-    for (const f of [...await walk('packages/settlement'), ...await walk('packages/core')]) if (LIVE.test(fs.readFileSync(f, 'utf8'))) hits.push(f);
-    expect(hits.length).toBeGreaterThan(0); // documented gap for the port-mapping milestone
-    console.log('direct live-provider imports:', hits.join(', '));
+    const VENDOR = /providers\/(custody|liquidity|blockchain|banking)\//;
+    for (const f of [...await walk('packages/core'), ...await walk('packages/settlement'), ...await walk('packages/webhooks')]) if (VENDOR.test(fs.readFileSync(f, 'utf8'))) hits.push(f);
+    expect(hits).toEqual([]); // providers are reached through packages/providers/{ports,registry,legacy} only
   });
   it('the five port interfaces exist and the current providers are mapped to roles', async () => {
     const m = await import('../../packages/providers/ports'); expect(m.PROVIDER_ROLES.fireblocks).toEqual(['custody', 'blockchainExecution']); expect(m.PROVIDER_ROLES.b2binpay).toEqual(['liquidity']);
+    const { providers } = await import('../../packages/providers/registry/provider-registry');
+    expect(providers.custody().id).toBe('fireblocks'); expect(providers.liquidity().id).toBe('b2binpay'); expect(providers.blockchain('solana-mainnet').chain).toBe('solana-mainnet');
   });
 });
 

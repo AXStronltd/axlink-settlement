@@ -11,8 +11,7 @@ import { randomBytes } from 'crypto';
 import { prisma } from '../../core/ledger/ledger.service';
 import { getAsset, toMinorUnits, isAssetId } from '../../core/assets/registry';
 import { getWallet } from '../../core/wallets/wallet.service';
-import { proofsFor, proveSettlement, ProofMismatchError } from '../proof/proof.service';
-import { SettlementNotFinalError } from '../../providers/blockchain/solana/solana';
+import { proofsFor, proveSettlement, ProofMismatchError, SettlementNotFinalError } from '../proof/proof.service';
 import { ApiError } from '../../shared/errors';
 import { log } from '../../shared/logger';
 
@@ -144,7 +143,7 @@ export async function finalizeReceivedInstructions(limit = 100): Promise<{ settl
   for (const i of rows) {
     const asset = getAsset(i.assetId);
     try {
-      const r = await proveSettlement({ entityType: 'DepositInstruction', entityId: i.id, signature: i.txHash!, asset: asset.symbol, expectedAmount: i.receivedAmount ?? i.expectedAmount, toAddress: i.wallet.depositAddress ?? undefined });
+      const r = await proveSettlement({ entityType: 'DepositInstruction', entityId: i.id, signature: i.txHash!, asset: asset.id, expectedAmount: i.receivedAmount ?? i.expectedAmount, toAddress: i.wallet.depositAddress ?? undefined });
       if (r.status === 'PENDING_BROADCAST') { out.pending++; continue; }
       await prisma.$transaction(async tx => {
         const c = await tx.depositInstruction.updateMany({ where: { id: i.id, status: 'RECEIVED' }, data: { status: 'SETTLED', settledAt: new Date() } });
