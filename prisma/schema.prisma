@@ -30,6 +30,11 @@ model User {
   // B2BinPay — one wallet per user for receiving fiat on-ramp
   b2bWalletId     String?            // B2BinPay wallet ID paired to this user
 
+  // Remediation F4: owning institution (tenant). Null = legacy row created before tenancy;
+  // only an ops credential can reach those.
+  institutionId   String?
+  institution     Institution? @relation(fields: [institutionId], references: [id])
+
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -132,6 +137,9 @@ model BankDeposit {
   fbTxId      String?  // Fireblocks credit TX
   sessionId   String?  @unique  // Brainrock payment session ID (user-initiated flow)
   checkoutUrl String?           // Brainrock checkout URL returned to frontend
+
+  // Remediation F3: the registry asset (network + contract) that actually arrived in custody.
+  settlementAssetId String?
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -734,6 +742,7 @@ model Institution {
 
   environments  ApiEnvironment[]
   banks         Bank[]
+  users         User[]
 
   @@index([status])
 }
@@ -772,4 +781,28 @@ model ApiCredential {
   createdAt       DateTime       @default(now())
 
   @@index([environmentId])
+}
+
+// ── Provider events (remediation F1) ─────────────────────────────────────────
+// One row per (provider, eventId). The unique constraint is what makes a credit exactly-once:
+// the row is inserted in the same transaction as the ledger posting, so a replay — sequential or
+// concurrent — fails the insert and never reaches the posting.
+model ProviderEvent {
+  id            String   @id @default(cuid())
+  provider      String   // fireblocks | b2binpay
+  eventId       String   // provider's id for this exact event (tx id + status)
+  kind          String?  // provider event type
+  status        String   // PROCESSED | IGNORED | REJECTED
+  reason        String?
+  assetId       String?  // registry AssetId (USDC_SOL, USDT_SOL) when the event carried an asset
+  institutionId String?
+  vaultId       String?
+  entityType    String?  // BankDeposit | Withdrawal | SettlementLeg
+  entityId      String?
+  payloadHash   String   // sha256 of the raw body
+  receivedAt    DateTime @default(now())
+
+  @@unique([provider, eventId])
+  @@index([entityType, entityId])
+  @@index([institutionId])
 }
