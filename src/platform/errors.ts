@@ -30,7 +30,7 @@ export function errorHandler(err: unknown, req: Request, res: Response, _next: N
     const e = err as { code?: unknown; statusCode?: unknown; message?: unknown; type?: unknown };
     if (e.type === 'entity.parse.failed') return body('MALFORMED_JSON', 'Request body is not valid JSON', 400);
     if (typeof e.code === 'string' && KNOWN_422.has(e.code)) return body(e.code, String(e.message ?? e.code), typeof e.statusCode === 'number' ? e.statusCode : 422);
-    if (typeof e.statusCode === 'number' && e.statusCode >= 400 && e.statusCode < 500) return body(typeof e.code === 'string' ? e.code : 'BAD_REQUEST', String(e.message ?? 'Bad request'), e.statusCode);
+    if (typeof e.statusCode === 'number' && e.statusCode >= 400 && (e.statusCode < 500 || e.code === 'LEGACY_FINANCIAL_API_DISABLED')) return body(typeof e.code === 'string' ? e.code : 'BAD_REQUEST', String(e.message ?? 'Bad request'), e.statusCode);
   }
   const message = err instanceof Error ? err.message : String(err);
   log.error('unhandled', { message, stack: err instanceof Error ? err.stack : undefined });

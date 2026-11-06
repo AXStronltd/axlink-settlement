@@ -128,6 +128,12 @@ router.get('/rates', requireBankAuth, async (req: Request, res: Response): Promi
 // ── Initiate interbank transfer (authenticated) ───────────────────────────────
 // POST /api/network/transfers
 
+// Legacy interbank submission marks custody acceptance as final settlement.
+// Disable submission until a separately approved, verified-receipt path replaces it.
+router.post('/transfers', requireBankAuth, (_req: Request, res: Response) => {
+  res.status(503).json({ code: 'LEGACY_FINANCIAL_API_DISABLED', error: 'Legacy interbank submission is disabled pending verified receipt' });
+});
+
 router.post('/transfers', requireBankAuth, async (req: Request, res: Response): Promise<void> => {
   const bank = req.bank!;
 

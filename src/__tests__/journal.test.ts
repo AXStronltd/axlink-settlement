@@ -54,10 +54,10 @@ describe('assertBalanced', () => {
     ).not.toThrow();
   });
 
-  it('tolerates sub-1e-10 rounding noise from an FX conversion', () => {
+  it('rejects excess-scale rounding noise instead of silently accepting it', () => {
     expect(() =>
       assertBalanced('k', [line('TREASURY:USD', '100'), line('USER:u1:USD', '-100.00000000001')]),
-    ).not.toThrow();
+    ).toThrow();
   });
 
   it('does not tolerate a cent', () => {

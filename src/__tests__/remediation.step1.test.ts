@@ -10,6 +10,7 @@ import { Prisma } from '@prisma/client';
 
 process.env.OPS_API_KEY ??= 'test-ops-key-0123456789abcdef';
 process.env.API_BASE_URL ??= 'http://localhost:4000/api';
+process.env.FIREBLOCKS_WORKSPACE_ID = 'test-workspace';
 process.env.B2BINPAY_CALLBACK_SECRET ??= 'b2b-test-callback-secret';
 
 // Fireblocks signs webhooks with RSA-SHA512 over the raw body. Generate a key pair for the test.
@@ -65,21 +66,21 @@ d('F1/F2/F3/F4 · against the live app (requires DATABASE_URL)', () => {
     return request(app).post(path).set({ 'Content-Type': 'application/json', ...headers }).send(raw);
   };
   const fbEvent = (id: string, assetId: string, vaultId: string, trackingId: string, status = 'COMPLETED') =>
-    ({ type: 'TRANSACTION_STATUS_UPDATED', data: { id, status, assetId, amount: 100, destination: { id: vaultId }, externalTxId: trackingId } });
+    ({ tenantId: 'test-workspace', type: 'TRANSACTION_STATUS_UPDATED', data: { id, status, assetId, operation: 'TRANSFER', netAmount: '100.123456', amount: '100.123456', destination: { id: vaultId, type: 'VAULT_ACCOUNT' }, externalTxId: trackingId } });
   const signed = (body: object) => ({ 'fireblocks-signature': sign(JSON.stringify(body)) });
 
   async function makeInstitution(tag: string) {
     const t = Date.now();
     const inst = await request(app).post('/api/institutions').set(ops).send({ slug: `rem-${tag}-${t}`, legalName: `Remediation ${tag}`, country: 'KE', kind: 'BANK' }).expect(201);
     await prisma.institution.update({ where: { id: inst.body.id }, data: { status: 'ACTIVE' } });
-    const key = await request(app).post(`/api/institutions/${inst.body.id}/credentials`).set(ops).send({ environment: 'SANDBOX', label: 'k' }).expect(201);
+    const key = await request(app).post(`/api/institutions/${inst.body.id}/credentials`).set(ops).send({ environment: 'SANDBOX', label: 'k', scopes: ['customer:read'] }).expect(201);
     return { id: inst.body.id as string, key: key.body.apiKey as string };
   }
-  async function makeDeposit(institutionId: string | null) {
+  async function makeDeposit(institutionId: string | null, symbol = 'USDT') {
     const t = `${Date.now()}${Math.floor(Math.random() * 1e6)}`;
     const user = await prisma.user.create({ data: { name: 'Dep', email: `dep${t}@x.io`, vaultId: `vault-${t}`, kycStatus: 'APPROVED', ...(institutionId ? { institutionId } : {}) } });
-    await prisma.bankDeposit.create({ data: { trackingId: `dep_${t}`, userId: user.id, amount: new Prisma.Decimal('100.123456'), usdAmount: new Prisma.Decimal('100.123456'), usdtAmount: new Prisma.Decimal('100.123456'), currency: 'USD', bankName: 'T', status: 'PENDING_FIREBLOCKS', method: 'bank_transfer' } });
-    const balance = async () => (await prisma.account.findFirst({ where: { userId: user.id, currency: 'USD' } }))?.balance?.toString() ?? '0';
+    await prisma.bankDeposit.create({ data: { trackingId: `dep_${t}`, userId: user.id, amount: new Prisma.Decimal('100.123456'), usdAmount: new Prisma.Decimal('100.123456'), usdtAmount: new Prisma.Decimal('100.123456'), currency: symbol, bankName: 'T', status: 'PENDING_FIREBLOCKS', method: 'bank_transfer' } });
+    const balance = async () => (await prisma.account.findFirst({ where: { userId: user.id, currency: `${symbol}_SOL` } }))?.balance?.toString() ?? '0';
     return { user, trackingId: `dep_${t}`, balance, t };
   }
 
@@ -92,7 +93,7 @@ d('F1/F2/F3/F4 · against the live app (requires DATABASE_URL)', () => {
     it('rejects a Fireblocks event whose signature does not match the raw body', async () => {
       const { user, trackingId, balance } = await makeDeposit(null);
       const body = fbEvent(`badsig-${trackingId}`, 'USDT_SOL', user.vaultId, trackingId);
-      const tampered = { ...body, data: { ...body.data, amount: 999 } };
+      const tampered = { ...body, data: { ...body.data, netAmount: '999' } };
       await post('/api/webhooks/fireblocks', tampered, signed(body)).expect(401);
       expect(await balance()).toBe('0');
     });
@@ -117,7 +118,7 @@ d('F1/F2/F3/F4 · against the live app (requires DATABASE_URL)', () => {
   describe('F3 · USDC and USDT deposits, attributed to institution, wallet and asset', () => {
     it('a USDC completion credits the deposit and records the asset by id/contract', async () => {
       const inst = await makeInstitution('usdc');
-      const { user, trackingId, balance } = await makeDeposit(inst.id);
+      const { user, trackingId, balance } = await makeDeposit(inst.id, 'USDC');
       const body = fbEvent(`usdc-${trackingId}`, 'USDC_SOL', user.vaultId, trackingId);
       await post('/api/webhooks/fireblocks', body, signed(body)).expect(200);
       expect(await balance()).toBe('100.123456');
@@ -202,15 +203,17 @@ d('F1/F2/F3/F4 · against the live app (requires DATABASE_URL)', () => {
     });
     it('institution A cannot read or move institution B customers; ops key keeps full access', async () => {
       const A = await makeInstitution('a'); const B = await makeInstitution('b');
-      const ua = await request(app).post('/api/users').set('Authorization', `Bearer ${A.key}`).send({ name: 'UA', email: `ua${Date.now()}@x.io`, currency: 'USD' }).expect(201);
-      const ub = await request(app).post('/api/users').set('Authorization', `Bearer ${B.key}`).send({ name: 'UB', email: `ub${Date.now()}@x.io`, currency: 'USD' }).expect(201);
+      const ua = await request(app).post('/api/users').set(ops).send({ name: 'UA', email: `ua${Date.now()}@x.io`, currency: 'USD' }).expect(201);
+      const ub = await request(app).post('/api/users').set(ops).send({ name: 'UB', email: `ub${Date.now()}@x.io`, currency: 'USD' }).expect(201);
+      await prisma.user.update({ where: { id: ua.body.userId }, data: { institutionId: A.id } });
+      await prisma.user.update({ where: { id: ub.body.userId }, data: { institutionId: B.id } });
       expect((await prisma.user.findUnique({ where: { id: ua.body.userId } })).institutionId).toBe(A.id);
-      await request(app).get(`/api/users/${ua.body.userId}`).set('Authorization', `Bearer ${A.key}`).expect(200);
-      await request(app).get(`/api/users/${ub.body.userId}`).set('Authorization', `Bearer ${A.key}`).expect(404);
-      await request(app).get(`/api/users/${ub.body.userId}/balance/USD`).set('Authorization', `Bearer ${A.key}`).expect(404);
-      await request(app).get(`/api/deposits?userId=${ub.body.userId}`).set('Authorization', `Bearer ${A.key}`).expect(404);
-      await request(app).post('/api/transfers').set('Authorization', `Bearer ${A.key}`).send({ senderId: ua.body.userId, receiverId: ub.body.userId, fromCurrency: 'USD', toCurrency: 'USD', amount: 1 }).expect(404);
-      await request(app).post('/api/orchestrator/payout-rail/fiat-arrived').set('Authorization', `Bearer ${A.key}`).send({ userId: ub.body.userId, currency: 'USD', amount: 10, rail: 'mpesa', railReference: 'r' }).expect(404);
+      await request(app).get(`/api/users/${ua.body.userId}`).set('Authorization', `Bearer ${A.key}`).expect(403);
+      await request(app).get(`/api/users/${ub.body.userId}`).set('Authorization', `Bearer ${A.key}`).expect(403);
+      await request(app).get(`/api/users/${ub.body.userId}/balance/USD`).set('Authorization', `Bearer ${A.key}`).expect(403);
+      await request(app).get(`/api/deposits?userId=${ub.body.userId}`).set('Authorization', `Bearer ${A.key}`).expect(403);
+      await request(app).post('/api/transfers').set('Authorization', `Bearer ${A.key}`).send({ senderId: ua.body.userId, receiverId: ub.body.userId, fromCurrency: 'USD', toCurrency: 'USD', amount: 1 }).expect(403);
+      await request(app).post('/api/orchestrator/payout-rail/fiat-arrived').set('Authorization', `Bearer ${A.key}`).send({ userId: ub.body.userId, currency: 'USD', amount: 10, rail: 'mpesa', railReference: 'r' }).expect(403);
       await request(app).get(`/api/users/${ub.body.userId}`).set(ops).expect(200);
     });
   });
@@ -233,8 +236,8 @@ describe('F2 · configuration refuses an unverifiable production', () => {
     const { loadConfig } = await import('../platform/config');
     const base = { NODE_ENV: 'production', DATABASE_URL: 'postgresql://x', API_BASE_URL: 'https://api.axlink.test/api', OPS_API_KEY: 'k'.repeat(32), SIMULATOR_ENABLED: 'false', DEMO_ENABLED: 'false' } as NodeJS.ProcessEnv;
     expect(() => loadConfig(base)).toThrow(/FIREBLOCKS_WEBHOOK_PUBLIC_KEY is required in production/);
-    expect(() => loadConfig(base)).toThrow(/B2BINPAY_CALLBACK_SECRET is required in production/);
-    const withKeys = { ...base, FIREBLOCKS_WEBHOOK_PUBLIC_KEY: '-----BEGIN PUBLIC KEY-----x', B2BINPAY_CALLBACK_SECRET: 's'.repeat(20) };
+    expect(() => loadConfig({ ...base, B2BINPAY_CLIENT_ID: 'configured' })).toThrow(/B2BINPAY_CALLBACK_SECRET is required in production/);
+    const withKeys = { ...base, FIREBLOCKS_WORKSPACE_ID: 'test-workspace', FIREBLOCKS_WEBHOOK_PUBLIC_KEY: '-----BEGIN PUBLIC KEY-----x', B2BINPAY_CALLBACK_SECRET: 's'.repeat(20) };
     expect(() => loadConfig(withKeys)).not.toThrow();
     expect(() => loadConfig({ ...withKeys, ALLOW_UNVERIFIED_WEBHOOKS: 'true' })).toThrow(/ALLOW_UNVERIFIED_WEBHOOKS must be false in production/);
   });

@@ -1,6 +1,7 @@
 import { PrismaClient, Prisma } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { toUSDDecimal } from './fx.service';
+import { ASSETS, toMinorUnits } from './assets/registry';
 
 // PrismaPg adapter requires a standard postgres:// URL, not prisma+postgres://.
 // Lazy init so env vars are loaded (dotenv runs in index.ts before first request).
@@ -87,6 +88,22 @@ export async function checkSufficientBalance(
   }
 }
 
+/** Account storage is Decimal(20,8); stablecoin posting precision is the registry precision.
+ * Reject rather than round nonfinite, overprecision or out-of-range input.
+ */
+function postingAmount(value: Prisma.Decimal.Value, currency: string): Prisma.Decimal {
+  const amount = new Prisma.Decimal(value);
+  if (!amount.isFinite() || !amount.isPositive() || amount.isZero() || amount.decimalPlaces() > 8 || amount.gte('1000000000000')) {
+    throw new RangeError('Invalid posting amount: positive finite Decimal(20,8) required');
+  }
+  const asset = Object.values(ASSETS).find(a => a.id === currency || a.symbol === currency);
+  if (asset) {
+    if (!asset.supported) throw new RangeError('Asset is not supported');
+    toMinorUnits(amount, asset);
+  }
+  return amount;
+}
+
 // ── Atomic debit ──────────────────────────────────────────────────────────────
 
 export async function debit(
@@ -97,25 +114,17 @@ export async function debit(
 ) {
   // F5: Decimal end to end. Callers may still pass a number for small sandbox amounts; it is
   // converted once, here, and never compared or summed as a float.
-  const amt = new Prisma.Decimal(amount);
+  const amt = postingAmount(amount, currency);
   if (!amt.isPositive() || amt.isZero()) throw new Error(`debit amount must be positive, got ${amt.toString()}`);
   const usdAmount = toUSDDecimal(amt, currency);
 
-  const account = await tx.account.findUniqueOrThrow({
-    where: { userId_currency: { userId, currency } },
+  // One database predicate serializes competing debits on the account row.
+  const changed = await tx.account.updateMany({
+    where: { userId, currency, balance: { gte: amt } },
+    data: { balance: { decrement: amt }, balanceUsd: { decrement: usdAmount } },
   });
-
-  if (account.balance.lt(amt)) {
-    throw new Error(`Insufficient balance: ${account.balance} ${currency} < ${amt.toString()}`);
-  }
-
-  return tx.account.update({
-    where: { userId_currency: { userId, currency } },
-    data: {
-      balance: { decrement: amt },
-      balanceUsd: { decrement: usdAmount },
-    },
-  });
+  if (changed.count !== 1) throw new Error('Insufficient balance');
+  return tx.account.findUniqueOrThrow({ where: { userId_currency: { userId, currency } } });
 }
 
 // ── Atomic credit ─────────────────────────────────────────────────────────────
@@ -126,7 +135,7 @@ export async function credit(
   currency: string,
   amount: Prisma.Decimal.Value,
 ) {
-  const amt = new Prisma.Decimal(amount);
+  const amt = postingAmount(amount, currency);
   if (!amt.isPositive() || amt.isZero()) throw new Error(`credit amount must be positive, got ${amt.toString()}`);
   const usdAmount = toUSDDecimal(amt, currency);
 

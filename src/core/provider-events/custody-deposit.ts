@@ -1,21 +1,17 @@
 /**
- * Custody deposit completion (remediation F3).
- *
- * A stablecoin arrived in a custody vault. Before any ledger effect, the event must resolve to:
- *   - an ASSET from the registry (network + contract), via the provider's asset id. USDC_ETH, SOL
- *     or an unknown token resolve to nothing and the event is IGNORED — never credited;
- *   - a WALLET: the destination vault, which belongs to exactly one User;
- *   - an INSTITUTION: the user's tenant (null for legacy rows; recorded as such);
- *   - the DEPOSIT it settles, by our tracking id in `externalTxId`.
- *
- * The credit, the deposit status change and the event record are one transaction (F1). The
- * status change is a conditional `updateMany` on `status != COMPLETED`; if it matches nothing the
- * deposit was already settled by another event and the whole transaction — credit included — is
- * rolled back by throwing.
+ * Atomic, asset-denominated custody receipt (F1/F3/F5).
+ * Caller authenticates original bytes and binds the signed Fireblocks workspace.
+ * Here an explicit instruction, pending status, destination vault, supported asset
+ * and exact NET received units must agree. Internal wallet moves cannot create
+ * new deposit liabilities. Claim, canonical-asset balance, balanced journal and
+ * status all commit or roll back inside the provider-event transaction.
+ * This is custody-provider evidence, not independent on-chain finality verification.
  */
 import { Prisma } from '@prisma/client';
 import { credit } from '../ledger.service';
-import { resolveProviderAsset, type AssetDefinition } from '../assets/registry';
+import { resolveProviderAsset, toMinorUnits, type AssetDefinition } from '../assets/registry';
+import { post } from '../settlement/journal.service';
+import { AccountCode } from '../settlement/accounts';
 import { EventIgnored, type EventOutcome, type Tx } from './provider-event.service';
 
 export interface CustodyCompletion {
@@ -25,6 +21,12 @@ export interface CustodyCompletion {
   externalTxId?: string;
   providerTxId?: string;
   amount?: number | string;
+  operation?: string;
+  destinationType?: string;
+  sourceType?: string;
+  sourceVaultId?: string;
+  network?: string;
+  contract?: string;
 }
 
 export class DepositAlreadySettled extends Error {
@@ -45,32 +47,66 @@ export async function applyCustodyDeposit(tx: Tx, ev: CustodyCompletion): Promis
     throw new EventIgnored({ status: 'IGNORED', reason: 'destination vault is not an AxLink wallet', assetId: asset.id, vaultId: ev.destinationVaultId });
   }
 
-  const trackingId = ev.externalTxId ?? '';
-  const deposit = trackingId.startsWith('dep_')
-    ? await tx.bankDeposit.findUnique({ where: { trackingId } })
-    : await tx.bankDeposit.findFirst({ where: { userId: user.id, status: 'PENDING_FIREBLOCKS' }, orderBy: { createdAt: 'desc' } });
   const attribution = { assetId: asset.id, institutionId: user.institutionId, vaultId: user.vaultId };
-  if (!deposit) {
-    throw new EventIgnored({ status: 'IGNORED', reason: `no pending deposit for ${trackingId || 'vault'}`, ...attribution });
+  const reject = (reason: string): never => { throw new EventIgnored({ status: 'REJECTED', reason, ...attribution }); };
+  if (ev.operation !== 'TRANSFER' || ev.destinationType !== 'VAULT_ACCOUNT') reject('only custody transfer receipts can settle deposits');
+  if (ev.sourceType === 'VAULT_ACCOUNT' || (ev.sourceVaultId && await tx.user.findUnique({ where: { vaultId: ev.sourceVaultId }, select: { id: true } }))) {
+    reject('internal wallet movements must not create a fresh deposit liability');
   }
-  if (deposit.userId !== user.id) {
-    // The tracking id names a deposit that belongs to a different wallet: never credit either side.
-    throw new EventIgnored({ status: 'REJECTED', reason: 'deposit does not belong to destination wallet', ...attribution, entityType: 'BankDeposit', entityId: deposit.id });
+  if ((ev.network !== undefined && ev.network !== asset.network) || (ev.contract !== undefined && ev.contract !== asset.contract)) {
+    reject('network or token contract conflicts with signed provider asset identity');
   }
+  const trackingId = ev.externalTxId ?? '';
+  if (!trackingId.startsWith('dep_')) reject('explicit deposit tracking id required');
+  const deposit = await tx.bankDeposit.findUnique({ where: { trackingId } });
+  if (!deposit) reject('unknown deposit tracking id');
+  // Prisma's nullable return is narrowed explicitly after the rejecting branch.
+  if (!deposit) throw new Error('unreachable');
+  if (deposit.userId !== user.id) reject('deposit does not belong to destination wallet');
+  if (deposit.status !== 'PENDING_FIREBLOCKS') {
+    throw new EventIgnored({ status: 'IGNORED', reason: 'deposit not awaiting custody', ...attribution, entityType: 'BankDeposit', entityId: deposit.id });
+  }
+  if (deposit.fbTxId && deposit.fbTxId !== ev.providerTxId) reject('custody transaction differs from expected transaction');
+  if ((deposit.currency !== asset.symbol && deposit.currency !== asset.id) ||
+      (deposit.settlementAssetId !== null && deposit.settlementAssetId !== asset.id)) {
+    reject('deposit expected asset differs from received asset; fiat orders cannot settle here');
+  }
+  // No conversion or inferred fee tolerance in this security fix: credit only exact,
+  // positive token units matching the pending asset-denominated instruction.
+  let amount: Prisma.Decimal;
+  try {
+    if (ev.amount === undefined) reject('missing received amount');
+    amount = new Prisma.Decimal(ev.amount!);
+    if (!amount.isFinite() || !amount.isPositive() || amount.isZero()) reject('invalid received amount');
+    toMinorUnits(amount, asset);
+    toMinorUnits(deposit.amount, asset);
+  } catch { reject('invalid received amount or unsupported asset precision'); }
+  if (!amount!.eq(deposit.amount)) reject('received amount does not match pending deposit');
 
-  // Effects — all inside the caller's transaction.
-  await credit(tx, user.id, deposit.currency, deposit.amount);
+  // Lock/claim the pending domain row before touching balances. Different provider
+  // event IDs for the same deposit serialize here and only one can claim it.
   const settled = await tx.bankDeposit.updateMany({
-    where: { id: deposit.id, status: { not: 'COMPLETED' } },
+    where: { id: deposit.id, status: 'PENDING_FIREBLOCKS', currency: deposit.currency,
+      amount: deposit.amount, settlementAssetId: deposit.settlementAssetId },
     data: { status: 'COMPLETED', fbTxId: ev.providerTxId ?? null, settlementAssetId: asset.id },
   });
   if (settled.count !== 1) {
-    // Already settled by another event: abort, which rolls back the credit above.
-    throw new EventIgnored({ status: 'IGNORED', reason: 'deposit already settled', ...attribution, entityType: 'BankDeposit', entityId: deposit.id });
+    throw new EventIgnored({ status: 'IGNORED', reason: 'deposit already settled or instruction changed', ...attribution, entityType: 'BankDeposit', entityId: deposit.id });
   }
+  const journal = await post(tx, {
+    eventType: 'DEPOSIT', entityType: 'BankDeposit', entityId: deposit.id,
+    postingKey: `BankDeposit:${deposit.id}:custody:${asset.id}`,
+    narrative: `Custody receipt ${asset.id} on ${asset.network} for institution ${user.institutionId ?? 'legacy-operator'}`,
+    lines: [
+      { account: AccountCode.custody(user.vaultId, asset.id), currency: asset.id, amount: amount!, usdAmount: amount! },
+      { account: AccountCode.user(user.id, asset.id), userId: user.id, currency: asset.id, amount: amount!.negated(), usdAmount: amount!.negated() },
+    ],
+  });
+  if (!journal.created) reject('deposit journal already exists; operator reconciliation required');
+  await credit(tx, user.id, asset.id, amount!);
 
   return {
     outcome: { status: 'PROCESSED', ...attribution, entityType: 'BankDeposit', entityId: deposit.id },
-    result: { credited: deposit.amount, currency: deposit.currency, asset },
+    result: { credited: amount!, currency: asset.id, asset },
   };
 }

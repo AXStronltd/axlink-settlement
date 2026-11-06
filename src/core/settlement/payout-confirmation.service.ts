@@ -166,7 +166,7 @@ export async function reverseWithdrawalFromPartner(params: {
 
   // Legacy: the debit was a projection change, so the reversal is too.
   await prisma.$transaction(async tx => {
-    await credit(tx as Parameters<typeof credit>[0], withdrawal.userId, withdrawal.currency, Number(withdrawal.amount));
+    await credit(tx as Parameters<typeof credit>[0], withdrawal.userId, withdrawal.currency, withdrawal.amount);
     await tx.withdrawal.update({ where: { id: withdrawalId }, data: { status: 'REVERSED' } });
   });
   await audit('Withdrawal', withdrawalId, 'REVERSED_WITHOUT_SETTLEMENT', {
