@@ -1,5 +1,17 @@
 # AxLink Settlement Service
 
+**Current development: Leg A, Step 1 only.** AxLink is institutional digital asset
+settlement infrastructure, ending at verified receipt by the receiving institution.
+[Scope and approval boundary](docs/SCOPE.md) · [Repository map](docs/STRUCTURE.md)
+
+USDT and USDC settlement are the Leg A direction. B2INPAY is a future optional
+conversion adapter. Fiat FX, local liquidity and beneficiary payouts belong to Leg B.
+The older product journeys below describe legacy code and do not authorize new work.
+Both existing frontends are preserved. Step 2 requires explicit owner approval.
+
+---
+
+
 **Users see a neobank. Crypto never appears.** All conversion happens silently in the backend across five layers.
 
 **No SWIFT.** No correspondent banks, no nostro accounts. Cross-border value

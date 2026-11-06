@@ -1,5 +1,9 @@
 # AxLink Settlement — working notes
 
+**Owner scope: Leg A, Step 1.** Read [docs/SCOPE.md](docs/SCOPE.md) and [AGENTS.md](AGENTS.md).
+Leg A ends at verified digital asset receipt by the receiving institution; fiat payouts, local FX and
+liquidity are Leg B. Preserve the front end; Step 2 needs explicit owner approval.
+
 Crypto-rail settlement service. Express + Prisma/Postgres backend (`apps/api` + `packages/`), AxLink front end (`apps/web`, with the ops dashboard at `apps/web/ops`). Layout: `docs/STRUCTURE.md`.
 Users see fiat only; USDT on Solana via Fireblocks is the internal settlement layer.
 
