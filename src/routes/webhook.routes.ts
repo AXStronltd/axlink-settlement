@@ -3,6 +3,8 @@ import { admitWebhook, isSecretConfigured, rejectWebhook } from '../platform/web
 import { verifyWebhookSignature, TRANSFER_STATUS } from '../providers/live/b2binpay';
 import { verifyFireblocksWebhook, TX_STATUS } from '../providers/live/fireblocks';
 import { prisma, credit } from '../core/ledger.service';
+import { processOnce, EventIgnored } from '../core/provider-events/provider-event.service';
+import { applyCustodyDeposit } from '../core/provider-events/custody-deposit';
 import { legByExternalKey, mergeLegPayload, confirmLeg, isTerminal } from '../core/settlement/leg.service';
 
 const router = Router();
@@ -90,19 +92,21 @@ router.post('/b2binpay', async (req: Request, res: Response) => {
         }
       }
     } else if (trackingId.startsWith('out_')) {
-      const withdrawal = await prisma.withdrawal.findUnique({ where: { trackingId } });
-      if (withdrawal && withdrawal.status === 'PENDING_B2BINPAY') {
-        if (statusLabel === 'failed' || statusLabel === 'cancelled') {
-          // B2BinPay failed to convert USDT → fiat — reverse the ledger debit
-          await prisma.$transaction(async (tx) => {
-            await credit(tx as Parameters<typeof credit>[0], withdrawal.userId, withdrawal.currency, withdrawal.amount);
-          });
-          await prisma.withdrawal.update({
-            where: { id: withdrawal.id },
-            data:  { status: 'REVERSED' },
-          });
-          console.log(`[B2BinPay] Withdrawal ${trackingId} reversed — B2BinPay status: ${statusLabel}`);
-        }
+      if (statusLabel === 'failed' || statusLabel === 'canceled' || statusLabel === 'cancelled') {
+        // B2BinPay failed to convert the stablecoin → fiat: reverse the ledger debit exactly once (F1).
+        // The reversal credit and the REVERSED status are one transaction, claimed by the event row.
+        const r = await processOnce({ provider: 'b2binpay', eventId: `${transferId ?? trackingId}:${statusCode}`, kind: 'transfer.status', rawBody }, async (tx) => {
+          const withdrawal = await tx.withdrawal.findUnique({ where: { trackingId } });
+          if (!withdrawal) throw new EventIgnored({ status: 'IGNORED', reason: `no withdrawal ${trackingId}` });
+          const user = await tx.user.findUnique({ where: { id: withdrawal.userId }, select: { institutionId: true, vaultId: true } });
+          const attribution = { institutionId: user?.institutionId ?? null, vaultId: user?.vaultId ?? null, entityType: 'Withdrawal', entityId: withdrawal.id };
+          const flipped = await tx.withdrawal.updateMany({ where: { id: withdrawal.id, status: 'PENDING_B2BINPAY' }, data: { status: 'REVERSED' } });
+          if (flipped.count !== 1) throw new EventIgnored({ status: 'IGNORED', reason: `withdrawal not pending (status ${withdrawal.status})`, ...attribution });
+          await credit(tx, withdrawal.userId, withdrawal.currency, withdrawal.amount);
+          return { outcome: { status: 'PROCESSED' as const, ...attribution }, result: null };
+        });
+        if (r.duplicate) { res.status(200).json({ received: true, duplicate: true }); return; }
+        if (r.outcome.status === 'PROCESSED') console.log(`[B2BinPay] Withdrawal ${trackingId} reversed — B2BinPay status: ${statusLabel}`);
       }
     }
   }
@@ -142,41 +146,24 @@ router.post(['/fireblocks', '/fireboks'], async (req: Request, res: Response) =>
     `[Fireblocks webhook] event=${event} txId=${tx?.id ?? '-'} status=${statusLabel} asset=${tx?.assetId ?? '-'} amount=${tx?.amount ?? '-'} hash=${tx?.txHash ?? '-'} externalId=${tx?.externalTxId ?? '-'} destVault=${tx?.destination?.id ?? '-'}`
   );
 
-  // ── When USDT lands in a user's Fireblocks vault → credit their ledger ──────
-  // This fires after B2BinPay sends USDT directly to user's vault address.
-  // The externalTxId contains our trackingId so we can match to the deposit record.
-  if (statusLabel === 'completed' && tx?.assetId?.startsWith('USDT') && tx?.destination?.id) {
-    const destVaultId  = tx.destination.id;
-    const externalTxId = tx?.externalTxId ?? '';
-
-    // Find the user by their vault ID
-    const user = await prisma.user.findUnique({ where: { vaultId: destVaultId } });
-    if (user) {
-      // Match deposit by trackingId (from externalTxId) when available — avoids
-      // ambiguity when multiple deposits are PENDING_FIREBLOCKS simultaneously.
-      const deposit = externalTxId.startsWith('dep_')
-        ? await prisma.bankDeposit.findUnique({ where: { trackingId: externalTxId } })
-        : await prisma.bankDeposit.findFirst({
-            where: { userId: user.id, status: 'PENDING_FIREBLOCKS' },
-            orderBy: { createdAt: 'desc' },
-          });
-
-      if (deposit) {
-        // ✅ USDT confirmed in Fireblocks vault — credit the user's fiat ledger
-        await prisma.$transaction(async (tx2: Parameters<typeof credit>[0]) => {
-          await credit(tx2, user.id, deposit.currency, deposit.amount);
-        });
-
-        await prisma.bankDeposit.update({
-          where: { id: deposit.id },
-          data: { status: 'COMPLETED', fbTxId: tx?.id },
-        });
-
-        console.log(
-          `[Fireblocks → Ledger] Credited ${deposit.amount} ${deposit.currency} to user ${user.id} (vault: ${destVaultId}) after USDT confirmed`
-        );
-      }
+  // ── A stablecoin landed in a custody vault → settle the matching deposit ───
+  // F1: exactly once per (tx id, status) via ProviderEvent uniqueness, in one transaction.
+  // F3: the asset is resolved from the registry by network + contract; USDC and USDT both settle;
+  //     anything else is recorded as IGNORED and never credits.
+  if (statusLabel === 'completed' && tx?.id) {
+    const r = await processOnce(
+      { provider: 'fireblocks', eventId: `${tx.id}:${tx.status ?? 'COMPLETED'}`, kind: event, rawBody },
+      (t) => applyCustodyDeposit(t, {
+        provider: 'fireblocks', providerAssetId: tx.assetId, destinationVaultId: tx.destination?.id,
+        externalTxId: tx.externalTxId, providerTxId: tx.id, amount: tx.amount,
+      }),
+    );
+    if (r.duplicate) { res.status(200).json({ received: true, duplicate: true }); return; }
+    if (r.outcome.status === 'PROCESSED' && r.result) {
+      console.log(`[Fireblocks → Ledger] Credited ${r.result.credited} ${r.result.currency} for ${r.result.asset.id} (${r.result.asset.contract}) vault ${tx.destination?.id}`);
     }
+    res.status(200).json({ received: true, outcome: r.outcome.status });
+    return;
   }
 
   res.status(200).json({ received: true });

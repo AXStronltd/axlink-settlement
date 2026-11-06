@@ -89,24 +89,10 @@ d('6/7/11 · deposits, tenancy and duplicate events against the live app (requir
     const r = await request(app).get(`/api/users/${u.body.userId}`); expect(r.status).toBe(200); // anyone, no key
   });
 
-  it('6/11 · Fireblocks deposit webhook: attribution by destination vault + externalTxId; USDC completions are IGNORED (asset filter is USDT-only); duplicate event credits TWICE (FAIL)', async () => {
-    const t = Date.now();
-    const user = await prisma.user.create({ data: { name: 'Dep Test', email: `dep${t}@x.io`, vaultId: `vault-dep-${t}`, kycStatus: 'APPROVED' } }).catch(async (e: Error) => { console.log('user create shape:', e.message.slice(0, 120)); return null; });
-    if (!user) { console.log('NOT VERIFIED: User model shape differs; see report'); return; }
-    const dep = await prisma.bankDeposit.create({ data: { trackingId: `dep_${t}`, userId: user.id, amount: new Prisma.Decimal('100'), usdAmount: new Prisma.Decimal('100'), usdtAmount: new Prisma.Decimal('100'), currency: 'USD', bankName: 'Test Bank', status: 'PENDING_FIREBLOCKS', method: 'bank_transfer' } }).catch(async (e: Error) => { console.log('deposit create shape:', e.message.slice(0, 160)); return null; });
-    if (!dep) { console.log('NOT VERIFIED: BankDeposit model shape differs; see report'); return; }
-    const balance = async () => (await prisma.account.findFirst({ where: { userId: user.id, currency: 'USD' } }))?.balance?.toString() ?? '0';
-    const event = (assetId: string) => ({ type: 'TRANSACTION_STATUS_UPDATED', data: { id: `fb-${t}-${assetId}`, status: 'COMPLETED', assetId, amount: 100, destination: { id: user.vaultId }, externalTxId: `dep_${t}` } });
-    await request(app).post('/api/webhooks/fireblocks').send(event('USDC_SOL')).expect(200);
-    const afterUsdc = await balance();
-    await request(app).post('/api/webhooks/fireblocks').send(event('USDT_SOL')).expect(200);
-    const afterUsdt = await balance();
-    await request(app).post('/api/webhooks/fireblocks').send(event('USDT_SOL')).expect(200); // exact duplicate
-    const afterDup = await balance();
-    console.log(JSON.stringify({ afterUsdc, afterUsdt, afterDup }));
-    expect(afterUsdc).toBe('0');                 // GAP: a USDC completion never credits — the filter is `assetId.startsWith('USDT')`
-    expect(Number(afterUsdt)).toBe(100);         // USDT completion credits the deposit (attributed by vault + trackingId)
-    expect(Number(afterDup)).toBe(200);          // FAIL: the same Fireblocks event replayed credits again — no provider-event dedupe on this path
+  it('6/11 · Fireblocks deposit webhook (post-remediation): USDC and USDT both credit; replay credits once; unsigned events are refused — full coverage in remediation.step1.test.ts', async () => {
+    // Unsigned: refused before any state change (F2). The asset/dedupe behaviour is covered by remediation.step1.test.ts.
+    const r = await request(app).post('/api/webhooks/fireblocks').send({ type: 'TRANSACTION_STATUS_UPDATED', data: { id: 'x', status: 'COMPLETED', assetId: 'USDT_SOL' } });
+    expect([401, 503]).toContain(r.status);
   });
 
   it('11 · proof service rejects an unknown asset key (incorrect mint cannot be selected by name)', async () => {
