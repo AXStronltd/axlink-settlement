@@ -30,7 +30,11 @@ db('portal connected to the API', () => {
     // The container ships a Chromium at /opt/pw-browsers/chromium (same as apps/web/tools/render_check.js); CI can override.
     browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });
   }, 60_000);
-  afterAll(async () => { await browser?.close(); server?.close(); });
+  afterAll(async () => {
+    server?.closeAllConnections();
+    if (server) await new Promise<void>(resolve => server.close(() => resolve()));
+    await browser?.close();
+  }, 30_000);
 
   it('GET /portal serves the AxLink front end; sign-in with the seeded key removes the demo banner and shows the real wallet; actions call the API', async () => {
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
@@ -39,13 +43,20 @@ db('portal connected to the API', () => {
     await expect(page.title()).resolves.toMatch(/AxLink/);
     await page.fill('#ax-key', apiKey);
     await page.click('button:has-text("Connect")');
-    await page.waitForSelector('text=Live · axlink-reference · sandbox', { timeout: 15_000 });
+    await page.waitForSelector('text=API connected · axlink-reference · sandbox', { timeout: 15_000 });
+    await page.waitForFunction(() => !(globalThis as any).LIVE.loading);
     expect(await page.locator('text=Demonstration — figures are illustrative').count()).toBe(0);
 
     // Wallet screen shows the seeded wallet from GET /v1/wallets
     await page.evaluate(() => (globalThis as any).go('#/app/treasury'));
     await page.waitForSelector('text=Wallets — GET /v1/wallets');
-    expect(await page.locator('td', { hasText: 'Treasury' }).count()).toBeGreaterThan(0);
+    await page.waitForSelector('td:text-is("Treasury")');
+    await page.click('button:text-is("+ New wallet")');
+    const newLabel = `UI wallet ${randomUUID().slice(0, 8)}`;
+    await page.fill('#lw-label', newLabel);
+    await page.click('.modal button:text-is("Create")');
+    await page.waitForSelector(`td:text-is("${newLabel}")`);
+    expect(await prisma.wallet.count({ where: { label: newLabel } })).toBe(1);
 
     // Register a counterparty through the UI → POST /v1/counterparties → ACTIVE (sandbox)
     await page.evaluate(() => (globalThis as any).go('#/app/contacts'));
@@ -103,7 +114,7 @@ db('portal connected to the API', () => {
     await page.click('text=Operator sign-in');
     await page.fill('#ax-ops', process.env.OPS_API_KEY!);
     await page.click('button:has-text("Connect operator console")');
-    await page.waitForSelector('text=Operator console · live', { timeout: 15_000 });
+    await page.waitForSelector('text=Operator console · API connected', { timeout: 15_000 });
     await page.waitForSelector(`[title="${subject}"]`, { timeout: 10_000 });
     expect(await page.evaluate(() => sessionStorage.getItem('AX_OPS_KEY'))).toBe(process.env.OPS_API_KEY);
     const row = page.locator('tr', { has: page.locator(`[title="${subject}"]`) });
@@ -122,6 +133,40 @@ db('portal connected to the API', () => {
     expect(await page.evaluate(() => sessionStorage.getItem('AX_OPS_KEY'))).toBeNull();
     await page.close();
   }, 60_000);
+
+  it('unauthenticated deep links never display sample balances or allow a pretend sign-in', async () => {
+    const page = await browser.newPage();
+    await page.goto(`${origin}/portal#/app/balances`);
+    await page.waitForSelector('#ax-key');
+    expect(await page.locator('input[type="password"]').count()).toBe(2);
+    expect(await page.locator('text=Explore the demo').count()).toBe(0);
+    expect(await page.locator('.kpi').count()).toBe(0);
+    await page.evaluate(() => (globalThis as any).loginAsClient());
+    expect(await page.locator('#ax-key').count()).toBe(1);
+    await page.close();
+  });
+
+  it('network counterparties without external addresses open the settlement form; unsupported screens never show sample figures', async () => {
+    const page = await browser.newPage();
+    await page.goto(`${origin}/portal#/signin`);
+    await page.fill('#ax-key', apiKey);
+    await page.click('button:text-is("Connect")');
+    await page.waitForSelector('text=API connected · axlink-reference · sandbox');
+    await page.waitForFunction(() => !(globalThis as any).LIVE.loading);
+    const errors: string[] = []; page.on('pageerror', e => errors.push(e.message));
+    await page.evaluate(() => {
+      const g = globalThis as any;
+      g.LIVE.counterparties = [{ id: 'network-test', label: 'Receiving institution', participant: 'receiver-demo', kind: 'NETWORK', address: null, status: 'ACTIVE' }];
+      g.liveOpenSettlement();
+    });
+    expect(await page.locator('#ls-cp').innerText()).toContain('receiver-demo');
+    await page.click('button:text-is("Cancel")');
+    await page.evaluate(() => (globalThis as any).go('#/app/reports/forecasting'));
+    expect(await page.locator('text=Projected Q3').count()).toBe(0);
+    expect(await page.locator('text=API connected · axlink-reference · sandbox').count()).toBe(1);
+    expect(errors).toEqual([]);
+    await page.close();
+  });
 
   it('a wrong key never connects and leaves nothing behind', async () => {
     const page = await browser.newPage();
