@@ -1,4 +1,4 @@
-const BASE = '/api'
+const BASE = (import.meta.env.VITE_API_URL ?? '') + '/api'
 
 // F4: the customer API now requires an operator key. This internal dashboard asks for it once and
 // keeps it in sessionStorage (cleared when the tab closes). It is never bundled into the build.
