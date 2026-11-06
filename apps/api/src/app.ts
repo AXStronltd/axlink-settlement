@@ -17,7 +17,8 @@ import webhookRoutes     from './routes/webhook.routes';
 import brainrockRoutes   from './routes/brainrock.routes';
 import darajaRoutes      from './routes/daraja.routes';
 import choicebankRoutes  from './routes/choicebank.routes';
-import networkRoutes     from './routes/network.routes';
+import networkRoutes          from './routes/network.routes';
+import networkSettlementRoutes from './routes/network-settlement.routes';
 import treasuryRoutes   from './routes/treasury.routes';
 import depositRoutes    from './routes/deposit.routes';
 import settlementRoutes from './routes/settlement.routes';
@@ -111,6 +112,9 @@ app.use('/api/orchestrator', orchestratorRoutes);
 
 // AxLink Bank Network API (bearer-auth for institutional members)
 app.use('/api/network', networkRoutes);
+
+// Fireblocks Network B2B Settlement (connections, Smart Transfers, direct transfers, webhooks)
+app.use('/api/v1/network-settlement', networkSettlementRoutes);
 
 // Internal treasury ops (OPS_API_KEY — never expose to banks or users)
 app.use('/api/ops', treasuryRoutes);
