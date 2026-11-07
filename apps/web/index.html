@@ -1406,25 +1406,35 @@ function appStub(title){
 
 /* ===== SIGN IN (institution portal) ===== */
 function pageSignIn(){
+  /* auth_v1: people sign in with email + password; the session is an HttpOnly cookie. */
   return siteHeader('')+'<div class="site-body">'+
-   '<section style="padding:60px 0 100px;min-height:72vh;display:flex;align-items:center"><div class="wrap" style="max-width:440px;margin:0 auto"><div class="reveal" style="text-align:center;margin-bottom:26px">'+markSized(40)+'<h1 style="font-size:28px;margin-top:14px">Sign in to AxLink</h1><p class="lead" style="font-size:14px;margin-top:6px">Institution portal - the open financial network.</p></div>'+
-   '<div class="panel reveal d1" style="padding:28px">'+
-   '<div class="field"><label>Work email</label><input placeholder="you@institution.com"/></div>'+
-   '<div class="field"><label>Password</label><input type="password" placeholder="&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;"/></div>'+
-   '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;font-size:12.5px"><label style="display:flex;align-items:center;gap:7px;color:var(--ink-2)"><input type="checkbox" style="width:auto"/> Remember this device</label><a href="javascript:void(0)" onclick="return toast(\'Reset link sent\')" style="color:var(--teal)">Forgot password?</a></div>'+
-   '<button class="btn btn-ghost" style="width:100%;justify-content:center" onclick="loginAsClient()">Explore the demo</button>'+
-   '<div style="margin:18px 0 10px;padding-top:14px;border-top:1px solid var(--line);font-size:12.5px;color:var(--ink-2)"><b>Connect with your API key</b><div style="font-size:11.5px;color:var(--ink-3);margin-top:4px">Sandbox or production key issued by AxLink operations (axlk_test_… / axlk_live_…). Kept in this tab only.</div></div>'+
-   '<div class="field"><label>API key</label><input id="ax-key" type="password" placeholder="axlk_test_…" autocomplete="off"/></div>'+
-   (axBase()?'':'<div class="field"><label>API base URL</label><input id="ax-base" placeholder="https://sandbox.api.axlink.network/api/v1"/></div>')+
-   '<button class="btn btn-primary" style="width:100%;justify-content:center" onclick="return connectWithKey(document.getElementById(\'ax-key\').value,(document.getElementById(\'ax-base\')||{}).value)">Connect</button>'+
-   '<div style="text-align:center;margin-top:16px;font-size:12.5px;color:var(--ink-3)">SSO available for enterprise -<span style="color:var(--teal);cursor:pointer" onclick="toast(\'SSO redirect\')"> Use SSO</span></div>'+
+   '<section style="padding:60px 0 100px;min-height:72vh;display:flex;align-items:center"><div class="wrap" style="max-width:440px;margin:0 auto"><div class="reveal" style="text-align:center;margin-bottom:26px">'+markSized(40)+'<h1 style="font-size:28px;margin-top:14px">Sign in to AxLink</h1><p class="lead" style="font-size:14px;margin-top:6px">Institution portal: your wallets, deposits and settlements.</p></div>'+
+   '<form class="panel reveal d1" style="padding:28px" onsubmit="return portalSignIn()">'+
+   '<div class="field"><label for="si-email">Work email</label><input id="si-email" type="email" autocomplete="username" placeholder="you@institution.com" required/></div>'+
+   '<div class="field"><label for="si-pass">Password</label><input id="si-pass" type="password" autocomplete="current-password" required/></div>'+
+   '<button id="si-btn" type="submit" class="btn btn-primary" style="width:100%;justify-content:center;margin-top:4px">Sign in</button>'+
+   '<div style="text-align:center;margin-top:14px;font-size:12.5px;color:var(--ink-3)">Two-factor authentication is required for production access.</div>'+
    '<div style="text-align:center;margin-top:14px;padding-top:14px;border-top:1px solid var(--line);font-size:11.5px;color:var(--ink-3)">AxLink staff? <span style="color:var(--ink-2);cursor:pointer;font-weight:600" onclick="document.getElementById(\'ops-box\').style.display=\'\'">Operator sign-in</span></div>'+
-   '<div id="ops-box" style="display:none;margin-top:10px"><div class="field"><label>Operator key</label><input id="ax-ops" type="password" placeholder="OPS_API_KEY" autocomplete="off"/></div><button class="btn btn-ghost" style="width:100%;justify-content:center" onclick="return connectAsOperator(document.getElementById(\'ax-ops\').value)">Connect operator console</button><div style="text-align:center;margin-top:8px;font-size:11.5px;color:var(--ink-3);cursor:pointer" onclick="loginAsOperator()">or explore the operator demo</div></div>'+
-   '</div>'+
-   '<p class="reveal d2" style="text-align:center;color:var(--ink-3);font-size:13px;margin-top:22px">New institution? <a href="javascript:void(0)" onclick="return go(\'#/onboarding\')" style="color:var(--teal);font-weight:600">Get started -></a></p>'+
+   '<div id="ops-box" style="display:none;margin-top:10px"><div class="field"><label>Operator key</label><input id="ax-ops" type="password" placeholder="OPS_API_KEY" autocomplete="off"/></div><button type="button" class="btn btn-ghost" style="width:100%;justify-content:center" onclick="return connectAsOperator(document.getElementById(\'ax-ops\').value)">Connect operator console</button></div>'+
+   '</form>'+
+   '<p class="reveal d2" style="text-align:center;color:var(--ink-3);font-size:13px;margin-top:22px">New institution? <a href="javascript:void(0)" onclick="return go(\'#/onboarding\')" style="color:var(--teal);font-weight:600">Create a sandbox account &#8594;</a></p>'+
    '</div></section>'+siteFooter();
 }
-/* ===== OPERATOR (SUPER ADMIN) SIGN-IN — separate secure panel ===== */
+function portalSignIn(){
+  var email=(document.getElementById('si-email')||{}).value||'', pass=(document.getElementById('si-pass')||{}).value||'';
+  var base=axBase(); if(!base){ toast('Open this page from the AxLink site to sign in','!'); return false; }
+  var btn=document.getElementById('si-btn'); if(btn){ btn.disabled=true; btn.textContent='Signing in…'; }
+  fetch(base+'/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({email:email.trim(),password:pass})})
+   .then(function(r){ return r.json().catch(function(){return {};}).then(function(j){ if(!r.ok) throw new Error((j.error&&j.error.message)||'Sign-in failed'); }); })
+   .then(function(){ return portalEnter(); })
+   .catch(function(e){ toast(liveEsc(e.message),'!'); if(btn){ btn.disabled=false; btn.textContent='Sign in'; } });
+  return false;
+}
+/* Signed in (cookie): load the institution and open its dashboard. */
+function portalEnter(){
+  try{ sessionStorage.removeItem('AX_API_KEY'); }catch(e){}
+  return axApi('GET','/institutions/me').then(function(me){ LIVE.me=me; LIVE.error=null; ROLE='client'; ENV=me.environment; toast('Signed in · '+liveUnesc(me.institution.slug)); go('#/app'); refreshLive(); });
+}
 function pageOperatorSignIn(){
   return '<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;background:radial-gradient(120% 90% at 50% 0%,var(--glow),transparent 60%)">'+
    '<div style="max-width:420px;width:100%">'+
@@ -1446,26 +1456,28 @@ function pageOperatorSignIn(){
 /* login handlers set the role, then enter the dashboard */
 function loginAsOperator(){ ROLE='operator'; toast('Signed in · Operator Console'); go('#/app'); }
 function loginAsClient(){ ROLE='client'; toast('Signed in · Institution Portal'); go('#/app'); }
-function signOut(){ var wasOp=(ROLE==='operator'); disconnectLive(); disconnectOps(); toast('Signed out'); go(wasOp?'#/operator':'#/signin'); }
+function signOut(){ var wasOp=(ROLE==='operator'); if(!wasOp&&axBase()){ fetch(axBase()+'/auth/logout',{method:'POST',credentials:'same-origin'}).catch(function(){}); } disconnectLive(); disconnectOps(); toast('Signed out'); go(wasOp?'#/operator':'#/signin'); }
 
 /* ===== ONBOARDING FLOW (Get Verified -> Fund -> Transact) ===== */
 var ONB={step:1,type:'institution'};
 function onboarding(){
   /* Self-service SANDBOX signup — real: POST /v1/onboarding/sandbox. Production access is never self-service. */
   var r=ONB.result;
-  var steps=['Your institution','Sandbox key','Dashboard','Go live (with AxLink)'];
+  var steps=['Your institution','Dashboard','API keys (when you integrate)','Go live (KYB + 2FA)'];
   var at=r?2:1;
   var stepH='<div class="steps">'+steps.map(function(s,i){var cls=(i+1<at?'done':(i+1===at?'active':''));return '<div class="st '+cls+'"><span class="num">'+(i+1<at?'&#10003;':(i+1))+'</span><span class="lb">'+s+'</span></div>'+(i<steps.length-1?'<div class="line '+(i+1<at?'done':'')+'"></div>':'');}).join('')+'</div>';
   var body;
   if(!r){
     var countries=[['KE','Kenya'],['NG','Nigeria'],['GH','Ghana'],['ZA','South Africa'],['EG','Egypt'],['ET','Ethiopia'],['SO','Somalia'],['TZ','Tanzania'],['UG','Uganda'],['RW','Rwanda'],['AE','United Arab Emirates'],['SA','Saudi Arabia'],['QA','Qatar'],['BH','Bahrain'],['GB','United Kingdom'],['US','United States'],['SG','Singapore'],['DE','Germany'],['FR','France'],['NL','Netherlands']];
     body='<h2 style="font-size:24px;margin-bottom:6px">Create your sandbox account</h2>'+
-    '<p class="lead" style="font-size:14px;margin-bottom:20px">Try AxLink end to end with test tokens on Solana devnet: real Fireblocks sandbox custody, no real money. You get an API key and your dashboard immediately.</p>'+
+    '<p class="lead" style="font-size:14px;margin-bottom:20px">Try AxLink end to end with test tokens on Solana devnet: real Fireblocks sandbox custody, no real money. You are signed in to your dashboard as soon as you sign up.</p>'+
     '<div class="field"><label for="ob-name">Legal entity name</label><input id="ob-name" maxlength="200" placeholder="e.g. Galaxy Bank Ltd" autocomplete="organization"/></div>'+
     '<div class="grid-2" style="gap:14px"><div class="field"><label for="ob-kind">Institution type</label><select id="ob-kind"><option value="BANK">Bank</option><option value="PSP">Payment service provider</option><option value="FINTECH">Fintech</option><option value="EXCHANGE">Exchange</option><option value="OTHER">Other</option></select></div>'+
     '<div class="field"><label for="ob-country">Country of registration</label><select id="ob-country">'+countries.map(function(c){return '<option value="'+c[0]+'">'+c[1]+'</option>';}).join('')+'</select></div></div>'+
     '<div class="grid-2" style="gap:14px"><div class="field"><label for="ob-contact">Your name</label><input id="ob-contact" maxlength="120" autocomplete="name"/></div>'+
     '<div class="field"><label for="ob-email">Work email</label><input id="ob-email" type="email" maxlength="200" placeholder="you@institution.com" autocomplete="email"/></div></div>'+
+    '<div class="grid-2" style="gap:14px"><div class="field"><label for="ob-pass">Password</label><input id="ob-pass" type="password" autocomplete="new-password" placeholder="12+ characters, letters and digits"/></div>'+
+    '<div class="field"><label for="ob-pass2">Confirm password</label><input id="ob-pass2" type="password" autocomplete="new-password"/></div></div>'+
     '<label style="display:flex;gap:10px;align-items:flex-start;font-size:13px;color:var(--ink-2);margin:4px 0 16px;cursor:pointer"><input id="ob-ack" type="checkbox" style="margin-top:3px"/> I understand this is a sandbox: test tokens only, no real funds. Production access requires KYB with AxLink.</label>'+
     '<button id="ob-submit" class="btn btn-primary" style="width:100%;justify-content:center" onclick="return onbSubmit()">Create sandbox account &#8594;</button>'+
     '<p style="text-align:center;font-size:13px;color:var(--ink-3);margin-top:16px">Already have a key? <a href="javascript:void(0)" onclick="return go(\'#/signin\')" style="color:var(--teal);font-weight:600">Sign in</a></p>';
@@ -1487,17 +1499,20 @@ function onboarding(){
 }
 function onbSubmit(){
   var v=function(id){var e=document.getElementById(id);return e?(e.value||'').trim():'';};
-  var data={legalName:v('ob-name'),kind:v('ob-kind'),country:v('ob-country'),contactName:v('ob-contact'),email:v('ob-email')};
+  var pw=(document.getElementById('ob-pass')||{}).value||'', pw2=(document.getElementById('ob-pass2')||{}).value||'';
+  var data={legalName:v('ob-name'),kind:v('ob-kind'),country:v('ob-country'),contactName:v('ob-contact'),email:v('ob-email'),password:pw};
+  if(pw.length<12||!/[a-zA-Z]/.test(pw)||!/[0-9]/.test(pw)){ toast('Password: at least 12 characters, with letters and digits','!'); return false; }
+  if(pw!==pw2){ toast('The passwords do not match','!'); return false; }
   if(data.legalName.length<2||data.contactName.length<2||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)){ toast('Fill in the institution, your name and a valid work email','!'); return false; }
   if(!(document.getElementById('ob-ack')||{}).checked){ toast('Please confirm you understand this is a sandbox','!'); return false; }
   var base=axBase(); if(!base){ toast('Open this page from the AxLink site to sign up','!'); return false; }
   var btn=document.getElementById('ob-submit'); if(btn){ btn.disabled=true; btn.textContent='Creating your sandbox…'; }
-  fetch(base+'/onboarding/sandbox',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)})
+  fetch(base+'/onboarding/sandbox',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify(data)})
    .then(function(res){ return res.json().catch(function(){return {};}).then(function(j){ return {ok:res.ok,j:j}; }); })
    .then(function(x){
      if(!x.ok){ var m=(x.j&&x.j.error&&x.j.error.message)||'Signup failed'; toast(liveEsc(m),'!'); if(btn){ btn.disabled=false; btn.innerHTML='Create sandbox account &#8594;'; } return; }
-     ONB.result={apiKey:liveEsc(x.j.apiKey),slug:liveEsc(x.j.institution.slug),legalName:liveEsc(x.j.institution.legalName)};
-     ONB._rawKey=x.j.apiKey; render();
+     // Signed in by the HttpOnly cookie the signup set: straight to the dashboard (no key to copy).
+     toast('Welcome to AxLink · '+liveEsc(x.j.institution.legalName)); portalEnter();
    })
    .catch(function(){ toast('Network error — try again','!'); if(btn){ btn.disabled=false; btn.innerHTML='Create sandbox account &#8594;'; } });
   return false;
@@ -2173,8 +2188,8 @@ function axBaseOk(b){ return /^https:\/\/[^\s\/]+(\/[^\s]*)?$/.test(b)||/^http:\
 function axKey(){ try{ return sessionStorage.getItem('AX_API_KEY')||''; }catch(e){ return ''; } }
 function axApi(method,path,body,headers){
   var base=axBase(); if(!base) return Promise.reject(new Error('No API base configured'));
-  var h={'Authorization':'Bearer '+axKey()}; if(body) h['Content-Type']='application/json'; if(headers) for(var k in headers) h[k]=headers[k];
-  return fetch(base+path,{method:method,headers:h,body:body?JSON.stringify(body):undefined}).then(function(r){
+  var k0=axKey(); var h=k0?{'Authorization':'Bearer '+k0}:{'X-AxLink-Portal':'1'}; if(body) h['Content-Type']='application/json'; if(headers) for(var k in headers) h[k]=headers[k];
+  return fetch(base+path,{method:method,headers:h,credentials:'same-origin',body:body?JSON.stringify(body):undefined}).then(function(r){
     return r.text().then(function(t){ var j=null; try{ j=t?JSON.parse(t):null; }catch(e){}
       if(!r.ok){ var err=new Error((j&&j.error&&j.error.message)||('HTTP '+r.status)); /* shown via toast (text node) or escaped at LIVE.error */ err.code=liveEsc((j&&j.error&&j.error.code)||('HTTP_'+r.status)); err.status=r.status; err.details=liveSan(j&&j.error&&j.error.details); throw err; }
       return liveSan(j); });
@@ -2204,6 +2219,17 @@ function refreshLive(){
    .then(function(){ return Promise.all((LIVE.endpoints||[]).map(function(ep){ return axApi('GET','/webhook-endpoints/'+ep.id+'/deliveries').then(function(d){ LIVE.deliveries[ep.id]=d; }).catch(function(){}); })); })
    .then(function(){ LIVE.loading=false; render(); });
 }
+function portalCreateKey(){
+  openModal('<h3 style="font-size:19px;margin-bottom:14px">Create API key</h3><div class="field"><label for="pk-label">Label</label><input id="pk-label" maxlength="80" placeholder="e.g. Core banking server"/></div><button class="btn btn-primary" style="width:100%;justify-content:center" onclick="portalDoCreateKey()">Create</button>');
+}
+function portalDoCreateKey(){
+  var label=((document.getElementById('pk-label')||{}).value||'').trim(); if(!label){ toast('Give the key a label','!'); return; }
+  axApi('POST','/portal/credentials',{label:label}).then(function(k){
+    LIVE.keys=null;
+    openModal('<h3 style="font-size:19px;margin-bottom:8px">Your new API key</h3><p style="color:var(--ink-3);font-size:13px;margin-bottom:14px">Shown once. Store it in your server&#39;s secret manager; AxLink keeps only a hash.</p><div style="display:flex;gap:8px"><input id="pk-key" class="mono" readonly value="'+k.apiKey+'" style="font-size:12.5px"/><button class="btn btn-ghost btn-sm" onclick="var i=document.getElementById(\'pk-key\');i.select();try{navigator.clipboard.writeText(i.value);toast(\'Copied\');}catch(e){}">Copy</button></div><button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:16px" onclick="closeModal();render()">Done</button>');
+  }).catch(function(e){ toast(e.message,'!'); });
+}
+function portalRevokeKey(id){ axApi('POST','/portal/credentials/'+encodeURIComponent(id)+'/revoke',{}).then(function(){ LIVE.keys=null; toast('Key revoked'); render(); }).catch(function(e){ toast(e.message,'!'); }); }
 function liveAmt(a){ return a===undefined||a===null?'—':String(a); }
 function liveWhen(iso){ if(!iso) return '—'; var d=new Date(iso); var s=(Date.now()-d.getTime())/1000; if(s<60) return 'just now'; if(s<3600) return Math.floor(s/60)+' min ago'; if(s<86400) return Math.floor(s/3600)+' hr ago'; return d.toISOString().slice(0,10); }
 function liveBadge(st){ return '<span class="badge badge-'+(st==='COMPLETED'||st==='ACTIVE'||st==='SETTLED'?'completed':st==='FAILED'||st==='DISABLED'||st==='REJECTED'||st==='CANCELLED'||st==='EXPIRED'||st==='ABANDONED'?'failed':'pending')+'">'+st+'</span>'; }
@@ -2291,12 +2317,16 @@ function liveCreateEndpoint(){ axApi('POST','/webhook-endpoints',{url:(document.
 function liveDisableEndpoint(id){ axApi('DELETE','/webhook-endpoints/'+id).then(function(){ toast('Endpoint disabled'); refreshLive(); }).catch(function(e){ toast(e.message,'!'); }); }
 function liveDevelopers(){
   var me=LIVE.me; var base=axBase();
-  var code='GET '+base+'/institutions/me\nAuthorization: Bearer '+axKey().slice(0,14)+'…\n\n200 OK\n'+JSON.stringify(me,null,2);
+  if(!LIVE.keys){ LIVE.keys=[]; axApi('GET','/portal/credentials').then(function(k){ LIVE.keys=k; if(CURRENT==='#/app/developers') render(); }).catch(function(){}); }
+  var code='GET '+base+'/institutions/me\nAuthorization: Bearer axlk_test_…\n\n200 OK\n'+JSON.stringify(me,null,2);
   var ep=[['GET','/institutions/me'],['GET','/assets'],['POST','/wallets'],['POST','/custody/deposit-addresses'],['GET','/balances'],['POST','/deposits'],['GET','/settlements/{id}'],['GET','/ledger/entries'],['POST','/counterparties'],['POST','/transfers'],['POST','/settlements'],['POST','/webhook-endpoints']].map(function(e){ return '<div style="display:flex;align-items:center;gap:10px"><span class="badge badge-'+(e[0]==='GET'?'review':'active')+'" style="min-width:44px;justify-content:center">'+e[0]+'</span><span class="mono" style="color:var(--ink);font-size:12px">'+e[1]+'</span></div>'; }).join('');
-  return appShell('#/app/developers', liveHead()+pageHead('Developers','Your credential as the API sees it. Full reference: <a href="'+base.replace(/\/v1$/,'')+'/docs" target="_blank" rel="noopener" style="color:var(--teal)">'+base.replace(/\/v1$/,'')+'/docs</a>')+
+  var keyRows=(LIVE.keys||[]).map(function(k){ return '<tr><td style="font-weight:500">'+k.label+'</td><td class="mono" style="font-size:12px;color:var(--teal)">'+k.prefix+'…</td><td style="color:var(--ink-3)">'+liveWhen(k.createdAt)+'</td><td style="color:var(--ink-3)">'+(k.lastUsedAt?liveWhen(k.lastUsedAt):'never')+'</td><td>'+(k.revokedAt?'<span class="badge badge-failed">Revoked</span>':'<button class="btn btn-ghost btn-sm" onclick="portalRevokeKey(\''+k.id+'\')">Revoke</button>')+'</td></tr>'; }).join('')||'<tr><td colspan="5" style="color:var(--ink-3)">No API keys yet. Create one for your core-banking or treasury server.</td></tr>';
+  var keysCard='<div class="chart-card reveal" style="margin-bottom:14px"><div class="ch"><h4>API keys for your servers</h4><button class="btn btn-primary btn-sm" onclick="portalCreateKey()">+ Create API key</button></div><p style="color:var(--ink-3);font-size:12.5px;margin-bottom:10px">People sign in with email and password; your backend uses an API key (Bearer). A key is shown once when created. Sandbox keys start with axlk_test_.</p><table><thead><tr><th>Label</th><th>Prefix</th><th>Created</th><th>Last used</th><th></th></tr></thead><tbody>'+keyRows+'</tbody></table></div>';
+  return appShell('#/app/developers', liveHead()+keysCard+pageHead('Developers','Your credential as the API sees it. Full reference: <a href="'+base.replace(/\/v1$/,'')+'/docs" target="_blank" rel="noopener" style="color:var(--teal)">'+base.replace(/\/v1$/,'')+'/docs</a>')+
    '<div class="grid-2" style="gap:14px"><div class="chart-card reveal"><h4 style="margin-bottom:8px">Who am I</h4><pre style="background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:14px;font-size:11.5px;line-height:1.55;overflow-x:auto;color:var(--ink)">'+code.replace(/</g,'&lt;')+'</pre></div><div class="chart-card reveal d1"><h4 style="margin-bottom:8px">Endpoints (all live)</h4><div style="display:grid;gap:8px">'+ep+'</div><div class="hint" style="margin-top:10px">Your scopes: <span class="mono">'+(me.scopes||[]).join(' ')+'</span></div></div></div>');
 }
 /* restore a session on reload (same tab) */
+(function(){ if(!axKey()&&axBase()&&location.protocol.indexOf('http')===0){ fetch(axBase()+'/auth/session',{credentials:'same-origin'}).then(function(r){ if(r.ok) return axApi('GET','/institutions/me').then(function(me){ LIVE.me=me; ROLE='client'; ENV=me.environment; if(CURRENT.indexOf('#/app')!==0&&CURRENT!=='#/'&&CURRENT!=='') CURRENT='#/app'; render(); refreshLive(); }); }).catch(function(){}); } })();
 (function(){ if(axKey()&&axBase()){ axApi('GET','/institutions/me').then(function(me){ LIVE.me=me; ROLE='client'; ENV=me.environment; if(CURRENT.indexOf('#/app')!==0) CURRENT='#/app'; refreshLive(); }).catch(function(){ disconnectLive(); }); } })();
 /* deep links: #/app/treasury etc. open the screen directly (the in-page router ignored the URL hash before) */
 (function(){ function fromHash(){ var h=location.hash; if(h&&ROUTES[h]&&CURRENT!==h){ CURRENT=h; render(); } } window.addEventListener('hashchange',fromHash); if(location.hash&&ROUTES[location.hash]){ CURRENT=location.hash; render(); } })();

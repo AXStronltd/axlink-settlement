@@ -35,10 +35,10 @@ db('portal connected to the API', () => {
   it('GET /portal serves the AxLink front end; sign-in with the seeded key removes the demo banner and shows the real wallet; actions call the API', async () => {
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
     const errors: string[] = []; page.on('pageerror', e => errors.push(e.message));
-    await page.goto(`${origin}/portal#/signin`);
+    // People sign in with email + password; a server key is still accepted when a tool stores it for the tab.
+    await page.addInitScript(k => { sessionStorage.setItem('AX_API_KEY', k as string); }, apiKey);
+    await page.goto(`${origin}/portal#/app`);
     await expect(page.title()).resolves.toMatch(/AxLink/);
-    await page.fill('#ax-key', apiKey);
-    await page.click('button:has-text("Connect")');
     await page.waitForSelector('text=Live · axlink-reference · sandbox', { timeout: 15_000 });
     expect(await page.locator('text=Demonstration — figures are illustrative').count()).toBe(0);
 
@@ -125,37 +125,50 @@ db('portal connected to the API', () => {
     await page.close();
   }, 60_000);
 
-  it('a wrong key never connects and leaves nothing behind', async () => {
+  it('a wrong password never signs in and leaves nothing behind', async () => {
     const page = await browser.newPage();
     await page.goto(`${origin}/portal#/signin`);
-    await page.fill('#ax-key', 'axlk_test_wrongwrongwrongwrongwrong');
-    await page.click('button:has-text("Connect")');
+    await page.fill('#si-email', `nobody-${randomUUID().slice(0, 6)}@bank.example`); await page.fill('#si-pass', 'not-the-password-1');
+    await page.click('#si-btn');
     await page.waitForSelector('#toast.show');
-    expect(await page.locator('#toast').innerText()).toMatch(/Could not connect/);
+    expect(await page.locator('#toast').innerText()).toMatch(/email or password is incorrect/);
     expect(await page.evaluate(() => sessionStorage.getItem('AX_API_KEY'))).toBeNull();
     expect(await page.locator('text=Live ·').count()).toBe(0);
     await page.close();
   }, 30_000);
 
-  it('a bank signs itself up for the sandbox in the browser, sees its key once and lands in its dashboard', async () => {
+  it('a bank signs itself up in the browser, lands in its dashboard by session, signs out and back in, and creates a server API key', async () => {
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
     const errors: string[] = []; page.on('pageerror', e => errors.push(e.message));
     await page.goto(`${origin}/portal#/onboarding`);
     await page.fill('#ob-name', 'Browser Test Bank');
     await page.selectOption('#ob-kind', 'BANK'); await page.selectOption('#ob-country', 'KE');
-    await page.fill('#ob-contact', 'Amina Tester'); await page.fill('#ob-email', `tester-${randomUUID().slice(0, 8)}@bank.example`);
+    const email = `tester-${randomUUID().slice(0, 8)}@bank.example`; const pw = 'browser-test-42-pass';
+    await page.fill('#ob-contact', 'Amina Tester'); await page.fill('#ob-email', email);
+    await page.fill('#ob-pass', pw); await page.fill('#ob-pass2', pw);
     await page.check('#ob-ack');
     await page.click('#ob-submit');
-    await page.waitForSelector('text=is on the sandbox', { timeout: 15_000 });
-    const key = await page.inputValue('#ob-key');
-    expect(key).toMatch(/^axlk_test_/);
-    await page.click('button:has-text("Open my dashboard")');
-    await page.waitForSelector('text=Live · browser-test-bank-', { timeout: 15_000 });
+    await page.waitForSelector('text=Live · browser-test-bank-', { timeout: 15_000 }); // signed in by cookie, no key shown
+    expect(await page.evaluate(() => sessionStorage.getItem('AX_API_KEY'))).toBeNull();
+    expect(await page.evaluate(() => (globalThis as any).document.cookie)).not.toContain('axs='); // HttpOnly: scripts cannot read it
     await page.evaluate(() => (globalThis as any).go('#/app/treasury'));
     await page.click('button:has-text("+ New wallet")');
     await page.fill('#lw-label', 'Treasury'); await page.click('.modal button:has-text("Create")');
     await page.locator('td', { hasText: 'Treasury' }).first().waitFor({ timeout: 15_000 });
+
+    // Sign out, then back in with email + password; the session survives a reload.
+    await page.evaluate(() => (globalThis as any).signOut());
+    await page.waitForSelector('#si-email', { timeout: 10_000 });
+    await page.fill('#si-email', email); await page.fill('#si-pass', pw); await page.click('#si-btn');
+    await page.waitForSelector('text=Live · browser-test-bank-', { timeout: 15_000 });
+    await page.reload(); await page.waitForSelector('text=Live · browser-test-bank-', { timeout: 15_000 });
+
+    // Developers → create an API key for the bank's server (shown once)
+    await page.evaluate(() => (globalThis as any).go('#/app/developers'));
+    await page.click('button:has-text("+ Create API key")');
+    await page.fill('#pk-label', 'Core banking'); await page.click('.modal button:has-text("Create")');
+    expect(await page.inputValue('#pk-key')).toMatch(/^axlk_test_/);
     expect(errors).toEqual([]);
     await page.close();
-  }, 60_000);
+  }, 90_000);
 });
