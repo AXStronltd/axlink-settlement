@@ -17,7 +17,7 @@ describe('config validation', () => {
     expect(r.config.PORT).toBe(4000); expect(r.sandboxProviders).toContain('FIREBLOCKS_API_KEY');
   });
   it('production foundation boots without an optional B2INPAY adapter, but configured adapters require a webhook secret', () => {
-    const env = { NODE_ENV: 'production', DATABASE_URL: 'postgresql://u@localhost/db', API_BASE_URL: 'https://api.example.test/api', OPS_API_KEY: 'k'.repeat(32), FIREBLOCKS_WORKSPACE_ID: 'test-workspace', FIREBLOCKS_WEBHOOK_PUBLIC_KEY: 'test-public-key', WEBHOOK_ENCRYPTION_KEY: 'a'.repeat(64), SOLANA_RPC_URL: 'https://solana.dedicated.example/rpc' };
+    const env = { NODE_ENV: 'production', DATABASE_URL: 'postgresql://u@localhost/db', API_BASE_URL: 'https://api.example.test/api', OPS_API_KEY: 'k'.repeat(32), FIREBLOCKS_WORKSPACE_ID: 'test-workspace', FIREBLOCKS_API_KEY: 'test-api-key', FIREBLOCKS_WEBHOOK_JWKS_URL: 'https://keys.fireblocks.io/.well-known/jwks.json',  FIREBLOCKS_WEBHOOK_PUBLIC_KEY: 'test-public-key', WEBHOOK_ENCRYPTION_KEY: 'a'.repeat(64), SOLANA_RPC_URL: 'https://solana.dedicated.example/rpc' };
     expect(() => loadConfig(env)).not.toThrow();
     for (const key of ['B2BINPAY_CLIENT_ID', 'B2BINPAY_CLIENT_SECRET']) {
       expect(() => loadConfig({ ...env, [key]: 'configured' })).toThrow(/B2BINPAY_CALLBACK_SECRET/);
