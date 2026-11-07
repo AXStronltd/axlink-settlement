@@ -45,6 +45,8 @@ db('portal connected to the API', () => {
     // Wallet screen shows the seeded wallet from GET /v1/wallets
     await page.evaluate(() => (globalThis as any).go('#/app/treasury'));
     await page.waitForSelector('text=Wallets — GET /v1/wallets');
+    // The table header renders at once; the rows arrive with refreshLive() (async) — wait for them, don't race them.
+    await page.locator('td', { hasText: 'Treasury' }).first().waitFor({ timeout: 10_000 });
     expect(await page.locator('td', { hasText: 'Treasury' }).count()).toBeGreaterThan(0);
 
     // Register a counterparty through the UI → POST /v1/counterparties → ACTIVE (sandbox)
