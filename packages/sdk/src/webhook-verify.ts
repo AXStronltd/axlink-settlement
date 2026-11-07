@@ -48,42 +48,70 @@ export type WebhookEventType =
   | 'transfer.failed'
   | 'settlement.received';
 
+/** Envelope of every delivery (exactly what the API signs and sends). */
 export interface WebhookEventBase<T extends WebhookEventType, D> {
+  /** Event id (evt_…): the same id is redelivered on retry, so dedupe on it. */
   id: string;
   type: T;
   createdAt: string;
-  institutionId: string;
-  environment: 'SANDBOX' | 'PRODUCTION';
   data: D;
 }
 
+type AssetId = 'USDC_SOL' | 'USDT_SOL';
+type PublicStatus = 'PROCESSING' | 'COMPLETED' | 'FAILED';
+
+/** deposit.* — `settlementId` is the deposit instruction id (GET /v1/settlements/:id or /v1/deposits/:id). */
 export interface DepositEventData {
-  depositId: string;
+  settlementId: string;
+  kind: 'DEPOSIT';
+  status: PublicStatus;
   walletId: string;
-  assetId: string;
+  asset: AssetId;
+  /** Received amount (deposit.received / deposit.settled). */
   amount?: string;
-  txHash?: string;
-  status: string;
+  /** Announced amount (deposit.rejected / deposit.expired). */
+  expectedAmount?: string;
+  reference: string | null;
+  trackingId: string;
+  finality?: 'CUSTODY_CONFIRMED' | 'ON_CHAIN_FINALIZED';
+  txHash?: string | null;
+  explorerUrl?: string | null;
+  slot?: string | null;
+  custodyTxId?: string | null;
+  attention?: true;
+  reason?: string;
 }
 
+/** transfer.* — an outbound transfer or network settlement you initiated. */
 export interface TransferEventData {
   transferId: string;
+  kind: 'TRANSFER';
+  status: PublicStatus;
+  stage: string;
+  walletId: string;
   counterpartyId: string;
-  assetId: string;
+  asset: AssetId;
   amount: string;
-  externalRef?: string;
-  status: string;
-  txHash?: string;
-  settledAt?: string;
+  reference: string | null;
+  txHash: string | null;
+  explorerUrl: string | null;
+  attention?: true;
+  reason?: string;
+  providerTxId?: string;
 }
 
+/** settlement.received — another institution settled to you on the network (credited at finality). */
 export interface SettlementEventData {
-  settlementId: string;
-  fromInstitutionId: string;
-  assetId: string;
+  transferId: string;
+  kind: 'NETWORK_SETTLEMENT';
+  status: 'COMPLETED';
+  walletId: string;
+  asset: AssetId;
   amount: string;
-  txHash?: string;
-  receivedAt: string;
+  reference: string | null;
+  from: { participant: string | null; name: string | null };
+  finality: string;
+  txHash: string | null;
 }
 
 export type DepositReceivedEvent  = WebhookEventBase<'deposit.received',   DepositEventData>;
