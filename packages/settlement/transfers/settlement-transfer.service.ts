@@ -303,9 +303,9 @@ export async function submitApprovedTransfers(limit = 50): Promise<{ submitted: 
         // Vault to vault inside AxLink custody: the receiving wallet was fixed at approval.
         const rw = t.receivingWalletId ? await prisma.wallet.findUnique({ where: { id: t.receivingWalletId } }) : null;
         if (!rw || rw.status !== 'ACTIVE') { await failTransfer(t.id, `refused before submission: receiving participant wallet is ${rw?.status ?? 'missing'}`, undefined, t.attempts, 'SUBMITTING'); out.failed++; continue; }
-        r = await custody.transferInternal({ clientRef: t.id, fromVaultId: t.wallet.custodyVaultId, toVaultId: rw.custodyVaultId, asset: { symbol: asset.symbol, chain: asset.network }, amount: t.amount.toFixed() });
+        r = await custody.transferInternal({ clientRef: t.id, attempt: t.attempts + 1, fromVaultId: t.wallet.custodyVaultId, toVaultId: rw.custodyVaultId, asset: { symbol: asset.symbol, chain: asset.network }, amount: t.amount.toFixed() });
       }
-      r ??= await custody.transferExternal({ clientRef: t.id, fromVaultId: t.wallet.custodyVaultId, toAddress: t.counterparty.address, asset: { symbol: asset.symbol, chain: asset.network }, amount: t.amount.toFixed(), memo: t.reference ?? `AxLink ${t.id}` });
+      r ??= await custody.transferExternal({ clientRef: t.id, attempt: t.attempts + 1, fromVaultId: t.wallet.custodyVaultId, toAddress: t.counterparty.address, asset: { symbol: asset.symbol, chain: asset.network }, amount: t.amount.toFixed(), memo: t.reference ?? `AxLink ${t.id}` });
       if (custody.configured() && /_sandbox_/.test(r.providerTxId)) throw Object.assign(new Error(`custodian returned a sandbox transaction id on a configured workspace: ${r.providerTxId}`), { retryable: false });
       const at = new Date();
       if (r.status === 'FAILED') {

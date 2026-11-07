@@ -122,6 +122,8 @@ export async function getVaultAssetBalance(vaultAccountId: string, assetId: stri
 // ── Transactions ─────────────────────────────────────────────────────────────
 
 export interface TransferParams {
+  /** Engine attempt number for this transfer (1-based); scopes the Fireblocks Idempotency-Key. */
+  attempt?: number;
   assetId: string;
   amount: string;
   sourceVaultId: string;
@@ -168,9 +170,11 @@ export async function createTransfer(params: TransferParams) {
         ...(params.externalTxId ? { externalTxId: params.externalTxId } : {}),
         treatAsGrossAmount: params.treatAsGrossAmount ?? false,
       },
-      // Fireblocks dedupes a retried POST /v1/transactions on Idempotency-Key for 24h; externalTxId
-      // (our transfer id) is the longer-lived guard and the recovery lookup (getTransactionByExternalId).
-      ...(params.externalTxId ? { idempotencyKey: params.externalTxId } : {}),
+      // Idempotency-Key is per attempt: a network retry of the SAME attempt replays Fireblocks' first answer,
+      // while a new attempt (e.g. after a fee top-up) is not stuck replaying an old refusal for 24h. Double
+      // payment stays impossible: Fireblocks rejects a second transaction with the same externalTxId, and the
+      // engine looks that id up (getTransactionByExternalId) before every retry.
+      ...(params.externalTxId ? { idempotencyKey: `${params.externalTxId}:${params.attempt ?? 1}` } : {}),
     });
 
     return res.data;
@@ -179,7 +183,7 @@ export async function createTransfer(params: TransferParams) {
     // submission must surface as an error so the caller retries or reconciles by externalTxId.
     const e = err as Error & { response?: { status?: number; data?: { message?: string; code?: number } } };
     const message = e.response?.data?.message ?? e.message;
-    throw Object.assign(new Error(`Fireblocks createTransaction failed: ${message}`), { code: 'CUSTODY_SUBMIT_FAILED', httpStatus: e.response?.status, providerCode: e.response?.data?.code, retryable: true });
+    throw Object.assign(new Error(`Fireblocks createTransaction failed: ${message}`), { code: 'CUSTODY_SUBMIT_FAILED', httpStatus: (e.response as { statusCode?: number } | undefined)?.statusCode ?? e.response?.status, providerCode: e.response?.data?.code, retryable: true });
   }
 }
 
@@ -190,8 +194,9 @@ export async function getTransactionByExternalId(externalTxId: string): Promise<
     const res = await client().transactions.getTransactionByExternalId({ externalTxId });
     return res.data as { id: string; status?: string; txHash?: string };
   } catch (err: unknown) {
-    const e = err as Error & { response?: { status?: number } };
-    if (e.response?.status === 404) return null;
+    // The Fireblocks SDK error carries the HTTP status in response.statusCode (not .status).
+    const e = err as Error & { response?: { status?: number; statusCode?: number; data?: { code?: number } } };
+    if ((e.response?.statusCode ?? e.response?.status) === 404 || e.response?.data?.code === 1439) return null;
     throw err;
   }
 }
