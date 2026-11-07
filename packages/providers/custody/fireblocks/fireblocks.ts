@@ -52,6 +52,15 @@ function client(): Fireblocks {
 
 // ── Vaults ───────────────────────────────────────────────────────────────────
 
+/**
+ * Fireblocks refuses some characters in vault names ('/' → "Unexpected error", code 901). AxLink's
+ * vault label is `<institution>/<environment>/<label>`; keep it readable with ' - ' separators and
+ * drop anything outside a conservative ASCII set (non-ASCII such as '·' → "Invalid parameters").
+ */
+export function fireblocksVaultName(name: string): string {
+  return name.replace(/\//g, ' - ').replace(/[^A-Za-z0-9 _.()-]/g, '').replace(/\s+/g, ' ').trim().slice(0, 100) || 'AxLink vault';
+}
+
 export async function createVaultAccount(name: string, hiddenOnUI = true) {
   if (!isConfigured()) {
     console.warn('[fireblocks] Not configured — returning sandbox stub vault');
@@ -59,7 +68,7 @@ export async function createVaultAccount(name: string, hiddenOnUI = true) {
   }
   try {
     const res = await client().vaults.createVaultAccount({
-      createVaultAccountRequest: { name, hiddenOnUI },
+      createVaultAccountRequest: { name: fireblocksVaultName(name), hiddenOnUI },
     });
     return res.data;
   } catch (err: unknown) {
