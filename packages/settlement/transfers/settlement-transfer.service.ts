@@ -21,10 +21,10 @@
  */
 import { Prisma, type SettlementTransfer, type Counterparty } from '@prisma/client';
 import { prisma } from '../../core/ledger/ledger.service';
-import { getAsset, toMinorUnits, isAssetId } from '../../core/assets/registry';
+import { getAsset, toMinorUnits, isAssetId, ACTIVE_NETWORK } from '../../core/assets/registry';
 import { AccountCode } from '../../core/ledger/accounts';
 import { post, reverse } from '../../core/ledger/journal.service';
-import { getWallet, journalBalance, applyWalletCredit } from '../../core/wallets/wallet.service';
+import { getWallet, journalBalance, applyWalletCredit, custodyEnvironmentKind } from '../../core/wallets/wallet.service';
 import { providers } from '../../providers/registry/provider-registry';
 import { proveSettlement, proofsFor, ProofMismatchError, SettlementNotFinalError } from '../proof/proof.service';
 import { ApiError } from '../../shared/errors';
@@ -145,6 +145,14 @@ export async function createTransfer(scope: Scope, input: CreateTransferInput): 
   }
 }
 
+/** Why a wallet cannot move money on this deployment, or null. */
+function deploymentMismatch(walletNetwork: string, environmentKind: 'SANDBOX' | 'PRODUCTION'): string | null {
+  if (walletNetwork !== ACTIVE_NETWORK) return `wallet is on ${walletNetwork} but this deployment settles on ${ACTIVE_NETWORK}`;
+  const custody = custodyEnvironmentKind();
+  if (environmentKind !== custody) return `wallet is in ${environmentKind} but this deployment's custody is ${custody}`;
+  return null;
+}
+
 /** APPROVED = journaled. The posting is the reservation; from here the money is committed. */
 async function approveInTx(tx: Prisma.TransactionClient, t: SettlementTransfer, wallet: { custodyVaultId: string }, by: string): Promise<SettlementTransfer> {
   // The counterparty or wallet may have changed since the request was made (disabled, suspended,
@@ -152,10 +160,17 @@ async function approveInTx(tx: Prisma.TransactionClient, t: SettlementTransfer, 
   const [cp, w] = await Promise.all([tx.counterparty.findUnique({ where: { id: t.counterpartyId } }), tx.wallet.findUnique({ where: { id: t.walletId } })]);
   if (!cp || cp.status !== 'ACTIVE') throw new ApiError('COUNTERPARTY_NOT_ACTIVE', `counterparty is ${cp?.status ?? 'missing'}`, 409);
   if (!w || w.status !== 'ACTIVE') throw new ApiError('WALLET_NOT_ACTIVE', `wallet is ${w?.status ?? 'missing'}`, 409);
+  // A suspended (or closed) institution moves nothing, even what it requested before the suspension.
+  const inst = await tx.institution.findUnique({ where: { id: t.institutionId }, select: { status: true } });
+  if (!inst || inst.status !== 'ACTIVE') throw new ApiError('INSTITUTION_NOT_ACTIVE', `institution is ${inst?.status ?? 'missing'}`, 409);
+  // The wallet must belong to what this deployment custodies (network + environment). Vault ids are per
+  // workspace, so a sandbox wallet's vault id can name a different, real vault after a switch to live.
+  const env = await tx.apiEnvironment.findUnique({ where: { id: t.environmentId }, select: { kind: true } });
+  const mismatch = deploymentMismatch(w.network, env!.kind);
+  if (mismatch) throw new ApiError('WRONG_DEPLOYMENT', mismatch, 409);
   // NETWORK: fix the receiving participant's wallet now, so the destination cannot drift between approval and submission.
   let receivingWalletId: string | null = null;
   if (cp.kind === 'NETWORK') {
-    const env = await tx.apiEnvironment.findUnique({ where: { id: t.environmentId }, select: { kind: true } });
     const rw = cp.participantInstitutionId ? await settlementWalletFor(cp.participantInstitutionId, env!.kind, tx, { network: w.network, custodyProvider: w.custodyProvider }) : null;
     if (!rw) throw new ApiError('PARTICIPANT_NOT_READY', 'the receiving participant has no active wallet in this environment', 409);
     if (rw.id === t.walletId) throw new ApiError('PARTICIPANT_IS_SELF', 'source and destination wallet are the same', 400);
@@ -248,15 +263,27 @@ export async function submitApprovedTransfers(limit = 50): Promise<{ submitted: 
       { status: 'APPROVED', OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }] },
       { status: 'SUBMITTING', nextAttemptAt: { lte: now } }, // a lease that expired: the claimer died mid-call
     ] },
-    include: { wallet: true, counterparty: true, environment: { select: { kind: true } } }, take: limit, orderBy: { approvedAt: 'asc' },
+    include: { wallet: true, counterparty: true, environment: { select: { kind: true } }, institution: { select: { status: true } } }, take: limit, orderBy: { approvedAt: 'asc' },
   });
   const out = { submitted: 0, failed: 0, deferred: 0 };
   const custody = providers.custody();
   for (const t of rows) {
     if (!outboundEnabled(t.environment.kind)) { log.error('transfer.outbound_disabled', { transferId: t.id, environment: t.environment.kind }); out.deferred++; continue; }
+    // Held, not failed: a suspension may be lifted; operations decides. Nothing is claimed or sent.
+    if (t.institution.status !== 'ACTIVE') { log.warn('transfer.held_institution_not_active', { transferId: t.id, institution: t.institutionId, status: t.institution.status }); out.deferred++; continue; }
     // claim
     const claimed = await prisma.settlementTransfer.updateMany({ where: { id: t.id, status: t.status, nextAttemptAt: t.nextAttemptAt }, data: { status: 'SUBMITTING', nextAttemptAt: new Date(Date.now() + CLAIM_LEASE_MS) } });
     if (claimed.count !== 1) continue; // someone else has it
+    const wrong = deploymentMismatch(t.wallet.network, t.environment.kind);
+    if (wrong && t.status === 'APPROVED' && t.attempts === 0) {
+      // Never reached custody on this deployment: a clean refusal, the journal is restored.
+      await failTransfer(t.id, `refused before submission: ${wrong}`, undefined, t.attempts, 'SUBMITTING'); out.failed++; continue;
+    }
+    if (wrong) {
+      // An earlier attempt may have reached the OTHER deployment's custodian: never resubmit here, never
+      // reverse blindly. Operations reconciles against that custodian.
+      await moveToReview({ ...t, status: 'SUBMITTING' }, `wrong deployment after an earlier attempt: ${wrong}`, undefined, ['SUBMITTING']); out.failed++; continue;
+    }
     if (t.counterparty.status !== 'ACTIVE' || t.wallet.status !== 'ACTIVE') {
       // Nothing has left custody yet: this is a clean refusal, and the journal is restored.
       await failTransfer(t.id, `refused before submission: counterparty is ${t.counterparty.status}, wallet is ${t.wallet.status}`, undefined, t.attempts, 'SUBMITTING'); out.failed++; continue;
@@ -381,9 +408,9 @@ async function creditReceiver(tx: Prisma.TransactionClient, t: SettlementTransfe
  * touching the row, the institution hears once, and one CRITICAL exception waits for an operator who
  * decides with evidence (`reviewTransfer`). Nothing is reversed or credited until then.
  */
-async function moveToReview(t: SettlementTransfer, reason: string, db?: Prisma.TransactionClient) {
+async function moveToReview(t: SettlementTransfer, reason: string, db?: Prisma.TransactionClient, from: SettlementTransfer['status'][] = ['SUBMITTED', 'CONFIRMED']) {
   const run = async (tx: Prisma.TransactionClient) => {
-    const c = await tx.settlementTransfer.updateMany({ where: { id: t.id, status: { in: ['SUBMITTED', 'CONFIRMED'] } }, data: { status: 'UNDER_REVIEW', failureReason: reason.slice(0, 500), txHash: t.txHash } });
+    const c = await tx.settlementTransfer.updateMany({ where: { id: t.id, status: { in: from } }, data: { status: 'UNDER_REVIEW', failureReason: reason.slice(0, 500), txHash: t.txHash } });
     if (c.count !== 1) return;
     const u = (await tx.settlementTransfer.findUnique({ where: { id: t.id } }))!;
     await emit(u, 'transfer.failed', { attention: true, status: 'PROCESSING', reason: u.failureReason }, tx);
