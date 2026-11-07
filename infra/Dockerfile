@@ -35,8 +35,12 @@ FROM node:22-alpine AS runner
 
 WORKDIR /app
 
+# FIREBLOCKS_SECRET_KEY_PATH is where scripts/write-fireblocks-key.sh writes the key from
+# FIREBLOCKS_SECRET_KEY_B64 at boot. The app only treats custody as configured when this path is set;
+# without it a deploy with real credentials silently ran on the custody stub.
 ENV NODE_ENV=production \
-    PORT=4000
+    PORT=4000 \
+    FIREBLOCKS_SECRET_KEY_PATH=/app/secrets/fireblocks_secret.key
 
 # wget is used by the healthcheck; openssl is required by the Prisma engines.
 RUN apk add --no-cache wget openssl
