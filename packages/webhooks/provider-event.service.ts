@@ -37,6 +37,8 @@ export interface EventOutcome {
   entityType?: string | null;
   entityId?: string | null;
   walletId?: string | null;
+  /** Evidence for operator review (custody tx id, hash, amount) when a receipt could not be attributed. */
+  detail?: Record<string, string | null>;
 }
 
 export type ProcessResult<T> =

@@ -51,6 +51,34 @@ export async function applyCustodyDeposit(tx: Tx, ev: CustodyCompletion): Promis
     if (instr) return settleInstruction(tx, ev, asset, instr);
   }
 
+  // ── Step 2 path, no tracking id: a deposit from OUTSIDE the workspace ──────────────────────
+  // `externalTxId` is set by whoever creates the transaction, in their own workspace. A bank sending
+  // from its own wallet (another custodian, another Fireblocks workspace, a faucet) cannot put our
+  // `dep_…` id on the incoming transaction, so the receipt arrives without it. The receiving vault
+  // belongs to exactly one institution wallet; the receipt settles the ONE pending, unexpired
+  // instruction on that wallet with the same asset and the exact amount — through the same checks
+  // as a tracked receipt. None, or more than one, credits nothing: funds are in custody and
+  // operations decides (an UNATTRIBUTED_DEPOSIT exception is raised outside the rolled-back tx).
+  const owner = ev.externalTxId ? null : await walletForVault(tx, ev.provider, ev.destinationVaultId);
+  if (owner) {
+    let received: Prisma.Decimal | null = null;
+    try { received = ev.amount === undefined ? null : new Prisma.Decimal(ev.amount); } catch { received = null; }
+    const candidates = received && received.isFinite() && received.isPositive()
+      ? await tx.depositInstruction.findMany({
+          where: { walletId: owner.id, assetId: asset.id, status: 'PENDING', expectedAmount: received, expiresAt: { gt: new Date() } },
+          include: { wallet: { include: { environment: { select: { kind: true } } } } }, orderBy: { createdAt: 'asc' }, take: 2,
+        })
+      : [];
+    if (candidates.length === 1) return settleInstruction(tx, ev, asset, candidates[0]);
+    throw new EventIgnored({
+      status: 'REJECTED', assetId: asset.id, institutionId: owner.institutionId, vaultId: ev.destinationVaultId, walletId: owner.id, entityType: 'Wallet', entityId: owner.id,
+      reason: candidates.length === 0
+        ? 'unattributed deposit: no pending instruction on this wallet for this asset and exact amount; funds are in custody — operator review'
+        : 'ambiguous deposit: more than one pending instruction on this wallet for this asset and amount; funds are in custody — operator review',
+      detail: { providerTxId: ev.providerTxId ?? null, txHash: ev.txHash ?? null, amount: ev.amount === undefined ? null : String(ev.amount) },
+    });
+  }
+
   const user = await tx.user.findUnique({ where: { vaultId: ev.destinationVaultId }, select: { id: true, institutionId: true, vaultId: true } });
   if (!user) {
     throw new EventIgnored({ status: 'IGNORED', reason: 'destination vault is not an AxLink wallet', assetId: asset.id, vaultId: ev.destinationVaultId });
@@ -218,5 +246,18 @@ onEventIgnored(async (_event, outcome) => {
     await emitInstitutionEvent(tx, { institutionId: i.institutionId, environmentId: i.environmentId }, 'deposit.rejected',
       { settlementId: i.id, kind: 'DEPOSIT', status: 'PROCESSING', attention: true, reason: outcome.reason ?? 'rejected', walletId: i.walletId, asset: i.assetId, expectedAmount: i.expectedAmount.toFixed(), reference: i.reference, trackingId: i.trackingId },
       { entityType: 'DepositInstruction', entityId: i.id });
+  });
+});
+
+// Money arrived at an institution wallet and could not be attributed: operations must see it at once.
+onEventIgnored(async (_event, outcome) => {
+  if (outcome.entityType !== 'Wallet' || outcome.status !== 'REJECTED' || !outcome.walletId) return;
+  const { raiseException } = await import('../settlement/operations/exception.service');
+  const { Prisma: P } = await import('@prisma/client');
+  const amount = outcome.detail?.amount;
+  await raiseException({
+    kind: 'UNATTRIBUTED_DEPOSIT', severity: 'CRITICAL', subject: `${outcome.walletId}:${outcome.detail?.providerTxId ?? outcome.detail?.txHash ?? 'unknown'}`,
+    currency: outcome.assetId ?? null, actual: amount ? new P.Decimal(amount) : null,
+    detail: { reason: outcome.reason ?? null, ...(outcome.detail ?? {}) }, institutionId: outcome.institutionId ?? null, entityType: 'Wallet', entityId: outcome.walletId,
   });
 });
