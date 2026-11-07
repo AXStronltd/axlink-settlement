@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -385,6 +385,77 @@ a,button{transition:color .18s,background .2s,border-color .2s,opacity .2s}
 /* toast */
 #toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);background:var(--panel);border:1px solid var(--teal);border-radius:12px;padding:14px 20px;z-index:400;opacity:0;transition:all .4s cubic-bezier(.2,.7,.2,1);display:flex;align-items:center;gap:10px;font-size:14px;box-shadow:0 12px 40px -12px rgba(0,0,0,.6)}
 #toast.show{transform:translateX(-50%) translateY(0);opacity:1}
+
+/* ===== HOME v2 (institutional) ===== */
+.hx-hero{position:relative;padding:72px 0 28px;overflow:hidden;background:radial-gradient(70% 60% at 75% 30%,rgba(24,216,234,.10),transparent 70%)}
+.hx-hero-grid{display:grid;grid-template-columns:1.05fr .95fr;gap:40px;align-items:center}
+.hx-h1{font-size:clamp(34px,5.4vw,60px);font-weight:800;letter-spacing:-.03em;line-height:1.04;margin-top:16px}
+.hx-sub{color:var(--ink-2);font-size:clamp(15px,1.6vw,18px);max-width:520px;margin-top:20px;line-height:1.6}
+.hx-ctas{display:flex;gap:12px;flex-wrap:wrap;margin-top:30px}
+.hx-hero-art{display:flex;justify-content:center}
+.hx-map{width:100%;max-width:460px;height:auto;overflow:visible}
+.hx-arc{fill:none;stroke:var(--teal);stroke-width:1.4;stroke-dasharray:6 7;opacity:.75;animation:hxflow 2.6s linear infinite}
+.hx-pulse{fill:none;stroke:var(--teal);stroke-width:1.5;transform-box:fill-box;transform-origin:center;animation:hxpulse 2.8s ease-out infinite}
+@keyframes hxflow{to{stroke-dashoffset:-52}}
+@keyframes hxpulse{0%{transform:scale(1);opacity:.8}100%{transform:scale(4);opacity:0}}
+.hx-trust{display:flex;flex-wrap:wrap;justify-content:center;gap:10px 28px;margin-top:44px;padding:18px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);font-size:13px;color:var(--ink-2);font-weight:500;letter-spacing:.02em}
+.hx-trust span{display:inline-flex;align-items:center;gap:8px}
+.hx-trust span::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--teal)}
+.hx-sec{padding:88px 0}.hx-tight{padding:36px 0 20px}.hx-alt{background:var(--bg-2);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.hx-head{text-align:center;max-width:680px;margin:0 auto 44px}
+.hx-head h2,.hx-h2{font-size:clamp(26px,3.6vw,40px);font-weight:800;letter-spacing:-.025em;margin-top:12px}
+.hx-head .lead{margin-top:14px}
+.hx-stats{display:grid;grid-template-columns:repeat(5,1fr);border:1px solid var(--line);border-radius:16px;background:var(--panel);overflow:hidden}
+.hx-stat{padding:26px 20px;border-right:1px solid var(--line)}.hx-stat:last-child{border-right:0}
+.hx-stat-num{font-size:34px;font-weight:800;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.hx-stat-num span{font-size:18px;opacity:.7}
+.hx-stat-lbl{font-size:13.5px;font-weight:600;margin-top:6px}.hx-stat-sub{font-size:12px;color:var(--ink-3);margin-top:3px}
+.hx-steps{display:flex;align-items:stretch;gap:0}
+.hx-step{flex:1;background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:28px}
+.hx-step-ic{width:46px;height:46px;border-radius:12px;display:flex;align-items:center;justify-content:center;color:var(--teal);background:rgba(24,216,234,.10);border:1px solid var(--line-2)}
+.hx-step-n{font-size:11px;letter-spacing:.2em;color:var(--teal);margin-top:18px}
+.hx-step h4{font-size:19px;margin-top:6px}.hx-step p{color:var(--ink-2);font-size:14px;margin-top:8px;line-height:1.6}
+.hx-link{flex:0 0 46px;display:flex;align-items:center}
+.hx-link span{display:block;width:100%;height:2px;background:linear-gradient(90deg,transparent,var(--teal),transparent);background-size:200% 100%;animation:hxslide 2.2s linear infinite}
+@keyframes hxslide{from{background-position:100% 0}to{background-position:-100% 0}}
+.hx-feat .ic{width:44px;height:44px;border-radius:12px;display:flex;align-items:center;justify-content:center;background:rgba(24,216,234,.10);border:1px solid var(--line-2)}
+.hx-feat p{line-height:1.6}
+.hx-flow-grid{display:grid;grid-template-columns:.9fr 1.1fr;gap:48px;align-items:start}
+.hx-flow{list-style:none;position:relative;padding-left:0}
+.hx-flow::before{content:"";position:absolute;left:17px;top:18px;bottom:18px;width:2px;background:linear-gradient(var(--teal),rgba(24,216,234,.1))}
+.hx-flow-step{display:flex;gap:16px;align-items:flex-start;padding:12px 0;position:relative}
+.hx-flow-step.reveal.in{animation-delay:var(--d)}
+.hx-flow-dot{flex:0 0 36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:#03231d;background:var(--teal);box-shadow:0 0 0 6px var(--bg),0 0 18px var(--glow);position:relative;z-index:1}
+.hx-flow-step h5{font-size:15.5px;font-weight:700}.hx-flow-step p{color:var(--ink-2);font-size:13.5px;margin-top:4px;line-height:1.55}
+.hx-code-grid{display:grid;grid-template-columns:.85fr 1.15fr;gap:44px;align-items:center}
+.hx-code{background:#07111d;border:1px solid rgba(120,190,225,.18);border-radius:14px;overflow:hidden;box-shadow:0 24px 60px -30px rgba(0,0,0,.7)}
+.hx-code-bar{display:flex;align-items:center;gap:7px;padding:11px 14px;border-bottom:1px solid rgba(120,190,225,.12);color:#6b8199;font-size:12px}
+.hx-code-bar i{width:10px;height:10px;border-radius:50%;background:#1e3a52;display:inline-block}.hx-code-bar span{margin-left:8px}
+.hx-code pre{margin:0;padding:20px;overflow-x:auto;font-family:'SF Mono',ui-monospace,Menlo,monospace;font-size:13px;line-height:1.7;color:#d6e4f0}
+.hx-k{color:#c792ea}.hx-s{color:#9be7c4}.hx-c{color:#6b8199}
+.hx-scope{display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--line);border-radius:16px;overflow:hidden;background:var(--panel)}
+.hx-scope>div{padding:28px}.hx-scope>div+div{border-left:1px solid var(--line)}
+.hx-scope h4{font-size:15px;letter-spacing:.02em}.hx-scope ul{list-style:none;margin-top:14px}
+.hx-scope li{display:flex;gap:12px;align-items:center;padding:9px 0;border-top:1px solid var(--line);font-size:14.5px}
+.hx-mark{width:22px;height:22px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0}
+.hx-mark.ok{background:rgba(52,211,153,.14);color:var(--green)}.hx-mark.no{background:var(--panel-2);color:var(--ink-3)}
+.hx-cta{background:#06101b;color:#eef5fb;text-align:center;padding:96px 0;border-top:1px solid rgba(120,190,225,.14);background-image:radial-gradient(60% 80% at 50% 0%,rgba(24,216,234,.14),transparent 70%)}
+.hx-cta h2{font-size:clamp(30px,4.4vw,48px);font-weight:800;letter-spacing:-.025em}
+.hx-cta p{color:#a7bcd0;max-width:560px;margin:16px auto 30px;font-size:16.5px;line-height:1.6}
+@media(max-width:960px){
+  .hx-hero-grid,.hx-flow-grid,.hx-code-grid{grid-template-columns:1fr}
+  .hx-hero-art{order:1}.hx-map{max-width:260px}
+  .hx-stats{grid-template-columns:1fr 1fr}.hx-stat{border-bottom:1px solid var(--line)}
+  .hx-steps{flex-direction:column}.hx-link{flex-basis:28px;justify-content:center}.hx-link span{width:2px;height:100%;min-height:28px;background:linear-gradient(var(--teal),transparent)}
+}
+@media(max-width:560px){
+  .hx-sec{padding:60px 0}.hx-hero{padding:40px 0 20px}
+  .hx-stats{grid-template-columns:1fr}.hx-stat{border-right:0}
+  .hx-scope{grid-template-columns:1fr}.hx-scope>div+div{border-left:0;border-top:1px solid var(--line)}
+  .hx-ctas .btn{flex:1;justify-content:center}
+  .hx-code pre{font-size:11.5px;padding:16px}
+}
+@media(prefers-reduced-motion:reduce){.hx-arc,.hx-pulse,.hx-link span{animation:none}}
 </style>
 </head>
 <body>
@@ -560,11 +631,22 @@ function openModal(html){
   document.body.appendChild(bg);
 }
 function closeModal(){var m=document.getElementById('modalbg');if(m)m.remove();}
+function axCountUp(root){
+  var els=root.querySelectorAll?root.querySelectorAll('[data-count]'):[];
+  Array.prototype.forEach.call(els,function(el){
+    var target=el.getAttribute('data-count'); if(!/^\d+$/.test(target)||el._counted) return; el._counted=true;
+    var n=parseInt(target,10), suffix=el.querySelector('span')?el.querySelector('span').outerHTML:'', t0=null;
+    if(window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    function step(ts){ if(!t0) t0=ts; var p=Math.min(1,(ts-t0)/1100), v=Math.round(n*(1-Math.pow(1-p,3)));
+      el.innerHTML=v+suffix; if(p<1) requestAnimationFrame(step); }
+    requestAnimationFrame(step);
+  });
+}
 function observeReveals(){
   var els=document.querySelectorAll('.reveal:not(.in)');
   var root=document.querySelector('.site-scroll')||document.querySelector('.content')||null;
   if(!('IntersectionObserver' in window)){els.forEach(function(e){e.classList.add('in');});return;}
-  var io=new IntersectionObserver(function(en){en.forEach(function(x){if(x.isIntersecting){x.target.classList.add('in');io.unobserve(x.target);}});},{root:root,threshold:.05,rootMargin:'0px 0px -4% 0px'});
+  var io=new IntersectionObserver(function(en){en.forEach(function(x){if(x.isIntersecting){x.target.classList.add('in');axCountUp(x.target);io.unobserve(x.target);}});},{root:root,threshold:.05,rootMargin:'0px 0px -4% 0px'});
   var vh=(root?root.clientHeight:(window.innerHeight||800));
   var rootTop=root?root.getBoundingClientRect().top:0;
   els.forEach(function(e){var r=e.getBoundingClientRect();if((r.top-rootTop)<vh){e.classList.add('in');}else io.observe(e);});
@@ -740,80 +822,86 @@ function globe(){
 
 /* ---------- MARKETING PAGES ---------- */
 function pageHome(){
-  var feats=[['&#9889;','Instant Settlement','Move value through modern settlement infrastructure - real-time, 24/7.'],['&#9719;','24/7 Availability','Financial infrastructure built for always-on global operations.'],['&#9677;','Global Connectivity','Connect financial institutions across markets through one network.']];
-  var fh=feats.map(function(f){return '<div style="padding:30px;border-right:1px solid var(--line)"><div style="width:48px;height:48px;border-radius:50%;border:1px solid var(--line-2);display:flex;align-items:center;justify-content:center;color:var(--teal);font-size:20px;margin-bottom:14px">'+f[0]+'</div><h4 style="font-size:16.5px">'+f[1].split("|")[0]+'</h4><p style="color:var(--ink-2);font-size:13.5px;margin-top:7px">'+f[2]+'</p><a href="javascript:void(0)" onclick="return go(\'#/platform\')" class="lm">Learn more -></a></div>';}).join('');
-  var trust=['Banks','PSPs','Fintechs','Enterprises','Payment Providers'].map(function(t){return '<span style="display:inline-flex;align-items:center;gap:8px;color:var(--ink-2);font-size:14px;font-weight:500;padding:0 22px;border-right:1px solid var(--line)">'+t+'</span>';}).join('');
-  var checks=['API-first financial connectivity','Real-time settlement infrastructure','Institutional-grade security','Transparent transaction lifecycle','Scalable for global financial ecosystems'].map(function(c){return '<div style="display:flex;align-items:center;gap:13px;font-size:15px;margin-bottom:14px"><span style="width:22px;height:22px;border-radius:50%;background:rgba(46,230,197,.12);color:var(--teal);display:flex;align-items:center;justify-content:center;flex-shrink:0">&#10003;</span>'+c+'</div>';}).join('');
-  var caps=[['&#9889;','Payment Orchestration','Intelligent routing to optimize success, speed and cost across every corridor.'],['&#9677;','Liquidity Management','Access and manage deep liquidity across markets in real time.'],['&#9671;','Risk & Compliance','Built-in KYB, sanctions screening and continuous transaction monitoring.'],['&#9673;','Real-Time Visibility','End-to-end tracking across the entire transaction lifecycle.'],['&#8599;','Settlement & Reconciliation','Automated settlement and reconciliation with ledger-level accuracy.'],['&#9881;','API-First Infrastructure','Modern REST APIs, webhooks and SDKs built for institutional scale.']];
-  var capH=caps.map(function(c){return '<div class="card reveal"><div class="ic" style="font-size:22px">'+c[0]+'</div><h4>'+c[1]+'</h4><p>'+c[2]+'</p></div>';}).join('');
-  var metrics=[['Real-time','Settlement speed'],['24/7/365','Availability'],['1:1','Reserved backing'],['Multi-rail','Payment + FX + liquidity'],['ISO 20022','Message standard'],['40+','Target markets']];
-  var metricH=metrics.map(function(m){return '<div style="text-align:center;padding:22px 14px;border-right:1px solid var(--line)"><div style="font-weight:700;font-size:26px" class="gt">'+m[0]+'</div><div style="font-size:12.5px;color:var(--ink-3);margin-top:6px">'+m[1]+'</div></div>';}).join('');
-  var security=[['&#9673;','Regulated & Compliant','Operating within institutional regulatory frameworks with full KYB and sanctions screening on every counterparty.'],['&#9679;','Fully Reserved','Every balance is a public stablecoins (USDC and USDT) held in regulated custody. Nothing is minted, nothing is lent. Positions published daily.'],['&#9919;','Bank-Grade Security','End-to-end encryption, SOC 2 controls, real-time monitoring and segregated environments.'],['&#9878;','Non-Custodial by Design','Local banks retain custody of customer funds. AxLink is the settlement ledger and orchestration layer.']];
-  var secH=security.map(function(s){return '<div class="card reveal" style="display:flex;gap:16px;padding:26px"><span style="width:44px;height:44px;border-radius:12px;background:rgba(46,230,197,.10);color:var(--teal);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">'+s[0]+'</span><div><h4 style="font-size:16px;margin-bottom:6px">'+s[1]+'</h4><p style="font-size:13px;color:var(--ink-3);line-height:1.55">'+s[2]+'</p></div></div>';}).join('');
-  var eco=[['&#9677;','Banks','Enable faster cross-border payments and streamline liquidity management.'],['&#9646;','PSPs','Expand payment capabilities and reach new markets instantly.'],['&#10216;&#10217;','Fintechs','Build on robust financial infrastructure with a single API integration.'],['&#9673;','Enterprises','Move money globally with transparency and operational efficiency.'],['$','Payment Providers','Access a network of institutions and optimize settlement operations.'],['&#9670;','Remittance','Power diaspora corridors with instant, low-cost settlement.']];
-  var ecoH=eco.map(function(e){return '<div class="card reveal center"><div class="ic" style="font-size:24px">'+e[0]+'</div><h4 style="font-size:15px">'+e[1]+'</h4><p style="font-size:12.5px">'+e[2]+'</p></div>';}).join('');
-  var faqs=[['Is AxLink a custodian of funds?','No. Local banks retain custody of customer money. AxLink maintains the institutional transaction and settlement ledger and orchestrates the corridor - a non-custodial model.'],['What is the settlement asset?','USDC and USDT on Solana, held in regulated custody (Fireblocks). AxLink never issues a token: it moves existing public stablecoins between institution vaults, and every settlement is proven final on-chain. Reserves are instruments. We never lend out deposits, and the reserve portfolio is published daily for radical transparency.'],['Which institutions can join?','AxLink is available to regulated institutions - banks, PSPs, fintechs and payment providers - that complete full KYB, ID verification and sanctions screening.'],['How fast is settlement?','Institutional settlement occurs in real time - typically under 5 seconds - 24/7/365, with no correspondent chains or batch windows.']];
-  var faqH=faqs.map(function(f){return '<div class="card reveal" style="padding:22px 24px"><h4 style="font-size:15px;margin-bottom:8px">'+f[0]+'</h4><p style="font-size:13px;color:var(--ink-3);line-height:1.6">'+f[1]+'</p></div>';}).join('');
-  return siteWrap('Home',
-   /* HERO */
-   '<section class="hero-bg" style="padding:64px 0 20px;overflow:hidden"><div class="wrap grid-2">'+
-     '<div><div style="font-weight:800;font-size:52px;letter-spacing:.02em">AXLINK</div>'+
-     '<div style="font-weight:600;font-size:18px;color:var(--teal);margin-top:2px">The Open Financial Network</div>'+
-     '<div style="display:flex;align-items:center;gap:8px;margin-top:12px;font-size:11px;letter-spacing:.2em;color:var(--ink-3);text-transform:uppercase" class="mono"><span>Regulated Crypto Settlement - Global Reach</span></div>'+
-     '<h1 style="font-size:54px;margin-top:24px">Settlement infrastructure for <span class="gt">the world\'s institutions.</span></h1>'+
-     '<p class="lead mt20" style="max-width:460px">AxLink connects banks, PSPs, fintechs and regulated institutions through modern, API-based settlement infrastructure - real-time, 1:1 reserved, and built for institutional scale.</p>'+
-     '<div style="display:flex;gap:14px;margin-top:32px;flex-wrap:wrap"><a href="javascript:void(0)" onclick="return go(\'#/onboarding\')" class="btn btn-primary" style="padding:13px 24px;font-size:15px">Request a Demo -></a><a href="javascript:void(0)" onclick="return go(\'#/platform\')" class="btn btn-ghost" style="padding:13px 24px;font-size:15px">Explore the Platform -></a></div></div>'+
-     globe()+
-   '</div>'+
-   '<div class="wrap reveal" style="margin-top:44px"><div style="font-size:13px;color:var(--ink-3)"><b style="color:var(--ink-2)">Built for</b> banks, PSPs, fintechs and regulated institutions</div>'+
-   '<div style="display:flex;align-items:center;flex-wrap:wrap;margin-top:16px">'+trust+'</div></div></section>'+
-   /* LIVE METRICS BAR */
-   '<section style="padding:10px 0 40px"><div class="wrap"><div class="panel reveal" style="display:grid;grid-template-columns:repeat(6,1fr);overflow:hidden">'+metricH+'</div></div></section>'+
-   /* 3 FEATURE PANEL */
-   '<section style="padding:20px 0 40px"><div class="wrap"><div class="panel reveal" style="border-radius:18px;background:linear-gradient(180deg,var(--panel),rgba(10,24,38,.4))"><div style="display:grid;grid-template-columns:repeat(3,1fr)">'+fh+'</div></div></div></section>'+
-   /* WHY AXLINK */
-   '<section class="section" style="background:linear-gradient(180deg,var(--bg),var(--bg-2));border-top:1px solid var(--line)"><div class="wrap grid-2">'+
-   '<div class="reveal"><span class="eyebrow">Why AxLink</span><h2 style="font-size:40px;margin-top:18px">Financial infrastructure built <span class="gt">beyond</span> traditional settlement.</h2>'+
-   '<p class="lead mt20" style="max-width:420px">AxLink provides the connectivity, orchestration and infrastructure institutions need to move value faster, with greater transparency and operational efficiency.</p>'+
-   '<div style="margin-top:26px">'+checks+'</div><a href="javascript:void(0)" onclick="return go(\'#/platform\')" class="btn btn-ghost mt26">Discover the Platform -></a></div>'+
-   isoNetwork()+'</div></section>'+
-   /* PLATFORM CAPABILITIES */
-   '<section style="padding:80px 0 40px"><div class="wrap"><div class="reveal" style="text-align:center;max-width:620px;margin:0 auto 36px"><span class="eyebrow">Platform Capabilities</span><h2 style="font-size:38px;margin-top:14px">Everything you need to move value globally.</h2></div><div class="cards c3">'+capH+'</div></div></section>'+
-   '<section style="padding:60px 0 40px;background:var(--bg-2);border-top:1px solid var(--line)"><div class="wrap"><div class="reveal" style="text-align:center;max-width:660px;margin:0 auto 40px"><span class="eyebrow">Why AxLink</span><h2 style="font-size:38px;margin-top:14px">What makes AxLink <span class="gt">the institutional choice.</span></h2><p class="lead mt16">Purpose-built settlement infrastructure — not a messaging network, not a consumer wallet. Here is what sets AxLink apart.</p></div>'+
-   '<div class="cards reveal d1" style="grid-template-columns:repeat(3,1fr);gap:16px">'+
-   [
-     ['&#9889;','Real-time, 24/7 settlement','Value moves in seconds, any hour, any day — not constrained by correspondent chains, cut-off times or batch windows.'],
-     ['&#9673;','Unified infrastructure layer','Connectivity, orchestration, FX, liquidity and settlement in one API — replacing a patchwork of intermediaries with a single integration.'],
-     ['&#9670;','Programmable by design','Set the terms; when conditions are met, money moves. Native programmability across the entire settlement lifecycle.'],
-     ['&#9878;','Non-custodial architecture','Local banks retain custody of customer funds. AxLink is the settlement ledger and orchestration layer — never a custodian of your money.'],
-     ['&#9679;','Fully reserved settlement','Every balance is USDC or USDT held in regulated custody; nothing is minted or lent, and every vault is reconciled against the ledger. Positions published reserves — settlement you can prove.'],
-     ['&#9677;','Global reach, one network','40+ countries and 200+ corridors through a single connection — expand into new markets without new integrations.'],
-     ['&#9671;','Compliance built in','KYB, sanctions screening and continuous monitoring on every verified counterparty — institutional controls at the core, not bolted on.'],
-     ['&#8599;','Ledger-level transparency','End-to-end visibility across the transaction lifecycle with automated reconciliation and a complete, auditable settlement record.'],
-     ['&#9919;','Built for institutions only','Designed for banks, PSPs, fintechs and regulated institutions — enterprise-grade security, reliability and 99.99% uptime.']
-   ].map(function(c){return '<div class="card reveal"><div class="ic" style="font-size:22px">'+c[0]+'</div><h4>'+c[1]+'</h4><p>'+c[2]+'</p></div>';}).join('')+
-   '</div>'+
-   '<div class="reveal d2" style="margin-top:36px"><div class="panel" style="padding:0;overflow:hidden"><div style="display:grid;grid-template-columns:repeat(4,1fr)">'+
-   [['Real-time','Settlement speed'],['24/7/365','Always-on'],['1:1','Reserved backing'],['Non-custodial','By design']].map(function(m,i){return '<div style="padding:26px 20px;text-align:center;'+(i<3?'border-right:1px solid var(--line)':'')+'"><div style="font-weight:700;font-size:24px" class="gt">'+m[0]+'</div><div style="font-size:12.5px;color:var(--ink-3);margin-top:6px">'+m[1]+'</div></div>';}).join('')+
-   '</div></div></div>'+
-   '<div class="reveal d2" style="text-align:center;margin-top:32px"><a href="javascript:void(0)" onclick="return go(\'#/about\')" class="btn btn-ghost">See how AxLink compares to SWIFT -></a></div></div></section>'+
+  /* ── Home v2 (institutional): every figure on this page is verifiable from the code or the sandbox ── */
+  function ic(path){return '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+path+'</svg>';}
+  var I={
+    key:ic('<circle cx="7.5" cy="15.5" r="4.5"/><path d="M10.7 12.3 20 3M16 7l3 3M14 9l2 2"/>'),
+    route:ic('<circle cx="5" cy="6" r="2.5"/><circle cx="19" cy="18" r="2.5"/><path d="M7.5 6H15a4 4 0 0 1 0 8H9a4 4 0 0 0 0 8h7.5"/>'),
+    check:ic('<path d="M9 12l2 2 4-4"/><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/>'),
+    vault:ic('<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="12" cy="12" r="3.5"/><path d="M12 8.5V7M12 17v-1.5M15.5 12H17M7 12h1.5"/>'),
+    coin:ic('<circle cx="12" cy="12" r="9"/><path d="M14.8 9.2c-.5-.9-1.6-1.4-2.8-1.4-1.7 0-3 .9-3 2.2 0 3 6 1.6 6 4.4 0 1.3-1.3 2.2-3 2.2-1.3 0-2.4-.6-2.9-1.5M12 6v1.8M12 16.6V18"/>'),
+    sign:ic('<path d="M4 4h12l4 4v12H4z"/><path d="M8 13l2.5 2.5L16 10"/>'),
+    book:ic('<path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M8 7h7M8 11h7"/>'),
+    code:ic('<path d="M8 8l-4 4 4 4M16 8l4 4-4 4M13.5 5l-3 14"/>'),
+    gauge:ic('<path d="M4 18a8 8 0 1 1 16 0"/><path d="M12 18l4-6"/><path d="M4 18h16"/>')
+  };
+  var docs='return go(\'#/developers\')', apply='return go(\'#/onboarding\')';
 
-   /* FOUR-LAYER SETTLEMENT (reuse layerDiagram) */
-   '<section style="padding:40px 0;background:linear-gradient(180deg,var(--bg),var(--bg-2));border-top:1px solid var(--line)"><div class="wrap"><div class="reveal" style="text-align:center;max-width:640px;margin:0 auto 40px"><span class="eyebrow">How Settlement Works</span><h2 style="font-size:36px;margin-top:14px">Four layers. <span class="gt">One instant settlement.</span></h2><p class="lead mt16">AxLink orchestrates the transaction and settlement ledger between local banks, settling in real time over the AxLink stablecoin rail. Local banks hold customer funds - AxLink never takes custody.</p></div><div class="reveal d1" style="max-width:900px;margin:0 auto">'+layerDiagram()+'</div><div class="reveal d2" style="text-align:center;margin-top:30px"><a href="javascript:void(0)" onclick="return go(\'#/lifecycle\')" class="btn btn-ghost">See the full settlement model -></a></div></div></section>'+
-   /* SECURITY / TRUST */
-   '<section style="padding:80px 0 40px"><div class="wrap"><div class="reveal" style="text-align:center;max-width:620px;margin:0 auto 36px"><span class="eyebrow">Built on Trust</span><h2 style="font-size:38px;margin-top:14px">Institutional-grade from the ground up.</h2></div><div class="cards" style="grid-template-columns:1fr 1fr;gap:16px">'+secH+'</div></div></section>'+
-   /* USE CASES */
-   '<section style="padding:40px 0"><div class="wrap"><div class="reveal" style="text-align:center;max-width:620px;margin:0 auto 36px"><span class="eyebrow">Built for Every Institution</span><h2 style="font-size:38px;margin-top:14px">Infrastructure for every financial ecosystem.</h2></div><div class="cards c3">'+ecoH+'</div></div></section>'+
-   /* FAQ */
-   '<section style="padding:40px 0 60px"><div class="wrap"><div class="reveal" style="text-align:center;max-width:620px;margin:0 auto 36px"><span class="eyebrow">Common Questions</span><h2 style="font-size:34px;margin-top:14px">What institutions ask us.</h2></div><div class="cards" style="grid-template-columns:1fr 1fr;gap:14px">'+faqH+'</div></div></section>'+
-   /* CTA */
-   '<section style="border-top:1px solid var(--line);text-align:center;padding:90px 0;background:radial-gradient(120% 100% at 50% 0%,rgba(46,230,197,.06),transparent 60%)"><div class="wrap reveal">'+
-   '<span class="eyebrow">Get Started</span><h2 style="font-size:44px;max-width:720px;margin:16px auto 0">Ready to build on the future of settlement?</h2>'+
-   '<p class="lead" style="max-width:540px;margin:16px auto 0">Connect your institution to a modern, always-on financial network with global reach and real-time settlement.</p>'+
-   '<div style="display:flex;gap:14px;justify-content:center;margin-top:32px;flex-wrap:wrap"><a href="javascript:void(0)" onclick="return go(\'#/onboarding\')" class="btn btn-primary">Request a Demo -></a><a href="javascript:void(0)" onclick="return go(\'#/signin\')" class="btn btn-ghost">Sign In -></a></div></div></section>'
+  /* Network map: institutions as nodes on a stylised globe, settlement flows as animated arcs (pure SVG + CSS). */
+  var N=[[118,150],[178,92],[262,78],[338,118],[372,206],[330,292],[248,330],[160,300],[104,226],[228,196]];
+  var F=[[0,4],[1,6],[2,7],[3,8],[9,0],[9,3],[9,5],[5,1],[6,2],[8,4]];
+  var arcs=F.map(function(f,i){var a=N[f[0]],b=N[f[1]],mx=(a[0]+b[0])/2,my=(a[1]+b[1])/2-60;
+    return '<path class="hx-arc" style="animation-delay:'+(i*0.45).toFixed(2)+'s" d="M'+a[0]+' '+a[1]+' Q'+mx+' '+my+' '+b[0]+' '+b[1]+'"/>';}).join('');
+  var nodes=N.map(function(n,i){return '<g><circle class="hx-pulse" style="animation-delay:'+(i*0.3).toFixed(1)+'s" cx="'+n[0]+'" cy="'+n[1]+'" r="5"/><circle cx="'+n[0]+'" cy="'+n[1]+'" r="4.2" fill="var(--teal)"/></g>';}).join('');
+  var mapSvg='<svg class="hx-map" viewBox="0 0 440 420" role="img" aria-label="Institutions connected by settlement flows">'+
+    '<defs><radialGradient id="hxg" cx="45%" cy="40%" r="60%"><stop offset="0" stop-color="var(--teal)" stop-opacity=".16"/><stop offset="1" stop-color="var(--teal)" stop-opacity="0"/></radialGradient></defs>'+
+    '<circle cx="240" cy="205" r="175" fill="url(#hxg)" stroke="var(--line-2)"/>'+
+    '<ellipse cx="240" cy="205" rx="175" ry="60" fill="none" stroke="var(--line)"/><ellipse cx="240" cy="205" rx="175" ry="120" fill="none" stroke="var(--line)"/>'+
+    '<ellipse cx="240" cy="205" rx="60" ry="175" fill="none" stroke="var(--line)"/><ellipse cx="240" cy="205" rx="120" ry="175" fill="none" stroke="var(--line)"/>'+
+    arcs+nodes+'</svg>';
+
+  /* Stats: facts only (owner decision 2026-11-07). Numbers count up when scrolled into view. */
+  var stats=[['2','','Settlement assets','USDC + USDT on Solana'],['1:1','','Reserved','Nothing minted, nothing lent'],['64','/64','Sandbox end-to-end checks','Real custody, devnet, both assets'],['0','','Failed sandbox settlements','Every settlement proven on-chain'],['24/7','','On-chain settlement','No cut-off times, no banking hours']];
+  var statH=stats.map(function(s){return '<div class="hx-stat reveal"><div class="hx-stat-num gt" data-count="'+s[0]+'">'+s[0]+'<span>'+s[1]+'</span></div><div class="hx-stat-lbl">'+s[2]+'</div><div class="hx-stat-sub">'+s[3]+'</div></div>';}).join('');
+
+  var steps=[[I.key,'Connect','One API key. Your bank joins the network in days, not a year.'],[I.route,'Settle','Submit a settlement. AxLink routes it through custody, executes it on Solana and proves it on-chain.'],[I.book,'Reconcile','A signed webhook carries the proof to your systems. Ledger entries are posted automatically.']];
+  var stepH=steps.map(function(s,i){return (i?'<div class="hx-link" aria-hidden="true"><span></span></div>':'')+'<div class="hx-step reveal"><div class="hx-step-ic">'+s[0]+'</div><div class="hx-step-n mono">STEP '+(i+1)+'</div><h4>'+s[1]+'</h4><p>'+s[2]+'</p></div>';}).join('');
+
+  var feats=[[I.vault,'Institutional Custody','Every wallet is its own Fireblocks MPC vault. Keys never sit on AxLink servers.'],[I.coin,'Stablecoin Settlement','USDC and USDT on Solana. A settlement completes only when a Solana node reports it finalized.'],[I.sign,'Signed Webhooks','HMAC-SHA256 signed events with replay protection: deposit.settled, transfer.settled, settlement.received.'],[I.book,'Double-Entry Ledger','Append-only journal. Every movement balances to zero per currency before it is written.'],[I.code,'TypeScript SDK','@axlink/sdk for your backend. 9 resource namespaces, full types, idempotent writes.'],[I.gauge,'Ops Dashboard','Real-time settlement view, stuck queue, reconciliation and a public proof for every settlement.']];
+  var featH=feats.map(function(f){return '<div class="card reveal hx-feat"><div class="ic">'+f[0]+'</div><h4>'+f[1]+'</h4><p>'+f[2]+'</p></div>';}).join('');
+
+  var flow=[['Settlement Request','Institution A submits the recipient institution, asset, network and amount, with an idempotency key.'],['Authorization & Compliance','AxLink checks permissions, balance, network, the receiving wallet and risk limits.'],['Funds Reserved','The ledger records an atomic reservation of the amount before anything leaves custody.'],['Blockchain Execution','The custody adapter (Fireblocks) executes the transfer on Solana.'],['Finality Verification','AxLink checks the signature, token mint, destination and finality against a Solana node.'],['Ledger & Reconciliation','Custody records and chain evidence are reconciled with the journal.'],['Institution Notification','Both institutions receive a signed confirmation carrying the on-chain proof.']];
+  var flowH=flow.map(function(f,i){return '<li class="hx-flow-step reveal" style="--d:'+(i*0.12).toFixed(2)+'s"><span class="hx-flow-dot mono">'+(i+1)+'</span><div><h5>'+f[0]+'</h5><p>'+f[1]+'</p></div></li>';}).join('');
+
+  function kw(t){return '<span class="hx-k">'+t+'</span>';} function st(t){return '<span class="hx-s">'+t+'</span>';} function cm(t){return '<span class="hx-c">'+t+'</span>';}
+  var code=[kw('import')+' { AxLinkClient } '+kw('from')+' '+st("'@axlink/sdk'")+';','',
+    kw('const')+' axlink = '+kw('new')+' AxLinkClient({','  baseUrl: '+st("'https://axlink-settlement.onrender.com'")+',','  apiKey:  process.env.AXLINK_API_KEY,','});','',
+    cm('// Settle 10,000 USDT to Galaxy Bank'),
+    kw('const')+' result = '+kw('await')+' axlink.settlements.create({','  walletId:       '+st("'wal_treasury'")+',','  counterpartyId: '+st("'cp_galaxybank_01'")+',','  asset:          '+st("'USDT_SOL'")+',','  amount:         '+st("'10000'")+',','  reference:      '+st("'INV-2026-001'")+',','  idempotencyKey: '+st("'INV-2026-001'")+',  '+cm('// a retry never pays twice'),'});',
+    cm("// { id: '…', status: 'PROCESSING' }  →  'COMPLETED', proof.txHash on finality")].join('\n');
+
+  var inScope=['USDC and USDT custody','Stablecoin deposits and transfers','Institution-to-institution settlement','Custody and ledger reconciliation'];
+  var outScope=['Stablecoin-to-fiat conversion','Local bank and mobile money payout','Cross-chain bridging'];
+  function li(arr,ok){return arr.map(function(t){return '<li><span class="hx-mark '+(ok?'ok':'no')+'">'+(ok?'&#10003;':'&#8212;')+'</span>'+t+'</li>';}).join('');}
+
+  return siteWrap('Home',
+   /* 1 HERO */
+   '<section class="hx-hero"><div class="wrap hx-hero-grid">'+
+     '<div class="hx-hero-copy"><span class="eyebrow">AxLink Settlement Network</span>'+
+     '<h1 class="hx-h1">The Settlement Network for the <span class="gt">World\'s Banks</span></h1>'+
+     '<p class="hx-sub">USDC and USDT on Solana. Instant, final, on-chain. Your bank connects once, then settles with any institution on the network.</p>'+
+     '<div class="hx-ctas"><a href="javascript:void(0)" onclick="'+apply+'" class="btn btn-primary">Request API Access &#8594;</a><a href="javascript:void(0)" onclick="'+docs+'" class="btn btn-ghost">Read the Docs</a></div></div>'+
+     '<div class="hx-hero-art">'+mapSvg+'</div></div>'+
+     '<div class="wrap"><div class="hx-trust"><span>Custody via Fireblocks MPC</span><span>Settles on Solana</span><span>USDC by Circle</span><span>USDT by Tether</span><span>Sandbox live</span></div></div></section>'+
+   /* 2 NETWORK STATS */
+   '<section class="hx-sec hx-tight"><div class="wrap"><div class="hx-stats">'+statH+'</div></div></section>'+
+   /* 3 HOW IT WORKS */
+   '<section class="hx-sec"><div class="wrap"><div class="hx-head reveal"><span class="eyebrow">How it works</span><h2>Three steps from API key to on-chain proof.</h2></div><div class="hx-steps">'+stepH+'</div></div></section>'+
+   /* 4 WHAT BANKS GET */
+   '<section class="hx-sec hx-alt"><div class="wrap"><div class="hx-head reveal"><span class="eyebrow">What banks get</span><h2>Institutional infrastructure, not a wallet app.</h2></div><div class="cards c3 hx-feats">'+featH+'</div></div></section>'+
+   /* 5 SETTLEMENT FLOW */
+   '<section class="hx-sec"><div class="wrap hx-flow-grid"><div class="hx-head reveal" style="text-align:left;margin:0"><span class="eyebrow">Settlement flow</span><h2>Seven checks between request and proof.</h2><p class="lead">Example: Institution A settles 10,000 USDC on Solana to Institution B. Nothing is credited until finality is verified on-chain.</p></div><ol class="hx-flow">'+flowH+'</ol></div></section>'+
+   /* 6 SDK */
+   '<section class="hx-sec hx-alt"><div class="wrap hx-code-grid"><div class="reveal"><span class="eyebrow">Developers</span><h2 class="hx-h2">Drop the SDK into your backend.</h2><p class="lead">Typed client for every endpoint. Writes are idempotent: the same key never pays twice. Webhooks are verified with one call.</p><div class="hx-ctas"><a href="javascript:void(0)" onclick="'+docs+'" class="btn btn-ghost">API reference &#8594;</a></div></div>'+
+     '<div class="hx-code reveal"><div class="hx-code-bar"><i></i><i></i><i></i><span class="mono">settle.ts</span></div><pre><code>'+code+'</code></pre></div></div></section>'+
+   /* 7 SCOPE */
+   '<section class="hx-sec"><div class="wrap"><div class="hx-head reveal"><span class="eyebrow">Scope</span><h2>Exactly what AxLink does today.</h2><p class="lead">Leg A ends at verified digital-asset receipt by the receiving institution.</p></div>'+
+     '<div class="hx-scope reveal"><div><h4>In scope (Leg A)</h4><ul>'+li(inScope,true)+'</ul></div><div><h4>Out of scope</h4><ul>'+li(outScope,false)+'</ul></div></div></div></section>'+
+   /* 8 CTA */
+   '<section class="hx-cta"><div class="wrap reveal"><h2>Ready to settle on-chain?</h2><p>AxLink is onboarding its founding network members. Apply for API access and go live in days.</p>'+
+     '<a href="javascript:void(0)" onclick="'+apply+'" class="btn btn-primary">Apply for API Access &#8594;</a></div></section>'
   );
 }
-
 function isoNetwork(){
   // nodes: [label, x, y, labelY]
   var nodes=[['Banks',330,120,86],['PSPs',180,190,156],['Fintechs',480,190,156],['Payment Providers',150,410,462],['Enterprises',510,410,462]];
