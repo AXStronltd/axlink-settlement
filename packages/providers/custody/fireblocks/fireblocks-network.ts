@@ -28,6 +28,8 @@ import {
   TransactionOperation,
   FeeLevel,
 } from '@fireblocks/ts-sdk';
+
+import { fireblocksBasePath } from './fireblocks';
 import { log } from '../../../shared/logger';
 
 // ── Client ───────────────────────────────────────────────────────────────────
@@ -39,7 +41,7 @@ function buildClient(): Fireblocks {
   return new Fireblocks({
     apiKey,
     secretKey: readFileSync(keyPath, 'utf8'),
-    basePath:  sandbox ? BasePath.Sandbox : BasePath.US,
+    basePath:  fireblocksBasePath(sandbox),
   });
 }
 

@@ -9,6 +9,16 @@ import {
   FeeLevel,
 } from '@fireblocks/ts-sdk';
 
+/** FIREBLOCKS_BASE_URL (a fireblocks.io API host) overrides the default; otherwise sandbox → sandbox-api, live → api. */
+export function fireblocksBasePath(sandbox: boolean): string {
+  const o = process.env.FIREBLOCKS_BASE_URL;
+  if (o) {
+    if (!/^https:\/\/([a-z0-9-]+\.)?api\.fireblocks\.io\/v1\/?$|^https:\/\/[a-z0-9-]+-api\.fireblocks\.io\/v1\/?$/.test(o)) throw new Error(`FIREBLOCKS_BASE_URL must be a Fireblocks API host (https://…api.fireblocks.io/v1), got ${o}`);
+    return o.replace(/\/$/, '');
+  }
+  return sandbox ? BasePath.Sandbox : BasePath.US;
+}
+
 const PLACEHOLDER = ['your_', 'YOUR_'];
 
 export function isConfigured(): boolean {
@@ -29,7 +39,7 @@ function createClient(): Fireblocks {
   return new Fireblocks({
     apiKey,
     secretKey: readFileSync(keyPath, 'utf8'),
-    basePath: sandbox ? BasePath.Sandbox : BasePath.US,
+    basePath: fireblocksBasePath(sandbox),
   });
 }
 
@@ -149,6 +159,9 @@ export async function createTransfer(params: TransferParams) {
         ...(params.externalTxId ? { externalTxId: params.externalTxId } : {}),
         treatAsGrossAmount: params.treatAsGrossAmount ?? false,
       },
+      // Fireblocks dedupes a retried POST /v1/transactions on Idempotency-Key for 24h; externalTxId
+      // (our transfer id) is the longer-lived guard and the recovery lookup (getTransactionByExternalId).
+      ...(params.externalTxId ? { idempotencyKey: params.externalTxId } : {}),
     });
 
     return res.data;
