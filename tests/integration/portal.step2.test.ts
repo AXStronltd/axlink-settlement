@@ -44,7 +44,7 @@ db('portal connected to the API', () => {
 
     // Wallet screen shows the seeded wallet from GET /v1/wallets
     await page.evaluate(() => (globalThis as any).go('#/app/treasury'));
-    await page.waitForSelector('text=Wallets — GET /v1/wallets');
+    await page.waitForSelector('h4:text-is("Wallets")');
     // The table header renders at once; the rows arrive with refreshLive() (async) — wait for them, don't race them.
     await page.locator('td', { hasText: 'Treasury' }).first().waitFor({ timeout: 10_000 });
     expect(await page.locator('td', { hasText: 'Treasury' }).count()).toBeGreaterThan(0);
@@ -79,8 +79,8 @@ db('portal connected to the API', () => {
     expect(await prisma.settlementTransfer.count({ where: { walletId: seededWalletId } })).toBe(transfersBefore);
 
     // Transactions = the ledger statement; Balances = journal-derived; screens without an API are not in the live nav
-    await page.evaluate(() => (globalThis as any).go('#/app/transactions')); await page.waitForSelector('text=GET /v1/ledger/entries');
-    await page.evaluate(() => (globalThis as any).go('#/app/balances')); await page.waitForSelector('text=GET /v1/balances');
+    await page.evaluate(() => (globalThis as any).go('#/app/transactions')); await page.waitForSelector('text=straight from the double-entry ledger');
+    await page.evaluate(() => (globalThis as any).go('#/app/balances')); await page.waitForSelector('text=From the ledger, exact decimals');
     expect(await page.locator('nav a:has-text("Compliance")').count()).toBe(0);
     expect(await page.locator('nav a:has-text("Balances")').count()).toBe(1);
 
