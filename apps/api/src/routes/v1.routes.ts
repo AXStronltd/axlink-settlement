@@ -28,6 +28,7 @@ import webhookEndpointRoutes from './webhook-endpoint.routes';
 import { counterpartyRoutes, transferRoutes } from './transfer-v1.routes';
 import { getTransfer, serializeTransfer } from '../../../../packages/settlement/transfers/settlement-transfer.service';
 import { getDepositInstruction, serializeInstruction } from '../../../../packages/settlement/deposits/deposit-instruction.service';
+import { ACTIVE_NETWORK } from '../../../../packages/core/assets/registry';
 
 const router = Router();
 const wrap = (fn: (req: Request, res: Response) => Promise<void>) => (req: Request, res: Response, next: NextFunction) => fn(req, res).catch(next);
@@ -42,12 +43,12 @@ router.get('/institutions/me', (req, res) => {
 router.get('/assets', (_req, res) => {
   res.json({
     assets: Object.values(ASSETS).filter(a => a.supported).map(a => ({ id: a.id, symbol: a.symbol, network: a.network, contract: a.contract, decimals: a.decimals, issuer: a.tokenIssuer })),
-    networks: Object.values(NETWORKS).map(n => ({ id: n.id, family: n.family, finality: n.finality })),
+    networks: [NETWORKS[ACTIVE_NETWORK]].map(n => ({ id: n.id, family: n.family, finality: n.finality })),
   });
 });
 
 // Wallets: an institution provisions its own wallet in the environment its credential is bound to.
-const CreateWallet = z.object({ label: z.string().min(1).max(80), network: z.literal('solana-mainnet').optional() });
+const CreateWallet = z.object({ label: z.string().min(1).max(80), network: z.literal(ACTIVE_NETWORK).optional() });
 router.post('/wallets', requireScope('wallets:write'), wrap(async (req, res) => {
   const t = req.tenant!; const b = CreateWallet.parse(req.body);
   const w = await createWallet({ institutionId: t.institutionId, environmentKind: t.environmentKind, label: b.label, network: b.network });

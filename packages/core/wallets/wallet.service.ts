@@ -11,7 +11,7 @@
  */
 import { Prisma, type Wallet, type WalletBalance } from '@prisma/client';
 import { prisma } from '../ledger/ledger.service';
-import { ASSETS, NETWORKS, type AssetDefinition, type NetworkId } from '../assets/registry';
+import { ACTIVE_NETWORK, ASSETS, NETWORKS, type AssetDefinition, type NetworkId } from '../assets/registry';
 import { ApiError } from '../../shared/errors';
 import { log } from '../../shared/logger';
 import { AccountCode } from '../ledger/accounts';
@@ -47,7 +47,7 @@ export interface CreateWalletInput {
 }
 
 export async function createWallet(input: CreateWalletInput): Promise<Wallet & { balances: WalletBalance[] }> {
-  const network = input.network ?? 'solana-mainnet';
+  const network = input.network ?? ACTIVE_NETWORK;
   if (!NETWORKS[network]) throw new ApiError('UNSUPPORTED_NETWORK', `network ${network} is not supported`, 400);
   const env = await prisma.apiEnvironment.findUnique({ where: { institutionId_kind: { institutionId: input.institutionId, kind: input.environmentKind } }, include: { institution: { select: { status: true } } } });
   if (!env) throw new ApiError('NOT_FOUND', 'environment not found', 404);

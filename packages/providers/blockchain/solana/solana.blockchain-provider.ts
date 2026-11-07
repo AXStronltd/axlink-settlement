@@ -5,10 +5,10 @@
 import type { BlockchainProvider, AssetRef, ProviderHealth } from '../../ports';
 import { ChainTransactionFailed } from '../../ports/blockchain.port';
 import { ports } from '../../ports/runtime';
-import { resolveByContract, ASSETS } from '../../../core/assets/registry';
+import { resolveByContract, ASSETS, ACTIVE_NETWORK } from '../../../core/assets/registry';
 import * as sol from './solana';
 
-const CHAIN = 'solana-mainnet';
+const CHAIN = ACTIVE_NETWORK;
 function contractOf(a: AssetRef): string {
   const hit = Object.values(ASSETS).find(x => x.symbol === a.symbol.toUpperCase() && x.network === CHAIN);
   if (!hit) throw new Error(`asset ${a.symbol} is not registered on ${CHAIN}`);

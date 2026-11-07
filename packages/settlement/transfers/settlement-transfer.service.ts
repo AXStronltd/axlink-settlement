@@ -31,6 +31,7 @@ import { ApiError } from '../../shared/errors';
 import { log } from '../../shared/logger';
 import { getCounterparty, settlementWalletFor } from './counterparty.service';
 import { raiseException } from '../operations/exception.service';
+import { explorerTx } from '../../core/assets/registry';
 
 export interface Scope { institutionId: string; environmentId: string; environmentKind: 'SANDBOX' | 'PRODUCTION' }
 const where = (s: { institutionId: string; environmentId: string }) => ({ institutionId: s.institutionId, environmentId: s.environmentId });
@@ -223,7 +224,7 @@ export function listAwaitingApproval() { return prisma.settlementTransfer.findMa
 export type TransferEvent = 'transfer.submitted' | 'transfer.settled' | 'transfer.failed';
 async function emit(t: SettlementTransfer & { counterparty?: Counterparty }, type: TransferEvent, extra: Record<string, unknown>, tx?: Prisma.TransactionClient) {
   const { emitInstitutionEvent } = await import('../../core/webhooks/webhook-endpoint.service');
-  const data = { transferId: t.id, kind: 'TRANSFER', status: publicStatus(t), stage: t.status, walletId: t.walletId, counterpartyId: t.counterpartyId, asset: t.assetId, amount: t.amount.toFixed(), reference: t.reference, txHash: t.txHash, explorerUrl: t.txHash ? `https://solscan.io/tx/${t.txHash}` : null, ...extra } as Prisma.InputJsonValue;
+  const data = { transferId: t.id, kind: 'TRANSFER', status: publicStatus(t), stage: t.status, walletId: t.walletId, counterpartyId: t.counterpartyId, asset: t.assetId, amount: t.amount.toFixed(), reference: t.reference, txHash: t.txHash, explorerUrl: t.txHash ? explorerTx(t.txHash) : null, ...extra } as Prisma.InputJsonValue;
   const run = (db: Prisma.TransactionClient) => emitInstitutionEvent(db, { institutionId: t.institutionId, environmentId: t.environmentId }, type as never, data, { entityType: 'SettlementTransfer', entityId: t.id });
   return tx ? run(tx) : prisma.$transaction(run);
 }
@@ -511,7 +512,7 @@ export async function serializeTransfer(t: SettlementTransfer & { counterparty?:
     walletId: t.walletId, counterparty: t.counterparty ? { id: t.counterparty.id, label: t.counterparty.label, address: t.counterparty.address, network: t.counterparty.network } : { id: t.counterpartyId },
     asset: t.assetId, amount: t.amount.toFixed(), reference: t.reference, idempotencyKey: t.idempotencyKey,
     approval: t.status === 'AWAITING_APPROVAL' ? { required: true, by: 'operator' } : t.approvedAt ? { required: false, by: t.approvedBy, at: t.approvedAt } : null,
-    proof: t.providerTxId || t.txHash ? { custodyTxId: t.providerTxId, txHash: t.txHash, explorerUrl: t.txHash ? `https://solscan.io/tx/${t.txHash}` : null,
+    proof: t.providerTxId || t.txHash ? { custodyTxId: t.providerTxId, txHash: t.txHash, explorerUrl: t.txHash ? explorerTx(t.txHash) : null,
       finality: t.status === 'SETTLED' ? (t.finality ?? (proven ? 'ON_CHAIN_FINALIZED' : 'SANDBOX_SIMULATED')) : t.status === 'UNDER_REVIEW' ? 'UNDER_REVIEW' : t.status === 'CONFIRMED' ? 'CUSTODY_CONFIRMED' : 'PENDING', slot: proven?.slot ?? null } : null,
     ...(t.failureReason ? { attention: true, reason: t.failureReason } : {}),
     submittedAt: t.submittedAt, confirmedAt: t.confirmedAt, settledAt: t.settledAt, createdAt: t.createdAt,

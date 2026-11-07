@@ -25,9 +25,9 @@
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 
-import { ASSETS, DEFAULT_SETTLEMENT_SYMBOL } from '../../../core/assets/registry';
+import { ASSETS, DEFAULT_SETTLEMENT_SYMBOL, solanaCluster } from '../../../core/assets/registry';
 
-const RPC_URL = () => process.env.SOLANA_RPC_URL ?? 'https://api.mainnet-beta.solana.com';
+const RPC_URL = () => process.env.SOLANA_RPC_URL ?? (solanaCluster() === 'devnet' ? 'https://api.devnet.solana.com' : 'https://api.mainnet-beta.solana.com');
 const RPC_TIMEOUT_MS = Number(process.env.SOLANA_RPC_TIMEOUT_MS ?? 10_000);
 
 /**

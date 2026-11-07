@@ -9,7 +9,7 @@
  */
 import { Prisma, type Counterparty } from '@prisma/client';
 import { prisma } from '../../core/ledger/ledger.service';
-import { NETWORKS, type NetworkId } from '../../core/assets/registry';
+import { ACTIVE_NETWORK, NETWORKS, type NetworkId } from '../../core/assets/registry';
 import { providers } from '../../providers/registry/provider-registry';
 import { ApiError } from '../../shared/errors';
 import { log } from '../../shared/logger';
@@ -73,7 +73,7 @@ export async function setSettlementWallet(scope: Scope, walletId: string) {
 export async function registerCounterparty(scope: Scope & { environmentKind: 'SANDBOX' | 'PRODUCTION' }, input: RegisterCounterpartyInput) {
   if (input.participant) return registerNetworkCounterparty(scope, input);
   if (!input.address) throw new ApiError('VALIDATION_ERROR', 'address (external) or participant (network) is required', 400);
-  const network = input.network ?? 'solana-mainnet';
+  const network = input.network ?? ACTIVE_NETWORK;
   if (!NETWORKS[network]) throw new ApiError('UNSUPPORTED_NETWORK', `network ${network} is not supported`, 400);
   const address = input.address.trim();
   if (!providers.blockchain(network).isValidAddress(address)) throw new ApiError('INVALID_ADDRESS', `not a valid ${network} address`, 400);

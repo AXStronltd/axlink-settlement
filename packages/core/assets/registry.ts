@@ -12,13 +12,23 @@
  * are translated at the edge and never stored as the asset identity.
  *
  * Adding an asset or a network is a change here plus a Codex review — nothing else hard-codes
- * a mint. `src/providers/live/solana.ts` derives its mint table from this file.
+ * a mint. The Solana RPC client derives its mint table from this file.
+ *
+ * One deployment serves ONE Solana cluster, chosen by SOLANA_CLUSTER (default `mainnet`):
+ *   - mainnet: Circle USDC + Tether USDT, Fireblocks ids USDC_SOL / USDT_SOL (live workspace).
+ *   - devnet:  Circle's devnet USDC (faucet.circle.com) for the Fireblocks sandbox / testnet
+ *              workspace. Tether publishes no devnet USDT, so USDT is unsupported on devnet unless
+ *              SOLANA_DEVNET_USDT_MINT names a test mint. Fireblocks names testnet assets per
+ *              workspace, so on devnet FIREBLOCKS_USDC_ASSET (and _USDT_ASSET) must be set.
+ * The AssetId (`USDC_SOL`) is the same on both clusters; the network + contract differ, so a devnet
+ * token can never be attributed on a mainnet deployment and vice versa.
  */
 import { Prisma } from '@prisma/client';
 
-export type NetworkId = 'solana-mainnet';
+export type NetworkId = 'solana-mainnet' | 'solana-devnet';
 export type AssetId = 'USDC_SOL' | 'USDT_SOL';
 export type ProviderName = 'fireblocks' | 'b2binpay';
+export type SolanaCluster = 'mainnet' | 'devnet';
 
 export interface NetworkDefinition {
   id: NetworkId;
@@ -44,20 +54,51 @@ export interface AssetDefinition {
 
 export const NETWORKS: Record<NetworkId, NetworkDefinition> = {
   'solana-mainnet': { id: 'solana-mainnet', family: 'solana', finality: 'finalized', explorerTx: s => `https://solscan.io/tx/${s}` },
+  'solana-devnet':  { id: 'solana-devnet',  family: 'solana', finality: 'finalized', explorerTx: s => `https://solscan.io/tx/${s}?cluster=devnet` },
 };
 
-export const ASSETS: Record<AssetId, AssetDefinition> = {
-  USDC_SOL: {
-    id: 'USDC_SOL', symbol: 'USDC', tokenIssuer: 'Circle', network: 'solana-mainnet',
-    contract: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', decimals: 6, supported: true,
-    providerIds: { fireblocks: process.env.FIREBLOCKS_USDC_ASSET ?? 'USDC_SOL', b2binpay: 'USDC-SOL' },
-  },
-  USDT_SOL: {
-    id: 'USDT_SOL', symbol: 'USDT', tokenIssuer: 'Tether', network: 'solana-mainnet',
-    contract: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', decimals: 6, supported: true,
-    providerIds: { fireblocks: process.env.FIREBLOCKS_USDT_ASSET ?? 'USDT_SOL', b2binpay: 'USDT-SOL' }, // same override the legacy services honour
-  },
+/** The cluster this deployment settles on. Anything other than `devnet` is mainnet. */
+export function solanaCluster(env: NodeJS.ProcessEnv = process.env): SolanaCluster {
+  return (env.SOLANA_CLUSTER ?? 'mainnet').toLowerCase() === 'devnet' ? 'devnet' : 'mainnet';
+}
+
+/** The network every wallet, counterparty and proof on this deployment uses. */
+export const ACTIVE_NETWORK: NetworkId = solanaCluster() === 'devnet' ? 'solana-devnet' : 'solana-mainnet';
+
+/** Explorer link for a signature on this deployment's network (devnet links carry ?cluster=devnet). */
+export const explorerTx = (sig: string): string => NETWORKS[ACTIVE_NETWORK].explorerTx(sig);
+
+/** Public token contracts per cluster. Mainnet values are the issuers' canonical SPL mints. */
+export const MINTS: Record<SolanaCluster, Record<AssetId, string | undefined>> = {
+  mainnet: { USDC_SOL: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', USDT_SOL: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB' },
+  // Circle's devnet USDC. No official devnet USDT exists.
+  devnet:  { USDC_SOL: '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU', USDT_SOL: process.env.SOLANA_DEVNET_USDT_MINT || undefined },
 };
+
+function fireblocksId(asset: AssetId, cluster: SolanaCluster): string | undefined {
+  const override = asset === 'USDC_SOL' ? process.env.FIREBLOCKS_USDC_ASSET : process.env.FIREBLOCKS_USDT_ASSET; // same override the legacy services honour
+  if (override) return override;
+  return cluster === 'mainnet' ? asset : undefined; // testnet asset ids are workspace-specific: no guessing
+}
+
+export function buildAssets(cluster: SolanaCluster): Record<AssetId, AssetDefinition> {
+  const network: NetworkId = cluster === 'devnet' ? 'solana-devnet' : 'solana-mainnet';
+  const def = (id: AssetId, symbol: 'USDC' | 'USDT', tokenIssuer: string, b2binpay: string): AssetDefinition => {
+    const contract = MINTS[cluster][id];
+    const fireblocks = fireblocksId(id, cluster);
+    return {
+      id, symbol, tokenIssuer, network, contract: contract ?? '', decimals: 6, supported: Boolean(contract),
+      // B2BinPay has no devnet: it is a later liquidity leg, and only ever mainnet.
+      providerIds: { ...(fireblocks ? { fireblocks } : {}), ...(cluster === 'mainnet' ? { b2binpay } : {}) },
+    };
+  };
+  return {
+    USDC_SOL: def('USDC_SOL', 'USDC', 'Circle', 'USDC-SOL'),
+    USDT_SOL: def('USDT_SOL', 'USDT', 'Tether', 'USDT-SOL'),
+  };
+}
+
+export const ASSETS: Record<AssetId, AssetDefinition> = buildAssets(solanaCluster());
 
 export class UnsupportedAssetError extends Error {
   readonly code = 'UNSUPPORTED_ASSET';
@@ -113,7 +154,7 @@ export function assetsForSymbol(symbol: string): AssetDefinition[] {
  * corridor engine until that is migrated.
  */
 export const DEFAULT_SETTLEMENT_SYMBOL = (process.env.SETTLEMENT_ASSET ?? 'USDT').toUpperCase() as 'USDC' | 'USDT';
-export function assetForSymbolOnNetwork(symbol: string, network: NetworkId = 'solana-mainnet'): AssetDefinition {
+export function assetForSymbolOnNetwork(symbol: string, network: NetworkId = ACTIVE_NETWORK): AssetDefinition {
   const hit = Object.values(ASSETS).find(a => a.symbol === symbol.toUpperCase() && a.network === network);
   if (!hit) throw new UnsupportedAssetError(`${symbol} on ${network}`);
   return hit;
