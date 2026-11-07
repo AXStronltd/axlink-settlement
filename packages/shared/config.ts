@@ -81,7 +81,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ConfigReport {
     if (!cfg.FIREBLOCKS_WEBHOOK_JWKS_URL) prodProblems.push('FIREBLOCKS_WEBHOOK_JWKS_URL is required in production (FIREBLOCKS_WEBHOOK_PUBLIC_KEY is required in production only for the retired legacy header and no longer suffices)');
     // The legacy sandbox (sandbox-api host) signs with sandbox-keys; a live workspace never does. A testnet
     // workspace served from an overridden FIREBLOCKS_BASE_URL is checked by `npm run fb:preflight` instead.
-    else if (!process.env.FIREBLOCKS_BASE_URL && (cfg.FIREBLOCKS_SANDBOX === 'true') !== cfg.FIREBLOCKS_WEBHOOK_JWKS_URL.startsWith('https://sandbox-keys.')) prodProblems.push(`FIREBLOCKS_WEBHOOK_JWKS_URL ${cfg.FIREBLOCKS_WEBHOOK_JWKS_URL} does not match the workspace (FIREBLOCKS_SANDBOX=${cfg.FIREBLOCKS_SANDBOX ?? 'unset'})`);
+    else if (!(process.env.FIREBLOCKS_BASE_URL && !/\/\/sandbox-api\./.test(process.env.FIREBLOCKS_BASE_URL) && cfg.SOLANA_CLUSTER === 'devnet') && (cfg.FIREBLOCKS_SANDBOX === 'true') !== cfg.FIREBLOCKS_WEBHOOK_JWKS_URL.startsWith('https://sandbox-keys.')) prodProblems.push(`FIREBLOCKS_WEBHOOK_JWKS_URL ${cfg.FIREBLOCKS_WEBHOOK_JWKS_URL} does not match the workspace (FIREBLOCKS_SANDBOX=${cfg.FIREBLOCKS_SANDBOX ?? 'unset'})`);
     if ([cfg.B2BINPAY_CLIENT_ID, cfg.B2BINPAY_CLIENT_SECRET].some(v => v && !PLACEHOLDER.test(v)) && (!cfg.B2BINPAY_CALLBACK_SECRET || PLACEHOLDER.test(cfg.B2BINPAY_CALLBACK_SECRET))) prodProblems.push('B2BINPAY_CALLBACK_SECRET is required in production');
     // Things that must be true in production (CLAUDE.md): a dedicated Solana node, deliberate outbound enablement,
     // sane limits, and a conscious choice about screening.

@@ -260,7 +260,9 @@ export async function submitApprovedTransfers(limit = 50): Promise<{ submitted: 
   const now = new Date();
   const rows = await prisma.settlementTransfer.findMany({
     where: { OR: [
-      { status: 'APPROVED', OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }] },
+      // Held institutions' APPROVED rows are filtered out here, not skipped in the loop: skipped rows would
+      // fill every batch and starve every other institution's settlements.
+      { status: 'APPROVED', institution: { status: 'ACTIVE' }, OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }] },
       { status: 'SUBMITTING', nextAttemptAt: { lte: now } }, // a lease that expired: the claimer died mid-call
     ] },
     include: { wallet: true, counterparty: true, environment: { select: { kind: true } }, institution: { select: { status: true } } }, take: limit, orderBy: { approvedAt: 'asc' },
@@ -270,7 +272,8 @@ export async function submitApprovedTransfers(limit = 50): Promise<{ submitted: 
   for (const t of rows) {
     if (!outboundEnabled(t.environment.kind)) { log.error('transfer.outbound_disabled', { transferId: t.id, environment: t.environment.kind }); out.deferred++; continue; }
     // Held, not failed: a suspension may be lifted; operations decides. Nothing is claimed or sent.
-    if (t.institution.status !== 'ACTIVE') { log.warn('transfer.held_institution_not_active', { transferId: t.id, institution: t.institutionId, status: t.institution.status }); out.deferred++; continue; }
+    // An expired SUBMITTING lease still goes through recovery/review below: custody may already hold it.
+    if (t.status === 'APPROVED' && t.institution.status !== 'ACTIVE') { log.warn('transfer.held_institution_not_active', { transferId: t.id, institution: t.institutionId, status: t.institution.status }); out.deferred++; continue; }
     // claim
     const claimed = await prisma.settlementTransfer.updateMany({ where: { id: t.id, status: t.status, nextAttemptAt: t.nextAttemptAt }, data: { status: 'SUBMITTING', nextAttemptAt: new Date(Date.now() + CLAIM_LEASE_MS) } });
     if (claimed.count !== 1) continue; // someone else has it

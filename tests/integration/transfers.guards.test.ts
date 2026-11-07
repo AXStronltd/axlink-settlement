@@ -83,4 +83,16 @@ db('outbound guards', () => {
     await prisma.wallet.update({ where: { id: A.wallet.id }, data: { network: 'solana-devnet' } });
     await expect(svc.approveTransfer(waiting.id, 'ops')).rejects.toMatchObject({ code: 'WRONG_DEPLOYMENT' });
   });
+
+  it('held transfers never starve other institutions\' settlements (re-review finding at 4104c41)', async () => {
+    const H = await funded('held', 100); const O = await funded('other', 100);
+    const held = await send(H, '10');                       // older: approved first
+    await request(app).post(`/api/institutions/${H.id}/status`).set(ops).send({ status: 'SUSPENDED', reason: 'hold' }).expect(200);
+    const mine = await send(O, '10');
+    await prisma.settlementTransfer.update({ where: { id: mine.id }, data: { approvedAt: new Date(Date.now() + 60_000) } }); // strictly behind the held row
+    await svc.submitApprovedTransfers(1);                   // a batch of one: the held row must not occupy it
+    expect((await row(mine.id)).status).not.toBe('APPROVED');
+    expect((await row(held.id)).status).toBe('APPROVED');
+  });
 });
+
