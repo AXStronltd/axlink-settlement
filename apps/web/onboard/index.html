@@ -1,0 +1,691 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Join AxLink Network — Institution Onboarding</title>
+<style>
+  :root {
+    --bg: #0a0c10;
+    --surface: #111318;
+    --surface2: #1a1e26;
+    --border: #2a2f3d;
+    --accent: #3b82f6;
+    --accent-dim: #1d4ed8;
+    --success: #10b981;
+    --warning: #f59e0b;
+    --danger: #ef4444;
+    --text: #e8eaf0;
+    --text-muted: #6b7280;
+    --text-dim: #9ca3af;
+    --radius: 10px;
+    --font: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:100vh;line-height:1.6}
+  a{color:var(--accent);text-decoration:none}
+
+  /* ── Layout ── */
+  .page{max-width:760px;margin:0 auto;padding:40px 20px 80px}
+  .logo-bar{display:flex;align-items:center;gap:12px;margin-bottom:48px}
+  .logo-mark{width:36px;height:36px;background:linear-gradient(135deg,#3b82f6,#8b5cf6);border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:16px;color:#fff;letter-spacing:-1px}
+  .logo-name{font-size:18px;font-weight:700;letter-spacing:-0.3px}
+  .logo-name span{color:var(--accent)}
+
+  /* ── Progress ── */
+  .progress{display:flex;gap:0;margin-bottom:40px;position:relative}
+  .progress::before{content:'';position:absolute;top:14px;left:0;right:0;height:2px;background:var(--border);z-index:0}
+  .step-dot{flex:1;display:flex;flex-direction:column;align-items:center;gap:8px;position:relative;z-index:1;cursor:default}
+  .step-dot .dot{width:28px;height:28px;border-radius:50%;border:2px solid var(--border);background:var(--surface);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:var(--text-muted);transition:all .3s}
+  .step-dot.done .dot{background:var(--success);border-color:var(--success);color:#fff}
+  .step-dot.active .dot{background:var(--accent);border-color:var(--accent);color:#fff}
+  .step-dot .label{font-size:11px;color:var(--text-muted);text-align:center;white-space:nowrap}
+  .step-dot.active .label,.step-dot.done .label{color:var(--text-dim)}
+
+  /* ── Card ── */
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:32px}
+  .card-title{font-size:20px;font-weight:700;margin-bottom:6px;letter-spacing:-0.3px}
+  .card-sub{color:var(--text-muted);font-size:14px;margin-bottom:28px}
+
+  /* ── Form ── */
+  .field{margin-bottom:20px}
+  .field label{display:block;font-size:13px;font-weight:500;color:var(--text-dim);margin-bottom:6px}
+  .field label .req{color:var(--danger);margin-left:3px}
+  .field input,.field select,.field textarea{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:var(--font);font-size:14px;padding:10px 14px;outline:none;transition:border .2s}
+  .field input:focus,.field select:focus,.field textarea:focus{border-color:var(--accent)}
+  .field textarea{resize:vertical;min-height:80px}
+  .field select option{background:var(--surface2)}
+  .row-2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:520px){.row-2{grid-template-columns:1fr}}
+  .hint{font-size:12px;color:var(--text-muted);margin-top:5px}
+
+  /* ── Checkboxes ── */
+  .check-group{display:flex;flex-direction:column;gap:14px;margin-top:4px}
+  .check-item{display:flex;gap:12px;align-items:flex-start;cursor:pointer}
+  .check-item input[type=checkbox]{width:18px;height:18px;accent-color:var(--accent);flex-shrink:0;margin-top:2px;cursor:pointer}
+  .check-label{font-size:14px;color:var(--text-dim);line-height:1.5}
+  .check-label strong{color:var(--text)}
+
+  /* ── Asset toggle ── */
+  .asset-toggle{display:flex;gap:10px}
+  .asset-btn{flex:1;padding:10px;border:2px solid var(--border);border-radius:8px;background:var(--surface2);color:var(--text-muted);font-size:14px;font-weight:600;cursor:pointer;text-align:center;transition:all .2s;user-select:none}
+  .asset-btn.selected{border-color:var(--accent);color:var(--accent);background:rgba(59,130,246,0.08)}
+
+  /* ── Corridor tags ── */
+  .corridor-input-row{display:flex;gap:8px}
+  .corridor-input-row input{flex:1}
+  .corridor-input-row button{padding:10px 16px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text-dim);cursor:pointer;font-size:13px;white-space:nowrap;transition:all .2s}
+  .corridor-input-row button:hover{border-color:var(--accent);color:var(--accent)}
+  .tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+  .tag{background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.3);color:var(--accent);padding:4px 10px;border-radius:20px;font-size:12px;display:flex;align-items:center;gap:6px}
+  .tag button{background:none;border:none;color:inherit;cursor:pointer;padding:0;font-size:14px;line-height:1}
+
+  /* ── Documents ── */
+  .doc-types{display:flex;flex-direction:column;gap:10px;margin-bottom:20px}
+  .doc-type-row{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:var(--surface2);border:1px solid var(--border);border-radius:8px}
+  .doc-type-info{display:flex;flex-direction:column}
+  .doc-type-name{font-size:14px;font-weight:500}
+  .doc-type-desc{font-size:12px;color:var(--text-muted)}
+  .doc-type-status{display:flex;align-items:center;gap:8px}
+  .doc-badge{font-size:11px;padding:3px 8px;border-radius:12px;font-weight:600}
+  .doc-badge.required{background:rgba(239,68,68,0.15);color:var(--danger);border:1px solid rgba(239,68,68,0.3)}
+  .doc-badge.optional{background:rgba(107,114,128,0.15);color:var(--text-muted);border:1px solid var(--border)}
+  .doc-badge.uploaded{background:rgba(16,185,129,0.15);color:var(--success);border:1px solid rgba(16,185,129,0.3)}
+  .doc-upload-btn{font-size:12px;padding:6px 12px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text-dim);cursor:pointer;transition:all .2s}
+  .doc-upload-btn:hover{border-color:var(--accent);color:var(--accent)}
+  .uploaded-file{font-size:12px;color:var(--success);display:flex;align-items:center;gap:6px}
+  .uploaded-file button{background:none;border:none;color:var(--danger);cursor:pointer;font-size:13px}
+
+  /* ── Buttons ── */
+  .btn-row{display:flex;gap:12px;margin-top:28px;justify-content:flex-end}
+  .btn{padding:11px 24px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;border:none;transition:all .2s;font-family:var(--font)}
+  .btn-primary{background:var(--accent);color:#fff}
+  .btn-primary:hover{background:var(--accent-dim)}
+  .btn-primary:disabled{background:var(--border);color:var(--text-muted);cursor:not-allowed}
+  .btn-ghost{background:transparent;color:var(--text-dim);border:1px solid var(--border)}
+  .btn-ghost:hover{border-color:var(--accent);color:var(--accent)}
+
+  /* ── Review summary ── */
+  .summary-block{margin-bottom:20px}
+  .summary-block h4{font-size:12px;text-transform:uppercase;letter-spacing:.8px;color:var(--text-muted);margin-bottom:12px}
+  .summary-row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);font-size:14px}
+  .summary-row:last-child{border-bottom:none}
+  .summary-row .key{color:var(--text-muted)}
+  .summary-row .val{font-weight:500;text-align:right;max-width:60%}
+
+  /* ── Success ── */
+  .success-screen{text-align:center;padding:40px 20px}
+  .success-icon{width:64px;height:64px;background:rgba(16,185,129,0.1);border:2px solid var(--success);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:28px;margin:0 auto 20px}
+  .success-title{font-size:24px;font-weight:700;margin-bottom:8px;letter-spacing:-0.3px}
+  .success-sub{color:var(--text-muted);font-size:15px;max-width:460px;margin:0 auto 32px}
+  .ref-box{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:16px 20px;display:inline-block;text-align:left;margin-bottom:24px}
+  .ref-label{font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:4px}
+  .ref-id{font-family:monospace;font-size:16px;color:var(--accent);font-weight:600;word-break:break-all}
+
+  /* ── Alert ── */
+  .alert{padding:12px 16px;border-radius:8px;font-size:13px;margin-bottom:20px;display:none}
+  .alert.error{background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);color:#fca5a5}
+  .alert.show{display:block}
+
+  /* ── Spinner ── */
+  .spin{display:inline-block;width:16px;height:16px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .6s linear infinite;vertical-align:middle;margin-right:6px}
+  @keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- Logo -->
+  <div class="logo-bar">
+    <div class="logo-mark">AX</div>
+    <div class="logo-name"><span>Ax</span>Link Network</div>
+  </div>
+
+  <!-- Progress steps -->
+  <div class="progress" id="progressBar">
+    <div class="step-dot active" id="dot-0"><div class="dot">1</div><div class="label">Institution</div></div>
+    <div class="step-dot" id="dot-1"><div class="dot">2</div><div class="label">Contact</div></div>
+    <div class="step-dot" id="dot-2"><div class="dot">3</div><div class="label">Settlement</div></div>
+    <div class="step-dot" id="dot-3"><div class="dot">4</div><div class="label">Documents</div></div>
+    <div class="step-dot" id="dot-4"><div class="dot">5</div><div class="label">Review</div></div>
+  </div>
+
+  <div id="alertBox" class="alert error"></div>
+
+  <!-- ── Step 0: Institution details ── -->
+  <div id="step-0" class="card">
+    <div class="card-title">Tell us about your institution</div>
+    <div class="card-sub">Basic details used for your compliance file and network profile.</div>
+    <div class="row-2">
+      <div class="field">
+        <label>Legal entity name <span class="req">*</span></label>
+        <input id="legalName" placeholder="e.g. Galaxy Bank Somalia PLC"/>
+      </div>
+      <div class="field">
+        <label>Trading / brand name</label>
+        <input id="tradingName" placeholder="e.g. Galaxy Bank"/>
+      </div>
+    </div>
+    <div class="row-2">
+      <div class="field">
+        <label>Country of incorporation <span class="req">*</span></label>
+        <select id="country">
+          <option value="">Select country…</option>
+          <option value="SO">Somalia</option>
+          <option value="KE">Kenya</option>
+          <option value="ET">Ethiopia</option>
+          <option value="TZ">Tanzania</option>
+          <option value="UG">Uganda</option>
+          <option value="RW">Rwanda</option>
+          <option value="GH">Ghana</option>
+          <option value="NG">Nigeria</option>
+          <option value="ZA">South Africa</option>
+          <option value="EG">Egypt</option>
+          <option value="MA">Morocco</option>
+          <option value="SN">Senegal</option>
+          <option value="CI">Côte d'Ivoire</option>
+          <option value="GB">United Kingdom</option>
+          <option value="US">United States</option>
+          <option value="CA">Canada</option>
+          <option value="AE">UAE</option>
+          <option value="SV">El Salvador</option>
+          <option value="OTHER">Other</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Institution type <span class="req">*</span></label>
+        <select id="kind">
+          <option value="">Select type…</option>
+          <option value="BANK">Commercial Bank</option>
+          <option value="PSP">Payment Service Provider</option>
+          <option value="FINTECH">Fintech / Neobank</option>
+          <option value="MSB">Money Services Business</option>
+          <option value="EXCHANGE">Crypto Exchange</option>
+          <option value="OTHER">Other</option>
+        </select>
+      </div>
+    </div>
+    <div class="row-2">
+      <div class="field">
+        <label>Company registration number</label>
+        <input id="registrationNumber" placeholder="e.g. CR-2019-00123"/>
+      </div>
+      <div class="field">
+        <label>Website</label>
+        <input id="website" placeholder="https://galaxybank.so"/>
+      </div>
+    </div>
+    <div class="row-2">
+      <div class="field">
+        <label>Regulatory licence number</label>
+        <input id="regulatoryLicence" placeholder="e.g. CBS-2020-BNK-001"/>
+      </div>
+      <div class="field">
+        <label>Licensing authority</label>
+        <input id="licensingAuthority" placeholder="e.g. Central Bank of Somalia"/>
+      </div>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-primary" onclick="goStep(1)">Continue →</button>
+    </div>
+  </div>
+
+  <!-- ── Step 1: Technical contact ── -->
+  <div id="step-1" class="card" style="display:none">
+    <div class="card-title">Technical contact</div>
+    <div class="card-sub">We'll deliver your API credentials and onboarding support to this person.</div>
+    <div class="row-2">
+      <div class="field">
+        <label>Full name <span class="req">*</span></label>
+        <input id="contactName" placeholder="e.g. Abdi Hassan"/>
+      </div>
+      <div class="field">
+        <label>Email address <span class="req">*</span></label>
+        <input id="contactEmail" type="email" placeholder="abdi@galaxybank.so"/>
+      </div>
+    </div>
+    <div class="row-2">
+      <div class="field">
+        <label>Role / title</label>
+        <input id="contactRole" placeholder="e.g. CTO, Head of Payments"/>
+      </div>
+      <div class="field">
+        <label>Webhook endpoint URL</label>
+        <input id="webhookUrl" placeholder="https://api.yourbank.com/webhooks/axlink"/>
+        <div class="hint">Optional — can be added later via the API.</div>
+      </div>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-ghost" onclick="goStep(0)">← Back</button>
+      <button class="btn btn-primary" onclick="goStep(2)">Continue →</button>
+    </div>
+  </div>
+
+  <!-- ── Step 2: Settlement preferences ── -->
+  <div id="step-2" class="card" style="display:none">
+    <div class="card-title">Settlement preferences</div>
+    <div class="card-sub">Help us configure your network membership and routing.</div>
+    <div class="field">
+      <label>Settlement assets <span class="req">*</span></label>
+      <div class="asset-toggle">
+        <div class="asset-btn selected" id="assetUSDT" onclick="toggleAsset('USDT')">USDT</div>
+        <div class="asset-btn selected" id="assetUSDC" onclick="toggleAsset('USDC')">USDC</div>
+      </div>
+      <div class="hint">Both USDT and USDC on Solana are supported. Select all that apply.</div>
+    </div>
+    <div class="field">
+      <label>Expected monthly settlement volume</label>
+      <select id="expectedVolume">
+        <option value="">Prefer not to say</option>
+        <option value="Under $500K/month">Under $500K / month</option>
+        <option value="$500K–$2M/month">$500K – $2M / month</option>
+        <option value="$2M–$10M/month">$2M – $10M / month</option>
+        <option value="$10M–$50M/month">$10M – $50M / month</option>
+        <option value="$50M+/month">$50M+ / month</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Settlement corridors</label>
+      <div class="corridor-input-row">
+        <input id="corridorInput" placeholder="e.g. SO→KE, GB→SO, AE→SO" onkeydown="if(event.key==='Enter'){addCorridor();event.preventDefault()}"/>
+        <button onclick="addCorridor()">+ Add</button>
+      </div>
+      <div id="corridorTags" class="tags"></div>
+      <div class="hint">The country pairs your institution plans to settle. Use ISO codes (SO = Somalia, KE = Kenya, GB = UK, etc.)</div>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-ghost" onclick="goStep(1)">← Back</button>
+      <button class="btn btn-primary" onclick="goStep(3)">Continue →</button>
+    </div>
+  </div>
+
+  <!-- ── Step 3: Documents ── -->
+  <div id="step-3" class="card" style="display:none">
+    <div class="card-title">Compliance documents</div>
+    <div class="card-sub">Upload the required documents. Files are encrypted at rest and accessed only by our compliance team.</div>
+
+    <div class="doc-types" id="docList">
+      <div class="doc-type-row" data-type="LICENCE">
+        <div class="doc-type-info">
+          <div class="doc-type-name">Regulatory Licence</div>
+          <div class="doc-type-desc">Central bank or FSA licence / registration certificate</div>
+        </div>
+        <div class="doc-type-status">
+          <span class="doc-badge required" id="badge-LICENCE">Required</span>
+          <button class="doc-upload-btn" onclick="triggerUpload('LICENCE')">Upload</button>
+          <input type="file" id="file-LICENCE" accept=".pdf,.jpg,.jpeg,.png" style="display:none" onchange="handleFile('LICENCE', this)"/>
+        </div>
+      </div>
+      <div class="doc-type-row" data-type="CERTIFICATE_OF_INCORPORATION">
+        <div class="doc-type-info">
+          <div class="doc-type-name">Certificate of Incorporation</div>
+          <div class="doc-type-desc">Official company registration document</div>
+        </div>
+        <div class="doc-type-status">
+          <span class="doc-badge required" id="badge-CERTIFICATE_OF_INCORPORATION">Required</span>
+          <button class="doc-upload-btn" onclick="triggerUpload('CERTIFICATE_OF_INCORPORATION')">Upload</button>
+          <input type="file" id="file-CERTIFICATE_OF_INCORPORATION" accept=".pdf,.jpg,.jpeg,.png" style="display:none" onchange="handleFile('CERTIFICATE_OF_INCORPORATION', this)"/>
+        </div>
+      </div>
+      <div class="doc-type-row" data-type="AML_POLICY">
+        <div class="doc-type-info">
+          <div class="doc-type-name">AML / CFT Policy</div>
+          <div class="doc-type-desc">Your institution's anti-money laundering policy document</div>
+        </div>
+        <div class="doc-type-status">
+          <span class="doc-badge required" id="badge-AML_POLICY">Required</span>
+          <button class="doc-upload-btn" onclick="triggerUpload('AML_POLICY')">Upload</button>
+          <input type="file" id="file-AML_POLICY" accept=".pdf,.doc,.docx" style="display:none" onchange="handleFile('AML_POLICY', this)"/>
+        </div>
+      </div>
+      <div class="doc-type-row" data-type="UBO_DECLARATION">
+        <div class="doc-type-info">
+          <div class="doc-type-name">UBO Declaration</div>
+          <div class="doc-type-desc">Beneficial ownership structure and UBO identification</div>
+        </div>
+        <div class="doc-type-status">
+          <span class="doc-badge required" id="badge-UBO_DECLARATION">Required</span>
+          <button class="doc-upload-btn" onclick="triggerUpload('UBO_DECLARATION')">Upload</button>
+          <input type="file" id="file-UBO_DECLARATION" accept=".pdf,.doc,.docx" style="display:none" onchange="handleFile('UBO_DECLARATION', this)"/>
+        </div>
+      </div>
+      <div class="doc-type-row" data-type="OTHER">
+        <div class="doc-type-info">
+          <div class="doc-type-name">Other supporting documents</div>
+          <div class="doc-type-desc">Any additional licences, letters, or compliance documents</div>
+        </div>
+        <div class="doc-type-status">
+          <span class="doc-badge optional" id="badge-OTHER">Optional</span>
+          <button class="doc-upload-btn" onclick="triggerUpload('OTHER')">Upload</button>
+          <input type="file" id="file-OTHER" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" style="display:none" onchange="handleFile('OTHER', this)"/>
+        </div>
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn btn-ghost" onclick="goStep(2)">← Back</button>
+      <button class="btn btn-primary" onclick="goStep(4)">Review & Submit →</button>
+    </div>
+  </div>
+
+  <!-- ── Step 4: Review & declarations ── -->
+  <div id="step-4" class="card" style="display:none">
+    <div class="card-title">Review & submit</div>
+    <div class="card-sub">Check the details below, confirm the declarations, then submit for compliance review.</div>
+
+    <div id="summaryContent"></div>
+
+    <div style="margin-top:24px;padding-top:20px;border-top:1px solid var(--border)">
+      <div class="card-title" style="font-size:16px;margin-bottom:16px">Declarations</div>
+      <div class="check-group">
+        <label class="check-item">
+          <input type="checkbox" id="chkAml" onchange="updateDecl()"/>
+          <div class="check-label"><strong>AML/CFT compliance:</strong> I confirm that our institution operates a fully documented AML/CFT programme compliant with FATF recommendations and applicable local law.</div>
+        </label>
+        <label class="check-item">
+          <input type="checkbox" id="chkUbo" onchange="updateDecl()"/>
+          <div class="check-label"><strong>Beneficial ownership:</strong> I declare that the UBO information submitted is accurate and complete, and I am authorised to submit this application on behalf of the institution.</div>
+        </label>
+        <label class="check-item">
+          <input type="checkbox" id="chkTerms" onchange="updateDecl()"/>
+          <div class="check-label"><strong>Network terms:</strong> I accept the <a href="#" target="_blank">AxLink Network Participation Agreement</a> and <a href="#" target="_blank">Data Processing Addendum</a>.</div>
+        </label>
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn btn-ghost" onclick="goStep(3)">← Back</button>
+      <button class="btn btn-primary" id="submitBtn" onclick="submitApplication()" disabled>Submit Application</button>
+    </div>
+  </div>
+
+  <!-- ── Success ── -->
+  <div id="successScreen" class="card success-screen" style="display:none">
+    <div class="success-icon">✓</div>
+    <div class="success-title">Application submitted</div>
+    <div class="success-sub">Your application is under compliance review. We'll contact your technical contact within 2–5 business days.</div>
+    <div class="ref-box">
+      <div class="ref-label">Application reference</div>
+      <div class="ref-id" id="refId">—</div>
+    </div>
+    <p style="font-size:13px;color:var(--text-muted)">Save this reference number. You can use it to check your status or provide additional documents if requested.</p>
+  </div>
+
+</div>
+
+<script>
+  // ── State ──────────────────────────────────────────────────────────────────
+  const BASE = '';  // same origin; API at /api
+  let state = {
+    currentStep: 0,
+    applicationId: null,
+    token: null,
+    assets: ['USDT', 'USDC'],
+    corridors: [],
+    uploadedDocs: {},  // docType → {id, fileName}
+  };
+
+  // ── Navigation ────────────────────────────────────────────────────────────
+
+  async function goStep(to) {
+    const from = state.currentStep;
+    clearAlert();
+
+    // Validate before advancing
+    if (to > from) {
+      if (from === 0 && !validateStep0()) return;
+      if (from === 1 && !validateStep1()) return;
+      if (from === 3 && !validateStep3()) return;
+    }
+
+    // Create application lazily before step 2
+    if (to >= 2 && !state.applicationId) {
+      const ok = await createApplication();
+      if (!ok) return;
+    }
+
+    // Build summary before step 4
+    if (to === 4) buildSummary();
+
+    document.getElementById(`step-${from}`).style.display = 'none';
+    document.getElementById(`step-${to}`).style.display = '';
+    state.currentStep = to;
+    updateProgress();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function updateProgress() {
+    for (let i = 0; i < 5; i++) {
+      const dot = document.getElementById(`dot-${i}`);
+      dot.className = 'step-dot';
+      if (i < state.currentStep) dot.classList.add('done');
+      else if (i === state.currentStep) dot.classList.add('active');
+    }
+  }
+
+  // ── Validation ────────────────────────────────────────────────────────────
+
+  function validateStep0() {
+    if (!v('legalName')) return showAlert('Legal entity name is required.');
+    if (!v('country')) return showAlert('Please select a country.');
+    if (!v('kind')) return showAlert('Please select an institution type.');
+    return true;
+  }
+
+  function validateStep1() {
+    if (!v('contactName')) return showAlert('Contact name is required.');
+    const em = v('contactEmail');
+    if (!em || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) return showAlert('A valid contact email is required.');
+    return true;
+  }
+
+  function validateStep3() {
+    const required = ['LICENCE','CERTIFICATE_OF_INCORPORATION','AML_POLICY','UBO_DECLARATION'];
+    const missing = required.filter(t => !state.uploadedDocs[t]);
+    if (missing.length > 0) {
+      showAlert('Please upload: ' + missing.map(t => t.replace(/_/g,' ').toLowerCase()).join(', ') + '.');
+      return false;
+    }
+    return true;
+  }
+
+  function v(id) { return (document.getElementById(id)?.value || '').trim(); }
+
+  // ── Create application (API) ───────────────────────────────────────────────
+
+  async function createApplication() {
+    try {
+      const r = await fetch(`${BASE}/api/onboarding`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          legalName: v('legalName'),
+          tradingName: v('tradingName') || undefined,
+          country: v('country'),
+          kind: v('kind'),
+          jurisdiction: undefined,
+          website: v('website') || undefined,
+          registrationNumber: v('registrationNumber') || undefined,
+          regulatoryLicence: v('regulatoryLicence') || undefined,
+          licensingAuthority: v('licensingAuthority') || undefined,
+          contactName: v('contactName'),
+          contactEmail: v('contactEmail'),
+          contactRole: v('contactRole') || undefined,
+          webhookUrl: v('webhookUrl') || undefined,
+          preferredAssets: state.assets,
+          expectedVolume: v('expectedVolume') || undefined,
+          corridors: state.corridors,
+        }),
+      });
+      if (!r.ok) { const e = await r.json(); showAlert(e.error?.message || 'Failed to create application.'); return false; }
+      const d = await r.json();
+      state.applicationId = d.applicationId;
+      state.token = d.token;
+      return true;
+    } catch { showAlert('Network error — please try again.'); return false; }
+  }
+
+  // ── Assets ────────────────────────────────────────────────────────────────
+
+  function toggleAsset(a) {
+    const idx = state.assets.indexOf(a);
+    if (idx >= 0) { if (state.assets.length === 1) return; state.assets.splice(idx, 1); }
+    else state.assets.push(a);
+    document.getElementById(`asset${a}`).classList.toggle('selected', state.assets.includes(a));
+  }
+
+  // ── Corridors ─────────────────────────────────────────────────────────────
+
+  function addCorridor() {
+    const inp = document.getElementById('corridorInput');
+    const val = inp.value.trim().toUpperCase().replace(/\s*→\s*|\s*->\s*|\s+/g, '→');
+    if (!val || state.corridors.includes(val)) { inp.value = ''; return; }
+    state.corridors.push(val);
+    inp.value = '';
+    renderCorridors();
+  }
+
+  function removeCorr(c) {
+    state.corridors = state.corridors.filter(x => x !== c);
+    renderCorridors();
+  }
+
+  function renderCorridors() {
+    document.getElementById('corridorTags').innerHTML = state.corridors.map(c =>
+      `<div class="tag">${c}<button onclick="removeCorr('${c}')" title="Remove">×</button></div>`
+    ).join('');
+  }
+
+  // ── Documents ─────────────────────────────────────────────────────────────
+
+  function triggerUpload(type) { document.getElementById(`file-${type}`).click(); }
+
+  async function handleFile(type, input) {
+    const file = input.files[0];
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) { showAlert('File too large — maximum 10 MB.'); return; }
+
+    // Ensure application exists
+    if (!state.applicationId) {
+      if (!validateStep0() || !validateStep1()) { showAlert('Please complete steps 1 and 2 before uploading documents.'); return; }
+      const ok = await createApplication();
+      if (!ok) return;
+    }
+
+    // Read as base64
+    const b64 = await new Promise((res, rej) => {
+      const reader = new FileReader();
+      reader.onload = () => res(reader.result.split(',')[1]);
+      reader.onerror = rej;
+      reader.readAsDataURL(file);
+    });
+
+    try {
+      const r = await fetch(`${BASE}/api/onboarding/${state.applicationId}/documents?token=${state.token}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ docType: type, fileName: file.name, mimeType: file.type || 'application/octet-stream', sizeBytes: file.size, dataBase64: b64 }),
+      });
+      if (!r.ok) { const e = await r.json(); showAlert(e.error?.message || 'Upload failed.'); return; }
+      const d = await r.json();
+      state.uploadedDocs[type] = { id: d.document.id, fileName: file.name };
+      updateDocBadge(type, file.name);
+    } catch { showAlert('Upload failed — please try again.'); }
+  }
+
+  async function removeDoc(type) {
+    const doc = state.uploadedDocs[type];
+    if (!doc) return;
+    try {
+      await fetch(`${BASE}/api/onboarding/${state.applicationId}/documents/${doc.id}?token=${state.token}`, { method: 'DELETE' });
+    } catch {}
+    delete state.uploadedDocs[type];
+    updateDocBadge(type, null);
+  }
+
+  function updateDocBadge(type, fileName) {
+    const badge = document.getElementById(`badge-${type}`);
+    const btn = badge?.nextElementSibling;
+    if (!badge) return;
+    if (fileName) {
+      badge.className = 'doc-badge uploaded';
+      badge.textContent = '✓ Uploaded';
+      if (btn) {
+        btn.innerHTML = `<span class="uploaded-file">📄 ${fileName} <button onclick="removeDoc('${type}')" title="Remove">×</button></span>`;
+        btn.onclick = null;
+      }
+    } else {
+      const isRequired = ['LICENCE','CERTIFICATE_OF_INCORPORATION','AML_POLICY','UBO_DECLARATION'].includes(type);
+      badge.className = `doc-badge ${isRequired ? 'required' : 'optional'}`;
+      badge.textContent = isRequired ? 'Required' : 'Optional';
+      if (btn) {
+        btn.textContent = 'Upload';
+        btn.onclick = () => triggerUpload(type);
+      }
+    }
+  }
+
+  // ── Summary ───────────────────────────────────────────────────────────────
+
+  function buildSummary() {
+    const rows = [
+      ['Legal name', v('legalName')],
+      ['Trading name', v('tradingName') || '—'],
+      ['Country', v('country')],
+      ['Type', v('kind')],
+      ['Licence', v('regulatoryLicence') || '—'],
+      ['Licensing authority', v('licensingAuthority') || '—'],
+      ['Contact', `${v('contactName')} (${v('contactEmail')})`],
+      ['Assets', state.assets.join(', ') || '—'],
+      ['Volume', v('expectedVolume') || '—'],
+      ['Corridors', state.corridors.join(', ') || '—'],
+      ['Documents', Object.keys(state.uploadedDocs).length + ' uploaded'],
+    ];
+    document.getElementById('summaryContent').innerHTML = `
+      <div class="summary-block">
+        <h4>Application summary</h4>
+        ${rows.map(([k,v]) => `<div class="summary-row"><span class="key">${k}</span><span class="val">${v}</span></div>`).join('')}
+      </div>`;
+  }
+
+  // ── Declarations ──────────────────────────────────────────────────────────
+
+  async function updateDecl() {
+    if (!state.applicationId) return;
+    const aml = document.getElementById('chkAml').checked;
+    const ubo = document.getElementById('chkUbo').checked;
+    const terms = document.getElementById('chkTerms').checked;
+    document.getElementById('submitBtn').disabled = !(aml && ubo && terms);
+    try {
+      await fetch(`${BASE}/api/onboarding/${state.applicationId}?token=${state.token}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amlPolicyConfirmed: aml, uboDeclarationConfirmed: ubo, termsAccepted: terms }),
+      });
+    } catch {}
+  }
+
+  // ── Submit ────────────────────────────────────────────────────────────────
+
+  async function submitApplication() {
+    const btn = document.getElementById('submitBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spin"></span>Submitting…';
+    try {
+      const r = await fetch(`${BASE}/api/onboarding/${state.applicationId}/submit?token=${state.token}`, { method: 'POST' });
+      if (!r.ok) { const e = await r.json(); showAlert(e.error?.message || 'Submission failed.'); btn.disabled=false; btn.textContent='Submit Application'; return; }
+      // Show success
+      document.getElementById('step-4').style.display = 'none';
+      document.getElementById('progressBar').style.display = 'none';
+      document.getElementById('successScreen').style.display = '';
+      document.getElementById('refId').textContent = state.applicationId;
+    } catch { showAlert('Network error — please try again.'); btn.disabled=false; btn.textContent='Submit Application'; }
+  }
+
+  // ── Alert ──────────────────────────────────────────────────────────────────
+
+  function showAlert(msg) { const a = document.getElementById('alertBox'); a.textContent = msg; a.classList.add('show'); window.scrollTo({top:0,behavior:'smooth'}); return false; }
+  function clearAlert() { const a = document.getElementById('alertBox'); a.textContent=''; a.classList.remove('show'); }
+</script>
+</body>
+</html>

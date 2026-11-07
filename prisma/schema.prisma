@@ -753,6 +753,7 @@ model Institution {
   counterparties Counterparty[]
   settlementTransfers SettlementTransfer[]
   webhookEndpoints    WebhookEndpoint[]
+  onboardingApplication OnboardingApplication?
 
   @@index([status])
 }
@@ -1074,4 +1075,77 @@ model OperationalException {
   @@index([kind, subject, currency, status])
   @@index([status, severity, lastSeenAt])
   @@index([institutionId, status])
+}
+
+// ── Institution Onboarding ────────────────────────────────────────────────────
+// A bank or fintech creates an application, uploads documents, and submits for
+// compliance review. Ops approves or rejects; approval auto-activates the
+// institution and issues sandbox credentials.
+
+model OnboardingApplication {
+  id               String                  @id @default(cuid())
+  // Institution identity
+  legalName        String
+  tradingName      String?
+  country          String                  // ISO 3166-1 alpha-2
+  jurisdiction     String?                 // sub-national if relevant
+  kind             String                  // BANK | PSP | FINTECH | MSB | EXCHANGE | OTHER
+  website          String?
+  registrationNumber String?
+  regulatoryLicence  String?               // licence number
+  licensingAuthority String?               // e.g. "Central Bank of Somalia"
+  // Technical contact
+  contactName      String
+  contactEmail     String
+  contactRole      String?
+  webhookUrl       String?
+  // Settlement preferences
+  preferredAssets  String[]               // ["USDT","USDC"]
+  expectedVolume   String?               // e.g. "$1M–$5M/month"
+  corridors        String[]              // e.g. ["SO→KE","GB→SO"]
+  // Compliance declarations
+  amlPolicyConfirmed   Boolean            @default(false)
+  uboDeclarationConfirmed Boolean         @default(false)
+  termsAccepted        Boolean            @default(false)
+  // Workflow
+  status           OnboardingStatus        @default(DRAFT)
+  submittedAt      DateTime?
+  reviewedAt       DateTime?
+  reviewedBy       String?               // ops user email
+  reviewNotes      String?               // compliance notes (internal)
+  rejectionReason  String?               // shown to applicant
+  // Linked institution (set when approved)
+  institutionId    String?               @unique
+  institution      Institution?          @relation(fields: [institutionId], references: [id])
+  // Docs
+  documents        OnboardingDocument[]
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+
+  @@index([status, submittedAt])
+  @@index([contactEmail])
+}
+
+model OnboardingDocument {
+  id            String                  @id @default(cuid())
+  applicationId String
+  application   OnboardingApplication   @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  docType       String                  // LICENCE | CERTIFICATE_OF_INCORPORATION | AML_POLICY | UBO_DECLARATION | OTHER
+  fileName      String
+  mimeType      String
+  sizeBytes     Int
+  // Stored as base64 in the DB for now (Render has no file storage without an S3 attachment).
+  // Phase 11 migrates this to S3/R2 object storage.
+  dataBase64    String                  @db.Text
+  uploadedAt    DateTime                @default(now())
+
+  @@index([applicationId, docType])
+}
+
+enum OnboardingStatus {
+  DRAFT          // created, not yet submitted
+  SUBMITTED      // under compliance review
+  INFO_REQUESTED // ops asked for more info
+  APPROVED       // activated — institution record created
+  REJECTED       // declined
 }

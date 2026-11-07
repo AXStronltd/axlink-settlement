@@ -28,6 +28,7 @@ import depositInstructionRoutes from './routes/deposit-instruction.routes';
 import settlementStatusRoutes   from './routes/settlement-status.routes';
 import webhookEndpointRoutes    from './routes/webhook-endpoint.routes';
 import v1Routes                 from './routes/v1.routes';
+import onboardingRoutes         from './routes/onboarding.routes';
 import { loadConfig } from '../../../packages/shared/config';
 import { log, requestContext } from '../../../packages/shared/logger';
 import { errorHandler, notFoundHandler } from '../../../packages/shared/errors';
@@ -58,6 +59,17 @@ app.use(express.json({
 // process: the page talks to /api/v1 on the same origin with an institution API key (no CORS, no
 // separate host). A CDN deployment of the same file points at the API with its own base URL.
 const portalFile = process.env.PORTAL_FILE ?? path.resolve(__dirname, '..', '..', 'web', 'index.html');
+const onboardFile = process.env.ONBOARD_FILE ?? path.resolve(__dirname, '..', '..', 'web', 'onboard', 'index.html');
+
+// Self-service institution onboarding portal
+app.get(['/onboard', '/onboard/'], (_req, res) => {
+  res.set({
+    'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+    'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'X-Frame-Options': 'DENY', 'Cache-Control': 'no-store',
+  });
+  res.sendFile(onboardFile, err => { if (err) res.status(503).json({ error: { code: 'ONBOARD_UNAVAILABLE', message: 'onboarding page not found (ONBOARD_FILE)' } }); });
+});
+
 app.get(['/portal', '/portal/'], (_req, res) => {
   // The page is inline-script-heavy, so 'unsafe-inline' stays; connect-src 'self' means an injected
   // script could not ship an API key anywhere else, and frame-ancestors 'none' stops clickjacking.
@@ -74,6 +86,7 @@ app.use(openapiRouter());
 
 // Institutions (tenants) and API environments — operator-administered in Step 1
 app.use('/api/institutions', institutionRoutes);
+app.use('/api/onboarding', onboardingRoutes);
 app.use('/api/wallets', walletRoutes);
 // Step 2 institution API. `/api/v1` is the canonical contract (blueprint names); the routes below
 // are aliases of the same services, kept for anything already integrated. Mounted before the legacy

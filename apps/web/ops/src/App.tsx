@@ -3,15 +3,17 @@ import Dashboard from './components/Dashboard'
 import Users from './components/Users'
 import Transfers from './components/Transfers'
 import Simulator from './components/Simulator'
+import Onboarding from './components/Onboarding'
 import { getStoredOpsKey, storeOpsKey } from './api'
 
-type Page = 'dashboard' | 'institutions' | 'transfers' | 'simulator'
+type Page = 'dashboard' | 'institutions' | 'transfers' | 'onboarding' | 'simulator'
 
 const NAV: { id: Page; label: string; icon: string }[] = [
   { id: 'dashboard',    label: 'Network',      icon: '▦' },
   { id: 'institutions', label: 'Institutions', icon: '🏦' },
   { id: 'transfers',    label: 'Settlements',  icon: '⇄' },
-  { id: 'simulator',    label: 'Simulator',    icon: '▷' },
+  { id: 'onboarding',  label: 'Onboarding',   icon: '📋' },
+  { id: 'simulator',   label: 'Simulator',    icon: '▷' },
 ]
 
 function LoginModal({ onLogin }: { onLogin: () => void }) {
@@ -97,6 +99,7 @@ export default function App() {
         {page === 'dashboard'    && <Dashboard />}
         {page === 'institutions' && <Users />}
         {page === 'transfers'    && <Transfers />}
+        {page === 'onboarding'   && <Onboarding />}
         {page === 'simulator'    && <Simulator />}
       </main>
     </div>

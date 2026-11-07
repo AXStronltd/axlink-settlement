@@ -37,7 +37,8 @@ WORKDIR /app
 
 ENV NODE_ENV=production \
     PORT=4000 \
-    PORTAL_FILE=/app/apps/web/index.html
+    PORTAL_FILE=/app/apps/web/index.html \
+    ONBOARD_FILE=/app/apps/web/onboard/index.html
 
 # wget is used by the healthcheck; openssl is required by the Prisma engines.
 RUN apk add --no-cache wget openssl
