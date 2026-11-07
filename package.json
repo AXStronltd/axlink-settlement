@@ -16,7 +16,9 @@
     "check:web": "node scripts/check-web.js",
     "verify": "npm run typecheck && npm run check:web && vitest run",
     "certify": "vitest run tests/certification",
-    "seed:sandbox": "ts-node scripts/seed-sandbox.ts"
+    "seed:sandbox": "ts-node scripts/seed-sandbox.ts",
+    "fb:preflight": "ts-node scripts/fb-preflight.ts",
+    "e2e:sandbox": "ts-node scripts/e2e-sandbox.ts"
   },
   "keywords": [],
   "author": "",
