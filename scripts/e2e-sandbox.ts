@@ -70,13 +70,17 @@ async function main() {
   const ph = await call('GET', '/api/settlement/providers/health', OPS);
   check('custody provider reports configured (not a stub)', ph.status === 200 && !JSON.stringify(ph.body).includes('sandbox stub (no credentials)'), `${ph.status}`);
 
+  // Never onboard on a live deployment: this script creates ACTIVE institutions and real vaults.
+  must('target settles on Solana devnet (refusing to onboard on any other network)', h.body?.network === 'solana-devnet', `network=${h.body?.network ?? 'not reported'}`);
+  must('target is https (or localhost)', /^https:\/\//.test(API) || /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(API), API);
+
   console.log('\n2. Onboard Bank A and Bank B (real vaults)');
   const A = await onboard('a'); const B = await onboard('b');
   const me = await call('GET', '/api/v1/institutions/me', A.key);
   check('A sees itself in SANDBOX', me.body?.environment === 'SANDBOX');
   const assets = await call('GET', '/api/v1/assets', A.key);
   const usdcDef = assets.body?.assets?.find((a: any) => a.id === 'USDC_SOL');
-  check('USDC_SOL is offered on devnet', usdcDef?.network === 'solana-devnet', JSON.stringify(usdcDef ?? null));
+  must('USDC_SOL is offered on devnet', usdcDef?.network === 'solana-devnet', JSON.stringify(usdcDef ?? null));
 
   console.log('\n3. Deposit into Bank A (real devnet USDC)');
   const addr = await call('POST', '/api/v1/custody/deposit-addresses', A.key, { walletId: A.wallet.id, asset: 'USDC_SOL' });

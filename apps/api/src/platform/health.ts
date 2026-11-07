@@ -5,6 +5,7 @@
 import { Router } from 'express';
 import { prisma } from '../../../../packages/core/ledger/ledger.service';
 import { configReport } from '../../../../packages/shared/config';
+import { ACTIVE_NETWORK } from '../../../../packages/core/assets/registry';
 
 export const SERVICE = 'axlink-settlement';
 export const VERSION = process.env.npm_package_version ?? '2.0.0';
@@ -27,7 +28,7 @@ export function healthRouter() {
   const r = Router();
   r.get(['/health', '/api/health'], (_req, res) => {
     const { sandboxProviders } = configReport();
-    res.json({ status: 'ok', service: SERVICE, version: VERSION, timestamp: new Date().toISOString(), sandbox: sandboxProviders.length > 0 });
+    res.json({ status: 'ok', service: SERVICE, version: VERSION, timestamp: new Date().toISOString(), sandbox: sandboxProviders.length > 0, network: ACTIVE_NETWORK });
   });
   r.get(['/ready', '/api/ready'], async (_req, res) => { const r = await readiness(); res.status(r.ok ? 200 : 503).json({ status: r.ok ? 'ready' : 'not_ready', ...r }); });
   return r;
