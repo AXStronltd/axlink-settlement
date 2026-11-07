@@ -29,6 +29,7 @@ import settlementStatusRoutes   from './routes/settlement-status.routes';
 import webhookEndpointRoutes    from './routes/webhook-endpoint.routes';
 import v1Routes                 from './routes/v1.routes';
 import onboardingRoutes         from './routes/onboarding.routes';
+import { authRoutes, portalRoutes } from './routes/portal-auth.routes';
 import { loadConfig } from '../../../packages/shared/config';
 import { log, requestContext } from '../../../packages/shared/logger';
 import { errorHandler, notFoundHandler } from '../../../packages/shared/errors';
@@ -81,6 +82,8 @@ app.use('/api/wallets', walletRoutes);
 // /api/deposits and provider /api/webhooks routers.
 // Public self-service sandbox signup — mounted before /api/v1, whose router requires an institution key.
 app.use('/api/v1/onboarding', onboardingRoutes);
+app.use('/api/v1/auth', authRoutes);
+app.use('/api/v1/portal', portalRoutes);
 app.use('/api/v1', v1Routes);
 app.use('/api/deposits/instructions', depositInstructionRoutes);
 app.use('/api/settlements', settlementStatusRoutes);

@@ -5,6 +5,8 @@
  */
 import { Router } from 'express';
 import { signUpSandbox, sandboxSignupOpen } from '../../../../packages/core/institutions/onboarding.service';
+import { sessionCookie } from '../../../../packages/core/auth/portal-auth.service';
+import { secureRequest } from './portal-auth.routes';
 
 const router = Router();
 const wrap = (fn: (req: import('express').Request, res: import('express').Response) => Promise<void>) =>
@@ -19,8 +21,10 @@ function clientOf(req: import('express').Request): string {
 
 router.get('/sandbox', (_req, res) => { res.json({ open: sandboxSignupOpen() }); });
 router.post('/sandbox', wrap(async (req, res) => {
-  res.setHeader('Cache-Control', 'no-store'); // the response carries a secret
-  res.status(201).json(await signUpSandbox(req.body, clientOf(req)));
+  const r = await signUpSandbox(req.body, clientOf(req));
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('Set-Cookie', sessionCookie(r.session.token, r.session.expiresAt, secureRequest(req)));
+  res.status(201).json(r.body);
 }));
 
 export default router;

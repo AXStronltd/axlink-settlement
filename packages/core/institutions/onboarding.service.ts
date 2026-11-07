@@ -14,8 +14,9 @@ import { z } from 'zod';
 import { prisma } from '../ledger/ledger.service';
 import { ApiError } from '../../shared/errors';
 import { log } from '../../shared/logger';
-import { createInstitution, issueCredential } from './institution.service';
+import { createInstitution } from './institution.service';
 import { custodyEnvironmentKind } from '../wallets/wallet.service';
+import { Password, createPortalUser, createSession } from '../auth/portal-auth.service';
 
 export const SANDBOX_SCOPES = ['wallets:read', 'wallets:write', 'deposits:write', 'deposits:read', 'settlements:read', 'webhooks:write', 'webhooks:read', 'ledger:read', 'counterparties:read', 'counterparties:write', 'transfers:read', 'transfers:write'];
 
@@ -25,6 +26,7 @@ export const SandboxSignup = z.object({
   country: z.string().regex(/^[A-Z]{2}$/, 'country: ISO 3166-1 alpha-2'),
   email: z.string().trim().toLowerCase().email().max(200),
   contactName: z.string().trim().min(2).max(120),
+  password: Password,
 });
 export type SandboxSignupInput = z.infer<typeof SandboxSignup>;
 
@@ -57,20 +59,25 @@ export async function signUpSandbox(input: unknown, client: string) {
   const dailyCap = Number(process.env.SANDBOX_SIGNUP_DAILY_CAP ?? 100);
   const today = await prisma.institution.count({ where: { createdAt: { gte: new Date(Date.now() - 24 * 3600_000) }, settings: { path: ['selfSignup'], equals: true } } });
   if (today >= dailyCap) throw new ApiError('SIGNUP_CAPACITY', 'sandbox signups are paused for today; try again tomorrow', 429);
-  if (await prisma.institution.findFirst({ where: { contactEmail: d.email }, select: { id: true } })) {
+  if (await prisma.institution.findFirst({ where: { contactEmail: d.email }, select: { id: true } }) || await prisma.portalUser.findUnique({ where: { email: d.email }, select: { id: true } })) {
     throw new ApiError('ALREADY_REGISTERED', 'an institution is already registered with this email; sign in with your API key, or contact AxLink to recover it', 409);
   }
 
   const inst = await createInstitution({ slug: slugFor(d.legalName), legalName: d.legalName, country: d.country, kind: d.kind });
   // Sandbox only: ACTIVE lets the sandbox key authenticate; PRODUCTION stays DISABLED until operations enables it.
   await prisma.institution.update({ where: { id: inst.id }, data: { status: 'ACTIVE', contactEmail: d.email, settings: { selfSignup: true, contactName: d.contactName, signedUpAt: new Date().toISOString() } } });
-  const { credential, rawKey } = await issueCredential(inst.id, 'SANDBOX', 'Self-service sandbox key', SANDBOX_SCOPES);
-  log.info('onboarding.sandbox_signup', { institutionId: inst.id, slug: inst.slug, kind: d.kind, country: d.country });
+  // The first person of the institution (ADMIN), signed in at once. API keys for the bank's servers are created
+  // later from the dashboard (Developers → API keys); a person never needs one to sign in.
+  const user = await createPortalUser(prisma, { institutionId: inst.id, email: d.email, name: d.contactName, password: d.password });
+  const session = await createSession(user.id);
+  log.info('onboarding.sandbox_signup', { institutionId: inst.id, slug: inst.slug, kind: d.kind, country: d.country, userId: user.id });
   return {
-    institution: { id: inst.id, slug: inst.slug, legalName: d.legalName },
-    environment: 'SANDBOX' as const,
-    apiKey: rawKey,
-    credential: { id: credential.id, prefix: credential.prefix, scopes: credential.scopes },
-    note: 'Sandbox only: test tokens on Solana devnet, no real money. The API key is shown once — store it in your secret manager. Production access requires KYB with AxLink operations.',
+    body: {
+      institution: { id: inst.id, slug: inst.slug, legalName: d.legalName },
+      environment: 'SANDBOX' as const,
+      user: { id: user.id, email: user.email, name: user.name, role: user.role },
+      note: 'Sandbox only: test tokens on Solana devnet, no real money. Production access requires KYB with AxLink operations.',
+    },
+    session,
   };
 }
