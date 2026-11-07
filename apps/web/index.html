@@ -1451,50 +1451,59 @@ function signOut(){ var wasOp=(ROLE==='operator'); disconnectLive(); disconnectO
 /* ===== ONBOARDING FLOW (Get Verified -> Fund -> Transact) ===== */
 var ONB={step:1,type:'institution'};
 function onboarding(){
-  var steps=['Institution','Verification (KYB)','Identity Passport','Fund Account','Go Live'];
-  var stepH='<div class="steps">';
-  for(var i=0;i<steps.length;i++){
-    var cls=(i+1<ONB.step?'done':(i+1===ONB.step?'active':''));
-    stepH+='<div class="st '+cls+'"><span class="num">'+(i+1<ONB.step?'&#10003;':(i+1))+'</span><span class="lb">'+steps[i]+'</span></div>';
-    if(i<steps.length-1) stepH+='<div class="line '+(i+1<ONB.step?'done':'')+'"></div>';
-  }
-  stepH+='</div>';
-  var body='';
-  if(ONB.step===1){
-    body='<h2 style="font-size:24px;margin-bottom:6px">Create your institution account</h2><p class="lead" style="font-size:14px;margin-bottom:22px">AxLink is available to regulated institutions - banks, PSPs, fintechs and payment providers.</p>'+
-    '<div class="field"><label>Legal entity name</label><input placeholder="e.g. Axstron Finance Inc."/></div>'+
-    '<div class="grid-2" style="gap:14px"><div class="field"><label>Entity type</label><select><option>Bank</option><option>Payment Service Provider</option><option>Fintech</option><option>Payment Provider</option><option>Money Services Business</option></select></div>'+
-    '<div class="field"><label>Country of registration</label><select><option>United States</option><option>United Kingdom</option><option>Canada</option><option>Singapore</option><option>UAE</option><option>Kenya</option><option>Lithuania</option></select></div></div>'+
-    '<div class="field"><label>Work email</label><input placeholder="you@institution.com"/></div>'+
-    '<div class="field"><label>Estimated monthly settlement volume</label><select><option>$1M - $10M</option><option>$10M - $50M</option><option>$50M - $250M</option><option>$250M+</option></select></div>'+
-    '<button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:8px" onclick="onbNext()">Continue to Verification -></button>';
-  }else if(ONB.step===2){
-    body='<h2 style="font-size:24px;margin-bottom:6px">Business verification (KYB)</h2><p class="lead" style="font-size:14px;margin-bottom:22px">Institutional onboarding requires full KYB, ID verification and sanctions screening - powered by Sumsub, SEON and Chainalysis.</p>'+
-    ['Certificate of incorporation','Beneficial ownership (UBO) structure','Regulatory license / MSB registration','AML/CFT policy & MLRO details','Authorized signatory ID'].map(function(d){return '<label style="display:flex;align-items:center;gap:12px;padding:12px 14px;background:var(--panel-2);border:1px solid var(--line);border-radius:10px;margin-bottom:10px;cursor:pointer;font-size:13.5px"><span style="width:20px;height:20px;border-radius:6px;border:1px solid var(--teal);color:var(--teal);display:flex;align-items:center;justify-content:center;font-size:11px">&#10003;</span>'+d+' <span style="margin-left:auto;color:var(--ink-3);font-size:11.5px">Uploaded</span></label>';}).join('')+
-    '<div class="chip" style="margin:8px 0 18px"><span class="d" style="background:var(--amber)"></span> Screening in progress - typically 1-3 business days</div>'+
-    '<button class="btn btn-primary" style="width:100%;justify-content:center" onclick="onbNext()">Continue -> Identity Passport</button>';
-  }else if(ONB.step===3){
-    body='<h2 style="font-size:24px;margin-bottom:6px">On-chain Identity Passport</h2><p class="lead" style="font-size:14px;margin-bottom:22px">Once verified, your institution is issued an on-chain Identity Passport (KYB NFT). Every counterparty on the network holds one - settlement only occurs between verified parties in the closed-loop network.</p>'+
-    '<div style="text-align:center;padding:26px;background:var(--panel-2);border:1px solid var(--line-2);border-radius:14px;margin-bottom:20px">'+markSized(46)+'<div style="font-weight:700;font-size:18px;margin-top:12px">Identity Passport</div><div class="mono" style="font-size:11px;color:var(--teal);margin-top:6px">PASS_0x8f7a...1cC8</div><div style="font-size:12px;color:var(--ink-3);margin-top:8px">KYB - Sanctions cleared - Tier 1</div><span class="chip" style="margin-top:14px"><span class="d pulse-dot" style="background:var(--green)"></span> Verified &amp; minted</span></div>'+
-    '<button class="btn btn-primary" style="width:100%;justify-content:center" onclick="onbNext()">Continue -> Fund Account</button>';
-  }else if(ONB.step===4){
-    body='<h2 style="font-size:24px;margin-bottom:6px">Fund your account</h2><p class="lead" style="font-size:14px;margin-bottom:22px">Send USDC to your vault address, or wire USD and AxLink converts it to USDC through its liquidity providers. Your balance is held in a segregated custody vault; we never lend it out.</p>'+
-    '<div style="background:var(--panel-2);border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:18px;font-size:13px">'+
-    [['Beneficiary','Axstron Finance Inc. (AxLink)'],['Bank','AxLink Settlement (regulated, US)'],['Account','**** **** 8842'],['Routing','091000019'],['Reference','AXL-'+((Math.random()*90000+10000)|0)]].map(function(r){return '<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--line)"><span style="color:var(--ink-3)">'+r[0]+'</span><span class="mono" style="font-size:12px">'+r[1]+'</span></div>';}).join('')+'</div>'+
-    '<div class="chip" style="margin-bottom:18px"><span class="d" style="background:var(--blue)"></span> 1:1 backed - cash + short-term U.S. Treasuries</div>'+
-    '<button class="btn btn-primary" style="width:100%;justify-content:center" onclick="onbNext()">I have sent the wire -> Finish</button>';
+  /* Self-service SANDBOX signup — real: POST /v1/onboarding/sandbox. Production access is never self-service. */
+  var r=ONB.result;
+  var steps=['Your institution','Sandbox key','Dashboard','Go live (with AxLink)'];
+  var at=r?2:1;
+  var stepH='<div class="steps">'+steps.map(function(s,i){var cls=(i+1<at?'done':(i+1===at?'active':''));return '<div class="st '+cls+'"><span class="num">'+(i+1<at?'&#10003;':(i+1))+'</span><span class="lb">'+s+'</span></div>'+(i<steps.length-1?'<div class="line '+(i+1<at?'done':'')+'"></div>':'');}).join('')+'</div>';
+  var body;
+  if(!r){
+    var countries=[['KE','Kenya'],['NG','Nigeria'],['GH','Ghana'],['ZA','South Africa'],['EG','Egypt'],['ET','Ethiopia'],['SO','Somalia'],['TZ','Tanzania'],['UG','Uganda'],['RW','Rwanda'],['AE','United Arab Emirates'],['SA','Saudi Arabia'],['QA','Qatar'],['BH','Bahrain'],['GB','United Kingdom'],['US','United States'],['SG','Singapore'],['DE','Germany'],['FR','France'],['NL','Netherlands']];
+    body='<h2 style="font-size:24px;margin-bottom:6px">Create your sandbox account</h2>'+
+    '<p class="lead" style="font-size:14px;margin-bottom:20px">Try AxLink end to end with test tokens on Solana devnet: real Fireblocks sandbox custody, no real money. You get an API key and your dashboard immediately.</p>'+
+    '<div class="field"><label for="ob-name">Legal entity name</label><input id="ob-name" maxlength="200" placeholder="e.g. Galaxy Bank Ltd" autocomplete="organization"/></div>'+
+    '<div class="grid-2" style="gap:14px"><div class="field"><label for="ob-kind">Institution type</label><select id="ob-kind"><option value="BANK">Bank</option><option value="PSP">Payment service provider</option><option value="FINTECH">Fintech</option><option value="EXCHANGE">Exchange</option><option value="OTHER">Other</option></select></div>'+
+    '<div class="field"><label for="ob-country">Country of registration</label><select id="ob-country">'+countries.map(function(c){return '<option value="'+c[0]+'">'+c[1]+'</option>';}).join('')+'</select></div></div>'+
+    '<div class="grid-2" style="gap:14px"><div class="field"><label for="ob-contact">Your name</label><input id="ob-contact" maxlength="120" autocomplete="name"/></div>'+
+    '<div class="field"><label for="ob-email">Work email</label><input id="ob-email" type="email" maxlength="200" placeholder="you@institution.com" autocomplete="email"/></div></div>'+
+    '<label style="display:flex;gap:10px;align-items:flex-start;font-size:13px;color:var(--ink-2);margin:4px 0 16px;cursor:pointer"><input id="ob-ack" type="checkbox" style="margin-top:3px"/> I understand this is a sandbox: test tokens only, no real funds. Production access requires KYB with AxLink.</label>'+
+    '<button id="ob-submit" class="btn btn-primary" style="width:100%;justify-content:center" onclick="return onbSubmit()">Create sandbox account &#8594;</button>'+
+    '<p style="text-align:center;font-size:13px;color:var(--ink-3);margin-top:16px">Already have a key? <a href="javascript:void(0)" onclick="return go(\'#/signin\')" style="color:var(--teal);font-weight:600">Sign in</a></p>';
   }else{
-    body='<div style="text-align:center;padding:10px 0"><div style="width:66px;height:66px;border-radius:50%;background:rgba(52,211,153,.14);color:var(--green);display:flex;align-items:center;justify-content:center;font-size:30px;margin:0 auto 18px">&#10003;</div>'+
-    '<h2 style="font-size:26px;margin-bottom:8px">You are live on AxLink</h2><p class="lead" style="font-size:14px;max-width:380px;margin:0 auto 24px">Your institution is verified, funded and connected to the open financial network. Start moving value instantly.</p>'+
-    '<button class="btn btn-primary" style="justify-content:center;padding:13px 26px" onclick="loginAsClient()">Open your dashboard -></button></div>';
+    body='<div style="display:flex;gap:14px;align-items:center;margin-bottom:16px"><div style="width:48px;height:48px;border-radius:50%;background:rgba(52,211,153,.14);color:var(--green);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">&#10003;</div>'+
+    '<div><h2 style="font-size:22px">'+r.legalName+' is on the sandbox</h2><p style="color:var(--ink-3);font-size:13px;margin-top:2px">Institution id <span class="mono">'+r.slug+'</span> · environment SANDBOX</p></div></div>'+
+    '<div class="field"><label>Your sandbox API key: shown once, store it now</label>'+
+    '<div style="display:flex;gap:8px"><input id="ob-key" class="mono" readonly value="'+r.apiKey+'" style="font-size:12.5px"/><button class="btn btn-ghost btn-sm" onclick="onbCopy()">Copy</button></div>'+
+    '<div class="hint">Keep it in your secret manager. AxLink stores only a hash and cannot show it again.</div></div>'+
+    '<button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:6px" onclick="return onbOpenDashboard()">Open my dashboard &#8594;</button>'+
+    '<div style="margin-top:20px;padding:14px 16px;border:1px solid var(--line);border-radius:10px;font-size:13px;color:var(--ink-2);line-height:1.6"><b style="color:var(--ink)">Next in the dashboard:</b> create a wallet (a Fireblocks sandbox vault), announce a deposit, register a counterparty bank and settle to it. <br/><b style="color:var(--ink)">Going live</b> is not self-service: AxLink operations completes KYB with you, then enables production and issues a live key.</div>';
   }
   return siteHeader('')+'<div class="site-body">'+
-   '<section style="padding:50px 0 90px;min-height:70vh"><div class="wrap" style="max-width:680px"><span class="eyebrow reveal">Onboarding</span><h1 class="reveal d1" style="font-size:34px;margin:14px 0 8px">Get your institution on the network</h1>'+
+   '<section style="padding:50px 0 90px;min-height:70vh"><div class="wrap" style="max-width:680px"><span class="eyebrow reveal">Sandbox access</span><h1 class="reveal d1" style="font-size:34px;margin:14px 0 8px">Get your institution on the network</h1>'+
    '<div class="reveal d2">'+stepH+'</div>'+
    '<div class="panel reveal d2" style="padding:28px">'+body+'</div>'+
-   '<p style="text-align:center;color:var(--ink-3);font-size:12px;margin-top:20px">AxLink · Crypto Settlement Network — regulated · fully reserved · nothing minted</p></div></section>'+
+   '<p style="text-align:center;color:var(--ink-3);font-size:12px;margin-top:20px">AxLink sandbox · Fireblocks sandbox custody · Solana devnet · test tokens only</p></div></section>'+
    siteFooter()+'</div>';
 }
+function onbSubmit(){
+  var v=function(id){var e=document.getElementById(id);return e?(e.value||'').trim():'';};
+  var data={legalName:v('ob-name'),kind:v('ob-kind'),country:v('ob-country'),contactName:v('ob-contact'),email:v('ob-email')};
+  if(data.legalName.length<2||data.contactName.length<2||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)){ toast('Fill in the institution, your name and a valid work email','!'); return false; }
+  if(!(document.getElementById('ob-ack')||{}).checked){ toast('Please confirm you understand this is a sandbox','!'); return false; }
+  var base=axBase(); if(!base){ toast('Open this page from the AxLink site to sign up','!'); return false; }
+  var btn=document.getElementById('ob-submit'); if(btn){ btn.disabled=true; btn.textContent='Creating your sandbox…'; }
+  fetch(base+'/onboarding/sandbox',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)})
+   .then(function(res){ return res.json().catch(function(){return {};}).then(function(j){ return {ok:res.ok,j:j}; }); })
+   .then(function(x){
+     if(!x.ok){ var m=(x.j&&x.j.error&&x.j.error.message)||'Signup failed'; toast(liveEsc(m),'!'); if(btn){ btn.disabled=false; btn.innerHTML='Create sandbox account &#8594;'; } return; }
+     ONB.result={apiKey:liveEsc(x.j.apiKey),slug:liveEsc(x.j.institution.slug),legalName:liveEsc(x.j.institution.legalName)};
+     ONB._rawKey=x.j.apiKey; render();
+   })
+   .catch(function(){ toast('Network error — try again','!'); if(btn){ btn.disabled=false; btn.innerHTML='Create sandbox account &#8594;'; } });
+  return false;
+}
+function onbCopy(){ var k=ONB._rawKey||''; try{ navigator.clipboard.writeText(k).then(function(){toast('API key copied');}); }catch(e){ var i=document.getElementById('ob-key'); if(i){ i.select(); } } }
+function onbOpenDashboard(){ var k=ONB._rawKey; ONB.result=null; ONB._rawKey=null; return connectWithKey(k,''); }
 function onbNext(){ONB.step=Math.min(5,ONB.step+1);render();}
 
 /* ===== WALLET / TREASURY ===== */

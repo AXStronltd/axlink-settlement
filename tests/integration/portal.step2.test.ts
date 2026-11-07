@@ -136,4 +136,26 @@ db('portal connected to the API', () => {
     expect(await page.locator('text=Live ·').count()).toBe(0);
     await page.close();
   }, 30_000);
+
+  it('a bank signs itself up for the sandbox in the browser, sees its key once and lands in its dashboard', async () => {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const errors: string[] = []; page.on('pageerror', e => errors.push(e.message));
+    await page.goto(`${origin}/portal#/onboarding`);
+    await page.fill('#ob-name', 'Browser Test Bank');
+    await page.selectOption('#ob-kind', 'BANK'); await page.selectOption('#ob-country', 'KE');
+    await page.fill('#ob-contact', 'Amina Tester'); await page.fill('#ob-email', `tester-${randomUUID().slice(0, 8)}@bank.example`);
+    await page.check('#ob-ack');
+    await page.click('#ob-submit');
+    await page.waitForSelector('text=is on the sandbox', { timeout: 15_000 });
+    const key = await page.inputValue('#ob-key');
+    expect(key).toMatch(/^axlk_test_/);
+    await page.click('button:has-text("Open my dashboard")');
+    await page.waitForSelector('text=Live · browser-test-bank-', { timeout: 15_000 });
+    await page.evaluate(() => (globalThis as any).go('#/app/treasury'));
+    await page.click('button:has-text("+ New wallet")');
+    await page.fill('#lw-label', 'Treasury'); await page.click('.modal button:has-text("Create")');
+    await page.locator('td', { hasText: 'Treasury' }).first().waitFor({ timeout: 15_000 });
+    expect(errors).toEqual([]);
+    await page.close();
+  }, 60_000);
 });
