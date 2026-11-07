@@ -905,7 +905,7 @@ model DepositInstruction {
   reference       String?                  // institution's own reference, echoed in webhooks
   trackingId      String                   @unique // dep_… — what the sender puts in the custody transfer's externalTxId
   status          DepositInstructionStatus @default(PENDING)
-  providerTxId    String?
+  providerTxId    String?                  @unique // one custody transaction settles at most one instruction
   txHash          String?
   receivedAmount  Decimal?                 @db.Decimal(36, 18)
   receivedAt      DateTime?                // custody confirmation

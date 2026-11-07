@@ -9,6 +9,16 @@ import {
   FeeLevel,
 } from '@fireblocks/ts-sdk';
 
+/** FIREBLOCKS_BASE_URL (a fireblocks.io API host) overrides the default; otherwise sandbox → sandbox-api, live → api. */
+export function fireblocksBasePath(sandbox: boolean): string {
+  const o = process.env.FIREBLOCKS_BASE_URL;
+  if (o) {
+    if (!/^https:\/\/([a-z0-9-]+\.)?api\.fireblocks\.io\/v1\/?$|^https:\/\/[a-z0-9-]+-api\.fireblocks\.io\/v1\/?$/.test(o)) throw new Error(`FIREBLOCKS_BASE_URL must be a Fireblocks API host (https://…api.fireblocks.io/v1), got ${o}`);
+    return o.replace(/\/$/, '');
+  }
+  return sandbox ? BasePath.Sandbox : BasePath.US;
+}
+
 const PLACEHOLDER = ['your_', 'YOUR_'];
 
 export function isConfigured(): boolean {
@@ -29,7 +39,7 @@ function createClient(): Fireblocks {
   return new Fireblocks({
     apiKey,
     secretKey: readFileSync(keyPath, 'utf8'),
-    basePath: sandbox ? BasePath.Sandbox : BasePath.US,
+    basePath: fireblocksBasePath(sandbox),
   });
 }
 
@@ -42,6 +52,15 @@ function client(): Fireblocks {
 
 // ── Vaults ───────────────────────────────────────────────────────────────────
 
+/**
+ * Fireblocks refuses some characters in vault names ('/' → "Unexpected error", code 901). AxLink's
+ * vault label is `<institution>/<environment>/<label>`; keep it readable with ' - ' separators and
+ * drop anything outside a conservative ASCII set (non-ASCII such as '·' → "Invalid parameters").
+ */
+export function fireblocksVaultName(name: string): string {
+  return name.replace(/\//g, ' - ').replace(/[^A-Za-z0-9 _.()-]/g, '').replace(/\s+/g, ' ').trim().slice(0, 100) || 'AxLink vault';
+}
+
 export async function createVaultAccount(name: string, hiddenOnUI = true) {
   if (!isConfigured()) {
     console.warn('[fireblocks] Not configured — returning sandbox stub vault');
@@ -49,7 +68,7 @@ export async function createVaultAccount(name: string, hiddenOnUI = true) {
   }
   try {
     const res = await client().vaults.createVaultAccount({
-      createVaultAccountRequest: { name, hiddenOnUI },
+      createVaultAccountRequest: { name: fireblocksVaultName(name), hiddenOnUI },
     });
     return res.data;
   } catch (err: unknown) {
@@ -103,6 +122,8 @@ export async function getVaultAssetBalance(vaultAccountId: string, assetId: stri
 // ── Transactions ─────────────────────────────────────────────────────────────
 
 export interface TransferParams {
+  /** Engine attempt number for this transfer (1-based); scopes the Fireblocks Idempotency-Key. */
+  attempt?: number;
   assetId: string;
   amount: string;
   sourceVaultId: string;
@@ -149,6 +170,11 @@ export async function createTransfer(params: TransferParams) {
         ...(params.externalTxId ? { externalTxId: params.externalTxId } : {}),
         treatAsGrossAmount: params.treatAsGrossAmount ?? false,
       },
+      // Idempotency-Key is per attempt: a network retry of the SAME attempt replays Fireblocks' first answer,
+      // while a new attempt (e.g. after a fee top-up) is not stuck replaying an old refusal for 24h. Double
+      // payment stays impossible: Fireblocks rejects a second transaction with the same externalTxId, and the
+      // engine looks that id up (getTransactionByExternalId) before every retry.
+      ...(params.externalTxId ? { idempotencyKey: `${params.externalTxId}:${params.attempt ?? 1}` } : {}),
     });
 
     return res.data;
@@ -157,7 +183,7 @@ export async function createTransfer(params: TransferParams) {
     // submission must surface as an error so the caller retries or reconciles by externalTxId.
     const e = err as Error & { response?: { status?: number; data?: { message?: string; code?: number } } };
     const message = e.response?.data?.message ?? e.message;
-    throw Object.assign(new Error(`Fireblocks createTransaction failed: ${message}`), { code: 'CUSTODY_SUBMIT_FAILED', httpStatus: e.response?.status, providerCode: e.response?.data?.code, retryable: true });
+    throw Object.assign(new Error(`Fireblocks createTransaction failed: ${message}`), { code: 'CUSTODY_SUBMIT_FAILED', httpStatus: (e.response as { statusCode?: number } | undefined)?.statusCode ?? e.response?.status, providerCode: e.response?.data?.code, retryable: true });
   }
 }
 
@@ -168,8 +194,9 @@ export async function getTransactionByExternalId(externalTxId: string): Promise<
     const res = await client().transactions.getTransactionByExternalId({ externalTxId });
     return res.data as { id: string; status?: string; txHash?: string };
   } catch (err: unknown) {
-    const e = err as Error & { response?: { status?: number } };
-    if (e.response?.status === 404) return null;
+    // The Fireblocks SDK error carries the HTTP status in response.statusCode (not .status).
+    const e = err as Error & { response?: { status?: number; statusCode?: number; data?: { code?: number } } };
+    if ((e.response?.statusCode ?? e.response?.status) === 404 || e.response?.data?.code === 1439) return null;
     throw err;
   }
 }

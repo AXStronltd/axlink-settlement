@@ -102,7 +102,7 @@ db('production readiness', () => {
 
   it('production configuration refuses the public Solana endpoint, malformed limits and an unspecified screening choice is only warned', async () => {
     const { loadConfig, ConfigError } = await import('../../packages/shared/config');
-    const base: NodeJS.ProcessEnv = { NODE_ENV: 'production', DATABASE_URL: 'postgresql://x', OPS_API_KEY: 'k'.repeat(24), FIREBLOCKS_WORKSPACE_ID: 'ws-real', WEBHOOK_ENCRYPTION_KEY: 'a'.repeat(64), FIREBLOCKS_WEBHOOK_PUBLIC_KEY: '-----BEGIN PUBLIC KEY-----\nMIIB\n-----END PUBLIC KEY-----', SOLANA_RPC_URL: 'https://my-node.example.com', API_BASE_URL: 'https://api.axlink.network/api' };
+    const base: NodeJS.ProcessEnv = { NODE_ENV: 'production', DATABASE_URL: 'postgresql://x', OPS_API_KEY: 'k'.repeat(24), FIREBLOCKS_WORKSPACE_ID: 'ws-real', FIREBLOCKS_API_KEY: 'test-api-key', FIREBLOCKS_WEBHOOK_JWKS_URL: 'https://keys.fireblocks.io/.well-known/jwks.json',  WEBHOOK_ENCRYPTION_KEY: 'a'.repeat(64), FIREBLOCKS_WEBHOOK_PUBLIC_KEY: '-----BEGIN PUBLIC KEY-----\nMIIB\n-----END PUBLIC KEY-----', SOLANA_RPC_URL: 'https://my-node.example.com', API_BASE_URL: 'https://api.axlink.network/api' };
     expect(() => loadConfig(base)).not.toThrow();
     const bad = () => loadConfig({ ...base, SOLANA_RPC_URL: 'https://api.mainnet-beta.solana.com', TRANSFER_DAILY_LIMIT: '-5', OUTBOUND_SETTLEMENT_ENABLED: 'yes' });
     expect(bad).toThrow(ConfigError);

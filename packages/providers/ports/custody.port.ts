@@ -8,8 +8,8 @@ export interface CustodyProvider {
   getDepositAddress(vaultId: string, asset: AssetRef): Promise<{ address: string; tag?: string }>;
   /** `total` is the custodian's full figure (available + pending + frozen/locked holds) when it reports one; reconciliation prefers it. */
   getBalance(vaultId: string, asset: AssetRef): Promise<{ available: string; pending: string; total?: string }>;
-  transferInternal(p: { clientRef: string; fromVaultId: string; toVaultId: string; asset: AssetRef; amount: string }): Promise<{ providerTxId: string; status: OpStatus }>;
-  transferExternal(p: { clientRef: string; fromVaultId: string; toAddress: string; asset: AssetRef; amount: string; memo?: string }): Promise<{ providerTxId: string; status: OpStatus; txHash?: string }>;
+  transferInternal(p: { clientRef: string; attempt?: number; fromVaultId: string; toVaultId: string; asset: AssetRef; amount: string }): Promise<{ providerTxId: string; status: OpStatus }>;
+  transferExternal(p: { clientRef: string; attempt?: number; fromVaultId: string; toAddress: string; asset: AssetRef; amount: string; memo?: string }): Promise<{ providerTxId: string; status: OpStatus; txHash?: string }>;
   getTransfer(providerTxId: string): Promise<{ status: OpStatus; txHash?: string; final: boolean }>;
   /** The transfer previously submitted under this clientRef, if the custodian has one — used to recover after a timeout without paying twice. */
   findTransferByClientRef(clientRef: string): Promise<{ providerTxId: string; status: OpStatus; final: boolean; txHash?: string } | null>;

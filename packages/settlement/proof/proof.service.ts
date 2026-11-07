@@ -19,6 +19,7 @@ import { prisma } from '../../core/ledger/ledger.service';
 import { providers } from '../../providers/registry/provider-registry';
 import { ChainTransactionFailed } from '../../providers/ports/blockchain.port';
 import { ASSETS, assetForSymbolOnNetwork, isAssetId, toMinorUnits, fromMinorUnits, type AssetDefinition, type AssetId } from '../../core/assets/registry';
+import { explorerTx } from '../../core/assets/registry';
 
 /** Kept for callers that still pass a symbol; the registry asset is resolved below. */
 export const SETTLEMENT_COMMITMENT = 'finalized';
@@ -268,7 +269,7 @@ export async function proofsFor(entityType: string, entityId: string) {
     onchainError: p.onchainError,
     verifiedAt: p.verifiedAt,
     /** Anyone can check this without trusting us. That is the point. */
-    explorerUrl: `https://solscan.io/tx/${p.signature}`,
+    explorerUrl: explorerTx(p.signature),
   }));
 }
 

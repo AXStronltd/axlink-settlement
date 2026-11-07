@@ -234,7 +234,7 @@ db('deposit instructions, settlement status, institution webhooks', () => {
     const { encryptSecret, decryptSecret } = await import('../../packages/shared/secrets');
     const c = encryptSecret('whsec_x'); expect(c).toMatch(/^enc:v1:/); expect(decryptSecret(c)).toBe('whsec_x');
     const { loadConfig } = await import('../../packages/shared/config');
-    const base = { NODE_ENV: 'production', DATABASE_URL: 'postgresql://x', API_BASE_URL: 'https://api.axlink.test/api', OPS_API_KEY: 'k'.repeat(32), FIREBLOCKS_WORKSPACE_ID: 'w', FIREBLOCKS_WEBHOOK_PUBLIC_KEY: '-----BEGIN PUBLIC KEY-----x', B2BINPAY_CALLBACK_SECRET: 's'.repeat(20), SOLANA_RPC_URL: 'https://solana.dedicated.example/rpc' } as NodeJS.ProcessEnv;
+    const base = { NODE_ENV: 'production', DATABASE_URL: 'postgresql://x', API_BASE_URL: 'https://api.axlink.test/api', OPS_API_KEY: 'k'.repeat(32), FIREBLOCKS_WORKSPACE_ID: 'w', FIREBLOCKS_API_KEY: 'test-api-key', FIREBLOCKS_WEBHOOK_JWKS_URL: 'https://keys.fireblocks.io/.well-known/jwks.json',  FIREBLOCKS_WEBHOOK_PUBLIC_KEY: '-----BEGIN PUBLIC KEY-----x', B2BINPAY_CALLBACK_SECRET: 's'.repeat(20), SOLANA_RPC_URL: 'https://solana.dedicated.example/rpc' } as NodeJS.ProcessEnv;
     expect(() => loadConfig(base)).toThrow(/WEBHOOK_ENCRYPTION_KEY is required in production/);
     expect(() => loadConfig({ ...base, WEBHOOK_ENCRYPTION_KEY: 'a'.repeat(64) })).not.toThrow();
   });

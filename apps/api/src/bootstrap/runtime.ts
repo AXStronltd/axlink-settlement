@@ -1,4 +1,5 @@
 import type { AppConfig } from '../../../../packages/shared/config';
+import { ACTIVE_NETWORK } from '../../../../packages/core/assets/registry';
 
 /** Process-only startup. Importing the HTTP app never registers providers or starts workers.
  * Legacy provider registrations are preserved for regression compatibility; Leg B is frozen.
@@ -9,7 +10,7 @@ export async function startRuntime(cfg: AppConfig): Promise<void> {
   const { fireblocksCustodyProvider } = await import('../../../../packages/providers/custody/fireblocks/fireblocks.custody-provider');
   const { b2binpayLiquidityProvider } = await import('../../../../packages/providers/liquidity/b2binpay/b2binpay.liquidity-provider');
   const { solanaBlockchainProvider } = await import('../../../../packages/providers/blockchain/solana/solana.blockchain-provider');
-  registerCustodyProvider(fireblocksCustodyProvider); registerLiquidityProvider(b2binpayLiquidityProvider); registerBlockchainProvider('solana-mainnet', solanaBlockchainProvider);
+  registerCustodyProvider(fireblocksCustodyProvider); registerLiquidityProvider(b2binpayLiquidityProvider); registerBlockchainProvider(ACTIVE_NETWORK, solanaBlockchainProvider);
   freezeProviders(); // replacements after boot: refused in production, SIMULATOR_ENABLED=true elsewhere
   await import('./lp.bootstrap');
   await import('./baas.bootstrap');

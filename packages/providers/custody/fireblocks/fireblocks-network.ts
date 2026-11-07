@@ -28,6 +28,8 @@ import {
   TransactionOperation,
   FeeLevel,
 } from '@fireblocks/ts-sdk';
+
+import { fireblocksBasePath } from './fireblocks';
 import { log } from '../../../shared/logger';
 
 // ── Client ───────────────────────────────────────────────────────────────────
@@ -39,7 +41,7 @@ function buildClient(): Fireblocks {
   return new Fireblocks({
     apiKey,
     secretKey: readFileSync(keyPath, 'utf8'),
-    basePath:  sandbox ? BasePath.Sandbox : BasePath.US,
+    basePath:  fireblocksBasePath(sandbox),
   });
 }
 
@@ -315,8 +317,9 @@ export async function getSmartTransferTicket(ticketId: string): Promise<SmartTra
     }).smartTransfer.getTicketById(ticketId);
     return res.data;
   } catch (err) {
-    const e = err as Error & { response?: { status?: number } };
-    if (e.response?.status === 404) return null;
+    // The Fireblocks SDK error carries the HTTP status in response.statusCode (not .status).
+    const e = err as Error & { response?: { status?: number; statusCode?: number; data?: { code?: number } } };
+    if ((e.response?.statusCode ?? e.response?.status) === 404 || e.response?.data?.code === 1439) return null;
     throw err;
   }
 }

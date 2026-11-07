@@ -14,6 +14,7 @@ import { getWallet } from '../../core/wallets/wallet.service';
 import { proofsFor, proveSettlement, ProofMismatchError, SettlementNotFinalError } from '../proof/proof.service';
 import { ApiError } from '../../shared/errors';
 import { log } from '../../shared/logger';
+import { explorerTx } from '../../core/assets/registry';
 
 export const DEFAULT_TTL_HOURS = 72;
 
@@ -77,7 +78,7 @@ export function publicStatus(i: DepositInstruction): 'PROCESSING' | 'COMPLETED' 
 
 export async function serializeInstruction(i: DepositInstruction & { wallet?: { depositAddress: string | null; label: string } }, depositAddress?: string | null) {
   const proofs = i.txHash ? await proofsFor('DepositInstruction', i.id) : [];
-  const explorer = i.txHash ? `https://solscan.io/tx/${i.txHash}` : null;
+  const explorer = i.txHash ? explorerTx(i.txHash) : null;
   return {
     id: i.id, kind: 'DEPOSIT' as const, status: publicStatus(i), instructionStatus: i.status,
     walletId: i.walletId, asset: i.assetId, expectedAmount: i.expectedAmount.toFixed(), receivedAmount: i.receivedAmount?.toFixed() ?? null,
@@ -149,7 +150,7 @@ export async function finalizeReceivedInstructions(limit = 100, only?: { id: str
         const c = await tx.depositInstruction.updateMany({ where: { id: i.id, status: 'RECEIVED' }, data: { status: 'SETTLED', settledAt: new Date() } });
         if (c.count !== 1) return;
         await emitInstitutionEvent(tx, { institutionId: i.institutionId, environmentId: i.environmentId }, 'deposit.settled',
-          { settlementId: i.id, kind: 'DEPOSIT', status: 'COMPLETED', finality: 'ON_CHAIN_FINALIZED', walletId: i.walletId, asset: i.assetId, amount: (i.receivedAmount ?? i.expectedAmount).toFixed(), reference: i.reference, trackingId: i.trackingId, txHash: i.txHash, explorerUrl: `https://solscan.io/tx/${i.txHash}`, slot: r.proof?.slot?.toString() ?? null },
+          { settlementId: i.id, kind: 'DEPOSIT', status: 'COMPLETED', finality: 'ON_CHAIN_FINALIZED', walletId: i.walletId, asset: i.assetId, amount: (i.receivedAmount ?? i.expectedAmount).toFixed(), reference: i.reference, trackingId: i.trackingId, txHash: i.txHash, explorerUrl: i.txHash ? explorerTx(i.txHash) : null, slot: r.proof?.slot?.toString() ?? null },
           { entityType: 'DepositInstruction', entityId: i.id });
       });
       out.settled++;

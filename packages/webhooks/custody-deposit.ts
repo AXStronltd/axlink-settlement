@@ -9,7 +9,7 @@
  */
 import { Prisma } from '@prisma/client';
 import { credit } from '../core/ledger/ledger.service';
-import { resolveProviderAsset, toMinorUnits, type AssetDefinition } from '../core/assets/registry';
+import { ACTIVE_NETWORK, resolveProviderAsset, toMinorUnits, type AssetDefinition } from '../core/assets/registry';
 import { post } from '../core/ledger/journal.service';
 import { AccountCode } from '../core/ledger/accounts';
 import { EventIgnored, onEventIgnored, type EventOutcome, type Tx } from './provider-event.service';
@@ -53,7 +53,52 @@ export async function applyCustodyDeposit(tx: Tx, ev: CustodyCompletion): Promis
 
   const user = await tx.user.findUnique({ where: { vaultId: ev.destinationVaultId }, select: { id: true, institutionId: true, vaultId: true } });
   if (!user) {
-    throw new EventIgnored({ status: 'IGNORED', reason: 'destination vault is not an AxLink wallet', assetId: asset.id, vaultId: ev.destinationVaultId });
+    // ── Step 2 path, no matching tracking id: a deposit from OUTSIDE the workspace ─────────────
+    // `externalTxId` is set by whoever creates the transaction, in their own workspace. A bank sending
+    // from its own wallet (another custodian, another Fireblocks workspace, a faucet) cannot put our
+    // `dep_…` id on the incoming transaction. The receiving vault belongs to exactly one institution
+    // wallet; the receipt settles the ONE pending, unexpired instruction on that wallet with the same
+    // asset and the exact amount, through the same checks as a tracked receipt. Anything else — no
+    // match, several, a wallet of another deployment, a receipt that fails the evidence checks, a lost
+    // race — credits nothing, never touches an instruction, and raises a CRITICAL UNATTRIBUTED_DEPOSIT
+    // exception: funds are in custody and operations decides.
+    const owner = await walletForVault(tx, ev.provider, ev.destinationVaultId);
+    if (!owner) throw new EventIgnored({ status: 'IGNORED', reason: 'destination vault is not an AxLink wallet', assetId: asset.id, vaultId: ev.destinationVaultId });
+    const unattributed = (reason: string): never => { throw new EventIgnored({
+      status: 'REJECTED', assetId: asset.id, institutionId: owner.institutionId, vaultId: ev.destinationVaultId, walletId: owner.id, entityType: 'Wallet', entityId: owner.id,
+      reason: `${reason}; funds are in custody — operator review`,
+      detail: { providerTxId: ev.providerTxId ?? null, txHash: ev.txHash ?? null, amount: ev.amount === undefined ? null : String(ev.amount) },
+    }); };
+    // An internal custody movement (our own vault-to-vault settlement, a treasury top-up) never creates a
+    // deposit liability, and must not touch an instruction or raise a false alarm: the settlement that
+    // produced it is accounted for by its own record.
+    if (ev.sourceType === 'VAULT_ACCOUNT' || (ev.sourceVaultId && await walletForVault(tx, ev.provider, ev.sourceVaultId))) {
+      throw new EventIgnored({ status: 'IGNORED', reason: 'internal custody movement is not a deposit', assetId: asset.id, vaultId: ev.destinationVaultId, walletId: owner.id });
+    }
+    // Vault ids are per workspace: a wallet of another network (e.g. a sandbox wallet after a switch to
+    // live) shares only a number with this vault.
+    if (owner.network !== ACTIVE_NETWORK) unattributed(`unattributed deposit: wallet is on ${owner.network}, this deployment settles on ${ACTIVE_NETWORK}`);
+    // The same custody transaction never settles a second instruction, whatever event id it arrives under.
+    if (ev.providerTxId && await tx.depositInstruction.findFirst({ where: { providerTxId: ev.providerTxId }, select: { id: true } })) {
+      throw new EventIgnored({ status: 'IGNORED', reason: 'custody transaction already settled an instruction', assetId: asset.id, vaultId: ev.destinationVaultId, walletId: owner.id });
+    }
+    let received: Prisma.Decimal | null = null;
+    try { received = ev.amount === undefined ? null : new Prisma.Decimal(ev.amount); } catch { received = null; }
+    const candidates = received && received.isFinite() && received.isPositive()
+      ? await tx.depositInstruction.findMany({
+          where: { walletId: owner.id, assetId: asset.id, status: 'PENDING', expectedAmount: received, expiresAt: { gt: new Date() } },
+          include: { wallet: { include: { environment: { select: { kind: true } } } } }, orderBy: { createdAt: 'asc' }, take: 2,
+        })
+      : [];
+    if (candidates.length === 0) unattributed('unattributed deposit: no pending instruction on this wallet for this asset and exact amount');
+    if (candidates.length > 1) unattributed('ambiguous deposit: more than one pending instruction on this wallet for this asset and amount');
+    try {
+      return await settleInstruction(tx, ev, asset, candidates[0]);
+    } catch (e) {
+      // Matched only by amount: a refusal is about THIS receipt, not the institution's instruction.
+      if (e instanceof EventIgnored) unattributed(`deposit matched by amount but not settled (${e.outcome.reason ?? 'refused'})`);
+      throw e;
+    }
   }
 
   // Step 2: the vault belongs to a Wallet. When one exists it is the owner of record and must agree
@@ -218,5 +263,18 @@ onEventIgnored(async (_event, outcome) => {
     await emitInstitutionEvent(tx, { institutionId: i.institutionId, environmentId: i.environmentId }, 'deposit.rejected',
       { settlementId: i.id, kind: 'DEPOSIT', status: 'PROCESSING', attention: true, reason: outcome.reason ?? 'rejected', walletId: i.walletId, asset: i.assetId, expectedAmount: i.expectedAmount.toFixed(), reference: i.reference, trackingId: i.trackingId },
       { entityType: 'DepositInstruction', entityId: i.id });
+  });
+});
+
+// Money arrived at an institution wallet and could not be attributed: operations must see it at once.
+onEventIgnored(async (_event, outcome) => {
+  if (outcome.entityType !== 'Wallet' || outcome.status !== 'REJECTED' || !outcome.walletId) return;
+  const { raiseException } = await import('../settlement/operations/exception.service');
+  const { Prisma: P } = await import('@prisma/client');
+  const amount = outcome.detail?.amount;
+  await raiseException({
+    kind: 'UNATTRIBUTED_DEPOSIT', severity: 'CRITICAL', subject: `${outcome.walletId}:${outcome.detail?.providerTxId ?? outcome.detail?.txHash ?? 'unknown'}`,
+    currency: outcome.assetId ?? null, actual: amount ? new P.Decimal(amount) : null,
+    detail: { reason: outcome.reason ?? null, ...(outcome.detail ?? {}) }, institutionId: outcome.institutionId ?? null, entityType: 'Wallet', entityId: outcome.walletId,
   });
 });

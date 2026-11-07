@@ -10,7 +10,7 @@
  * module. `describe()` is what the operator Providers screen shows.
  */
 import type { CustodyProvider, LiquidityProvider, BlockchainProvider, ProviderHealth, ScreeningProvider } from '../ports';
-import type { NetworkId } from '../../core/assets/registry';
+import { ACTIVE_NETWORK, type NetworkId } from '../../core/assets/registry';
 import { fireblocksCustodyProvider } from '../custody/fireblocks/fireblocks.custody-provider';
 import { b2binpayLiquidityProvider } from '../liquidity/b2binpay/b2binpay.liquidity-provider';
 import { stubScreeningProvider } from '../screening/stub/stub.screening-provider';
@@ -34,7 +34,7 @@ let defaultsLoaded = false;
  */
 export function registerDefaultProviders(): void {
   if (defaultsLoaded) return; defaultsLoaded = true;
-  reg.custody ??= fireblocksCustodyProvider; reg.liquidity ??= b2binpayLiquidityProvider; reg.screening ??= stubScreeningProvider; reg.blockchain['solana-mainnet'] ??= solanaBlockchainProvider;
+  reg.custody ??= fireblocksCustodyProvider; reg.liquidity ??= b2binpayLiquidityProvider; reg.screening ??= stubScreeningProvider; reg.blockchain[ACTIVE_NETWORK] ??= solanaBlockchainProvider;
 }
 
 export const providers = {

@@ -42,11 +42,11 @@ export const fireblocksCustodyProvider: CustodyProvider = {
     return { available: r.available ?? '0', pending: r.pending ?? '0', ...(r.total !== undefined ? { total: r.total } : {}) };
   },
   async transferInternal(p) {
-    const r = await ports().custody.createTransfer({ assetId: providerAssetId('fireblocks', assetIdOf(p.asset)), amount: p.amount, sourceVaultId: p.fromVaultId, destVaultId: p.toVaultId, externalTxId: p.clientRef }) as { id: string; status?: string };
+    const r = await ports().custody.createTransfer({ assetId: providerAssetId('fireblocks', assetIdOf(p.asset)), amount: p.amount, sourceVaultId: p.fromVaultId, destVaultId: p.toVaultId, externalTxId: p.clientRef, attempt: p.attempt }) as { id: string; status?: string };
     return { providerTxId: r.id, ...toStatus(r.status) };
   },
   async transferExternal(p) {
-    const r = await ports().custody.createTransfer({ assetId: providerAssetId('fireblocks', assetIdOf(p.asset)), amount: p.amount, sourceVaultId: p.fromVaultId, destAddress: p.toAddress, note: p.memo, externalTxId: p.clientRef }) as { id: string; status?: string; txHash?: string };
+    const r = await ports().custody.createTransfer({ assetId: providerAssetId('fireblocks', assetIdOf(p.asset)), amount: p.amount, sourceVaultId: p.fromVaultId, destAddress: p.toAddress, note: p.memo, externalTxId: p.clientRef, attempt: p.attempt }) as { id: string; status?: string; txHash?: string };
     return { providerTxId: r.id, ...toStatus(r.status), txHash: r.txHash };
   },
   async findTransferByClientRef(clientRef) {

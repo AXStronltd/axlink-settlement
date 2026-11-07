@@ -237,7 +237,7 @@ describe('F2 · configuration refuses an unverifiable production', () => {
     const base = { NODE_ENV: 'production', DATABASE_URL: 'postgresql://x', API_BASE_URL: 'https://api.axlink.test/api', OPS_API_KEY: 'k'.repeat(32), SIMULATOR_ENABLED: 'false', DEMO_ENABLED: 'false', SOLANA_RPC_URL: 'https://solana.dedicated.example/rpc' } as NodeJS.ProcessEnv;
     expect(() => loadConfig(base)).toThrow(/FIREBLOCKS_WEBHOOK_PUBLIC_KEY is required in production/);
     expect(() => loadConfig({ ...base, B2BINPAY_CLIENT_ID: 'configured' })).toThrow(/B2BINPAY_CALLBACK_SECRET is required in production/);
-    const withKeys = { ...base, FIREBLOCKS_WORKSPACE_ID: 'test-workspace', FIREBLOCKS_WEBHOOK_PUBLIC_KEY: '-----BEGIN PUBLIC KEY-----x', B2BINPAY_CALLBACK_SECRET: 's'.repeat(20), WEBHOOK_ENCRYPTION_KEY: 'a'.repeat(64) };
+    const withKeys = { ...base, FIREBLOCKS_WORKSPACE_ID: 'test-workspace', FIREBLOCKS_API_KEY: 'test-api-key', FIREBLOCKS_WEBHOOK_JWKS_URL: 'https://keys.fireblocks.io/.well-known/jwks.json',  FIREBLOCKS_WEBHOOK_PUBLIC_KEY: '-----BEGIN PUBLIC KEY-----x', B2BINPAY_CALLBACK_SECRET: 's'.repeat(20), WEBHOOK_ENCRYPTION_KEY: 'a'.repeat(64) };
     expect(() => loadConfig(withKeys)).not.toThrow();
     expect(() => loadConfig({ ...withKeys, ALLOW_UNVERIFIED_WEBHOOKS: 'true' })).toThrow(/ALLOW_UNVERIFIED_WEBHOOKS must be false in production/);
   });

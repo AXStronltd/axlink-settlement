@@ -16,7 +16,10 @@
     "check:web": "node scripts/check-web.js",
     "verify": "npm run typecheck && npm run check:web && vitest run",
     "certify": "vitest run tests/certification",
-    "seed:sandbox": "ts-node scripts/seed-sandbox.ts"
+    "seed:sandbox": "ts-node scripts/seed-sandbox.ts",
+    "fb:preflight": "ts-node scripts/fb-preflight.ts",
+    "e2e:sandbox": "ts-node scripts/e2e-sandbox.ts",
+    "devnet:usdt": "ts-node scripts/devnet-test-usdt.ts"
   },
   "keywords": [],
   "author": "",
@@ -36,6 +39,9 @@
     "zod": "^3.24.2"
   },
   "devDependencies": {
+    "@metaplex-foundation/mpl-token-metadata": "^2.13.0",
+    "@solana/spl-token": "^0.4.9",
+    "@solana/web3.js": "^1.98.0",
     "@types/express": "^5.0.6",
     "@types/node": "^25.9.1",
     "@types/pg": "^8.20.0",
