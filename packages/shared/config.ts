@@ -79,7 +79,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ConfigReport {
     // JWKS-signed `Fireblocks-Webhook-Signature` arrives. A static key alone would reject every webhook, so
     // deposits would silently never credit. Production must verify against the workspace's JWKS.
     if (!cfg.FIREBLOCKS_WEBHOOK_JWKS_URL) prodProblems.push('FIREBLOCKS_WEBHOOK_JWKS_URL is required in production (FIREBLOCKS_WEBHOOK_PUBLIC_KEY is required in production only for the retired legacy header and no longer suffices)');
-    else if ((cfg.FIREBLOCKS_SANDBOX === 'true') !== cfg.FIREBLOCKS_WEBHOOK_JWKS_URL.startsWith('https://sandbox-keys.')) prodProblems.push(`FIREBLOCKS_WEBHOOK_JWKS_URL ${cfg.FIREBLOCKS_WEBHOOK_JWKS_URL} does not match the workspace (FIREBLOCKS_SANDBOX=${cfg.FIREBLOCKS_SANDBOX ?? 'unset'})`);
+    // The legacy sandbox (sandbox-api host) signs with sandbox-keys; a live workspace never does. A testnet
+    // workspace served from an overridden FIREBLOCKS_BASE_URL is checked by `npm run fb:preflight` instead.
+    else if (!process.env.FIREBLOCKS_BASE_URL && (cfg.FIREBLOCKS_SANDBOX === 'true') !== cfg.FIREBLOCKS_WEBHOOK_JWKS_URL.startsWith('https://sandbox-keys.')) prodProblems.push(`FIREBLOCKS_WEBHOOK_JWKS_URL ${cfg.FIREBLOCKS_WEBHOOK_JWKS_URL} does not match the workspace (FIREBLOCKS_SANDBOX=${cfg.FIREBLOCKS_SANDBOX ?? 'unset'})`);
     if ([cfg.B2BINPAY_CLIENT_ID, cfg.B2BINPAY_CLIENT_SECRET].some(v => v && !PLACEHOLDER.test(v)) && (!cfg.B2BINPAY_CALLBACK_SECRET || PLACEHOLDER.test(cfg.B2BINPAY_CALLBACK_SECRET))) prodProblems.push('B2BINPAY_CALLBACK_SECRET is required in production');
     // Things that must be true in production (CLAUDE.md): a dedicated Solana node, deliberate outbound enablement,
     // sane limits, and a conscious choice about screening.
@@ -102,6 +104,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ConfigReport {
     if (cfg.SOLANA_CLUSTER === 'devnet' && !cfg.FIREBLOCKS_USDC_ASSET) clusterProblems.push('SOLANA_CLUSTER=devnet requires FIREBLOCKS_USDC_ASSET (the workspace\'s id for Solana devnet USDC; `npm run fb:preflight` lists it)');
     if (cfg.SOLANA_CLUSTER === 'devnet' && cfg.SOLANA_RPC_URL && /mainnet/i.test(cfg.SOLANA_RPC_URL)) clusterProblems.push('SOLANA_CLUSTER=devnet but SOLANA_RPC_URL looks like a mainnet node');
     if (cfg.SOLANA_CLUSTER === 'mainnet' && cfg.SOLANA_RPC_URL && /devnet|testnet/i.test(cfg.SOLANA_RPC_URL)) clusterProblems.push('SOLANA_CLUSTER=mainnet but SOLANA_RPC_URL looks like a devnet/testnet node');
+    // On mainnet the Fireblocks ids are the canonical ones. A leftover testnet override would make deposit
+    // resolution trust that id as mainnet USDC/USDT.
+    if (cfg.SOLANA_CLUSTER === 'mainnet' && cfg.FIREBLOCKS_USDC_ASSET && cfg.FIREBLOCKS_USDC_ASSET !== 'USDC_SOL') clusterProblems.push(`SOLANA_CLUSTER=mainnet requires FIREBLOCKS_USDC_ASSET unset or USDC_SOL (got ${cfg.FIREBLOCKS_USDC_ASSET})`);
+    if (cfg.SOLANA_CLUSTER === 'mainnet' && cfg.FIREBLOCKS_USDT_ASSET && cfg.FIREBLOCKS_USDT_ASSET !== 'USDT_SOL') clusterProblems.push(`SOLANA_CLUSTER=mainnet requires FIREBLOCKS_USDT_ASSET unset or USDT_SOL (got ${cfg.FIREBLOCKS_USDT_ASSET})`);
     if (clusterProblems.length) throw new ConfigError(clusterProblems);
   }
   const sandboxProviders = PROVIDER_KEYS.filter(k => { const v = cfg[k]; return !v || PLACEHOLDER.test(String(v)); }).map(String);

@@ -33,6 +33,9 @@ services:
       # Live phase:    FIREBLOCKS_SANDBOX=false, SOLANA_CLUSTER=mainnet, a dedicated mainnet RPC,
       #                fresh live API key + signing key; unset FIREBLOCKS_USDC_ASSET.
       # The app refuses to start if workspace and cluster disagree.
+      # Going live = a NEW database (fresh axlink-db), never the sandbox one: Fireblocks vault ids are per
+      # workspace, so a sandbox wallet's vault id can name a different, real vault in the live workspace.
+      # (Belt and braces: transfers and deposits on a wallet of another network/environment are refused.)
       - key: FIREBLOCKS_SANDBOX
         sync: false
       - key: SOLANA_CLUSTER

@@ -78,6 +78,11 @@ describe('workspace and cluster must agree', () => {
     expect(await load({ ...env, FIREBLOCKS_USDC_ASSET: 'X', SOLANA_RPC_URL: 'https://mainnet.helius-rpc.com/?api-key=z' })).toThrow(/looks like a mainnet node/);
     expect(await load({ ...env, FIREBLOCKS_USDC_ASSET: 'X', SOLANA_RPC_URL: 'https://devnet.helius-rpc.com/?api-key=z' })).not.toThrow();
   });
+  it('mainnet refuses a non-canonical Fireblocks asset override (a leftover testnet id)', async () => {
+    expect(await load({ ...base, FIREBLOCKS_API_KEY: 'k', FIREBLOCKS_USDC_ASSET: 'USDC_SOL_TEST' })).toThrow(/FIREBLOCKS_USDC_ASSET unset or USDC_SOL/);
+    expect(await load({ ...base, FIREBLOCKS_API_KEY: 'k', FIREBLOCKS_USDT_ASSET: 'X' })).toThrow(/FIREBLOCKS_USDT_ASSET unset or USDT_SOL/);
+    expect(await load({ ...base, FIREBLOCKS_API_KEY: 'k', FIREBLOCKS_USDC_ASSET: 'USDC_SOL' })).not.toThrow();
+  });
   it('mainnet with a devnet node is refused', async () => {
     expect(await load({ ...base, FIREBLOCKS_API_KEY: 'k', SOLANA_RPC_URL: 'https://devnet.helius-rpc.com/?api-key=z' })).toThrow(/looks like a devnet/);
   });
@@ -95,5 +100,9 @@ describe('workspace and cluster must agree', () => {
     const sbx = { ...prod, FIREBLOCKS_SANDBOX: 'true', SOLANA_CLUSTER: 'devnet', FIREBLOCKS_USDC_ASSET: 'X', SOLANA_RPC_URL: 'https://devnet.helius-rpc.com/?api-key=z' };
     expect(await load({ ...sbx, FIREBLOCKS_WEBHOOK_JWKS_URL: 'https://keys.fireblocks.io/.well-known/jwks.json' })).toThrow(/does not match the workspace/);
     expect(await load({ ...sbx, FIREBLOCKS_WEBHOOK_JWKS_URL: 'https://sandbox-keys.fireblocks.io/.well-known/jwks.json' })).not.toThrow();
+    // a testnet workspace on an overridden API host: the JWKS pairing is left to the preflight
+    process.env.FIREBLOCKS_BASE_URL = 'https://api.fireblocks.io/v1';
+    try { expect(await load({ ...sbx, FIREBLOCKS_WEBHOOK_JWKS_URL: 'https://keys.fireblocks.io/.well-known/jwks.json' })).not.toThrow(); }
+    finally { delete process.env.FIREBLOCKS_BASE_URL; }
   });
 });
