@@ -1,6 +1,6 @@
 /**
  * Real end-to-end against a RUNNING AxLink API wired to the Fireblocks sandbox and Solana devnet.
- * Nothing is stubbed: real vaults, a real devnet USDC deposit, a real vault-to-vault settlement,
+ * Nothing is stubbed: real vaults, a real devnet USDT or USDC deposit (E2E_ASSET), a real vault-to-vault settlement,
  * proof from a Solana node, the operator checks. Run `npm run fb:preflight` first.
  *
  *   E2E_API_URL=https://axlink-settlement.onrender.com E2E_OPS_KEY=… npm run e2e:sandbox
@@ -8,12 +8,13 @@
  * Env:
  *   E2E_API_URL        API origin (default http://localhost:4000)
  *   E2E_OPS_KEY        operator key (default OPS_API_KEY)
- *   E2E_DEPOSIT        USDC to deposit into Bank A (default 2)
- *   E2E_SETTLE         USDC Bank A settles to Bank B (default 1)
+ *   E2E_ASSET          USDT_SOL (default — AxLink's settlement asset) or USDC_SOL
+ *   E2E_DEPOSIT        amount to deposit into Bank A (default 2)
+ *   E2E_SETTLE         amount Bank A settles to Bank B (default 1)
  *   E2E_TIMEOUT_MIN    how long to wait for the deposit / settlement each (default 30)
  *
- * The one manual step: the script prints Bank A's deposit address; send EXACTLY E2E_DEPOSIT devnet
- * USDC to it (faucet.circle.com → Solana Devnet). Bank A's vault also needs devnet SOL for the
+ * The one manual step: the script prints Bank A's deposit address; send EXACTLY E2E_DEPOSIT of the
+ * devnet token to it — test USDT: `npm run devnet:usdt -- mint <address> <amount>`; USDC: faucet.circle.com. Bank A's vault also needs devnet SOL for the
  * settlement's network fee: enable the Fireblocks Gas Station for the workspace, or fund the vault's
  * SOL wallet in the console. Exit 0 = every check passed. Never point this at a live workspace.
  */
@@ -22,6 +23,8 @@ import { randomUUID } from 'crypto';
 
 const API = (process.env.E2E_API_URL ?? 'http://localhost:4000').replace(/\/$/, '');
 const OPS = process.env.E2E_OPS_KEY ?? process.env.OPS_API_KEY ?? '';
+const ASSET = (process.env.E2E_ASSET ?? 'USDT_SOL') as 'USDT_SOL' | 'USDC_SOL';
+const SYM = ASSET.split('_')[0];
 const DEPOSIT = process.env.E2E_DEPOSIT ?? '2';
 const SETTLE = process.env.E2E_SETTLE ?? '1';
 const TIMEOUT_MS = Number(process.env.E2E_TIMEOUT_MIN ?? 30) * 60_000;
@@ -58,7 +61,7 @@ async function onboard(tag: string) {
   must(`wallet ${tag} is a real Fireblocks vault`, !!vault && !/^vault_sbx_/.test(vault), `vault ${vault}`);
   return { id: inst.body.id as string, slug, key: key.body.apiKey as string, wallet: w.body, vault };
 }
-const usdc = async (key: string) => (await call('GET', '/api/v1/balances', key)).body?.balances?.find((b: any) => b.asset === 'USDC_SOL')?.available as string | undefined;
+const bal = async (key: string) => (await call('GET', '/api/v1/balances', key)).body?.balances?.find((b: any) => b.asset === ASSET)?.available as string | undefined;
 
 async function main() {
   console.log(`AxLink sandbox end-to-end → ${API}\n`);
@@ -79,17 +82,18 @@ async function main() {
   const me = await call('GET', '/api/v1/institutions/me', A.key);
   check('A sees itself in SANDBOX', me.body?.environment === 'SANDBOX');
   const assets = await call('GET', '/api/v1/assets', A.key);
-  const usdcDef = assets.body?.assets?.find((a: any) => a.id === 'USDC_SOL');
-  must('USDC_SOL is offered on devnet', usdcDef?.network === 'solana-devnet', JSON.stringify(usdcDef ?? null));
+  const def = assets.body?.assets?.find((a: any) => a.id === ASSET);
+  must(`${ASSET} is offered on devnet`, def?.network === 'solana-devnet', JSON.stringify(def ?? null));
 
-  console.log('\n3. Deposit into Bank A (real devnet USDC)');
-  const addr = await call('POST', '/api/v1/custody/deposit-addresses', A.key, { walletId: A.wallet.id, asset: 'USDC_SOL' });
+  console.log(`\n3. Deposit into Bank A (real devnet ${SYM})`);
+  const addr = await call('POST', '/api/v1/custody/deposit-addresses', A.key, { walletId: A.wallet.id, asset: ASSET });
   must('deposit address issued by Fireblocks', addr.status === 200 && !!addr.body.address && !/^sbx_/.test(addr.body.address), addr.body?.address);
-  const dep = await call('POST', '/api/v1/deposits', A.key, { walletId: A.wallet.id, asset: 'USDC_SOL', amount: DEPOSIT, reference: 'E2E-DEP' });
+  const dep = await call('POST', '/api/v1/deposits', A.key, { walletId: A.wallet.id, asset: ASSET, amount: DEPOSIT, reference: 'E2E-DEP' });
   must('deposit announced', dep.status === 201, `${dep.status}`);
-  console.log(`\n    ▶ Send EXACTLY ${DEPOSIT} USDC on Solana DEVNET to:\n\n        ${addr.body.address}\n\n      (faucet.circle.com → USDC → Solana Devnet). Bank A vault: ${A.vault}\n      Bank A also needs devnet SOL for fees (Gas Station, or fund vault ${A.vault} in the console).\n`);
-  const credited = await until('the deposit to be credited', async () => Number(await usdc(A.key) ?? 0) === Number(DEPOSIT) ? true : null);
-  must(`A credited ${DEPOSIT} USDC (custody webhook received and matched)`, !!credited, `balance ${await usdc(A.key)}`);
+  const how = ASSET === 'USDT_SOL' ? `npm run devnet:usdt -- mint ${addr.body.address} ${DEPOSIT}` : 'faucet.circle.com → USDC → Solana Devnet';
+  console.log(`\n    ▶ Send EXACTLY ${DEPOSIT} ${SYM} on Solana DEVNET to:\n\n        ${addr.body.address}\n\n      (${how}). Bank A vault: ${A.vault}\n      Bank A also needs devnet SOL for fees (Gas Station, or fund vault ${A.vault} in the console).\n`);
+  const credited = await until('the deposit to be credited', async () => Number(await bal(A.key) ?? 0) === Number(DEPOSIT) ? true : null);
+  must(`A credited ${DEPOSIT} ${SYM} (custody webhook received and matched)`, !!credited, `balance ${await bal(A.key)}`);
   const final = await until('on-chain finality of the deposit', async () => { const d = await call('GET', `/api/v1/deposits/${dep.body.id}`, A.key); return d.body?.status === 'COMPLETED' ? d.body : null; });
   check('deposit COMPLETED on a finalized Solana signature', !!final, final ? final.proof?.explorerUrl ?? final.explorerUrl ?? '' : 'not finalized in time');
   const peek = await call('GET', `/api/v1/deposits/${dep.body.id}`, B.key);
@@ -99,16 +103,16 @@ async function main() {
   const cp = await call('POST', '/api/v1/counterparties', A.key, { label: 'E2E Bank B', participant: B.slug });
   must('B registered as A\'s network counterparty', cp.status === 201, `${cp.status} ${JSON.stringify(cp.body?.error ?? '')}`);
   const idem = `e2e-${randomUUID()}`;
-  const s1 = await call('POST', '/api/v1/settlements', A.key, { walletId: A.wallet.id, counterpartyId: cp.body.id, asset: 'USDC_SOL', amount: SETTLE, reference: 'E2E-NET' }, { 'Idempotency-Key': idem });
+  const s1 = await call('POST', '/api/v1/settlements', A.key, { walletId: A.wallet.id, counterpartyId: cp.body.id, asset: ASSET, amount: SETTLE, reference: 'E2E-NET' }, { 'Idempotency-Key': idem });
   must('settlement accepted', s1.status === 202, `${s1.status} ${JSON.stringify(s1.body?.error ?? '')}`);
-  const s2 = await call('POST', '/api/v1/settlements', A.key, { walletId: A.wallet.id, counterpartyId: cp.body.id, asset: 'USDC_SOL', amount: SETTLE, reference: 'E2E-NET' }, { 'Idempotency-Key': idem });
+  const s2 = await call('POST', '/api/v1/settlements', A.key, { walletId: A.wallet.id, counterpartyId: cp.body.id, asset: ASSET, amount: SETTLE, reference: 'E2E-NET' }, { 'Idempotency-Key': idem });
   check('retry with the same Idempotency-Key returns the same settlement', s2.body?.id === s1.body.id, `${s2.status}`);
   const done = await until('the settlement to finish', async () => { const s = await call('GET', `/api/v1/settlements/${s1.body.id}`, A.key); return ['COMPLETED', 'FAILED'].includes(s.body?.status) ? s.body : null; });
   must('settlement COMPLETED', done?.status === 'COMPLETED', done ? `${done.status} ${done.stage ?? ''}` : 'timed out');
   check('settlement has an on-chain proof', !!done.proof?.txHash, done.proof?.explorerUrl ?? '');
   const left = Number(DEPOSIT) - Number(SETTLE);
-  check(`A holds ${left} USDC`, Number(await usdc(A.key) ?? NaN) === left, await usdc(A.key));
-  check(`B received ${SETTLE} USDC`, Number(await usdc(B.key) ?? NaN) === Number(SETTLE), await usdc(B.key));
+  check(`A holds ${left} ${SYM}`, Number(await bal(A.key) ?? NaN) === left, await bal(A.key));
+  check(`B received ${SETTLE} ${SYM}`, Number(await bal(B.key) ?? NaN) === Number(SETTLE), await bal(B.key));
 
   console.log('\n5. Operations');
   const stuck = await call('GET', '/api/settlement/stuck', OPS);

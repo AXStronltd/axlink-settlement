@@ -46,10 +46,18 @@ describe('asset registry per cluster', () => {
     expect(main.resolveByContract('solana-devnet', DEVNET_USDC)).toBeNull();
   });
 
-  it('devnet without FIREBLOCKS_USDC_ASSET has no Fireblocks id (no guessing a testnet id)', async () => {
+  it('devnet without FIREBLOCKS_USDC_ASSET has no Fireblocks id and USDC is not offered (no guessing a testnet id)', async () => {
     const r = await registryWith({ SOLANA_CLUSTER: 'devnet', FIREBLOCKS_USDC_ASSET: undefined });
     expect(r.ASSETS.USDC_SOL.providerIds.fireblocks).toBeUndefined();
+    expect(r.ASSETS.USDC_SOL.supported).toBe(false);
     expect(() => r.providerAssetId('fireblocks', 'USDC_SOL')).toThrow(/not supported by fireblocks/);
+  });
+
+  it('devnet USDT-only sandbox: a test mint plus its Fireblocks id makes USDT_SOL the devnet asset', async () => {
+    const r = await registryWith({ SOLANA_CLUSTER: 'devnet', FIREBLOCKS_USDC_ASSET: undefined, SOLANA_DEVNET_USDT_MINT: 'TestUsdtMint1111111111111111111111111111111', FIREBLOCKS_USDT_ASSET: 'AXLINK_TUSDT_X' });
+    expect(r.ASSETS.USDT_SOL).toMatchObject({ network: 'solana-devnet', contract: 'TestUsdtMint1111111111111111111111111111111', supported: true, providerIds: { fireblocks: 'AXLINK_TUSDT_X' } });
+    expect(r.isAssetId('USDC_SOL')).toBe(false);
+    expect(r.resolveProviderAsset('fireblocks', 'AXLINK_TUSDT_X')?.id).toBe('USDT_SOL');
   });
 
   it('devnet explorer links carry the cluster', async () => {
@@ -74,7 +82,10 @@ describe('workspace and cluster must agree', () => {
   });
   it('devnet needs the workspace\'s USDC id and a devnet node', async () => {
     const env = { ...base, FIREBLOCKS_API_KEY: 'k', FIREBLOCKS_SANDBOX: 'true', SOLANA_CLUSTER: 'devnet' };
-    expect(await load(env)).toThrow(/FIREBLOCKS_USDC_ASSET/);
+    expect(await load(env)).toThrow(/settlement asset registered in the Fireblocks sandbox/);
+    process.env.SOLANA_DEVNET_USDT_MINT = 'TestUsdtMint1111111111111111111111111111111';
+    try { expect(await load({ ...env, FIREBLOCKS_USDT_ASSET: 'AXLINK_TUSDT_X', SOLANA_RPC_URL: 'https://api.devnet.solana.com' })).not.toThrow(); }
+    finally { delete process.env.SOLANA_DEVNET_USDT_MINT; }
     expect(await load({ ...env, FIREBLOCKS_USDC_ASSET: 'X', SOLANA_RPC_URL: 'https://mainnet.helius-rpc.com/?api-key=z' })).toThrow(/looks like a mainnet node/);
     expect(await load({ ...env, FIREBLOCKS_USDC_ASSET: 'X', SOLANA_RPC_URL: 'https://devnet.helius-rpc.com/?api-key=z' })).not.toThrow();
   });

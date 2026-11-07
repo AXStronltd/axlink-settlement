@@ -18,8 +18,9 @@
  *   - mainnet: Circle USDC + Tether USDT, Fireblocks ids USDC_SOL / USDT_SOL (live workspace).
  *   - devnet:  Circle's devnet USDC (faucet.circle.com) for the Fireblocks sandbox / testnet
  *              workspace. Tether publishes no devnet USDT, so USDT is unsupported on devnet unless
- *              SOLANA_DEVNET_USDT_MINT names a test mint. Fireblocks names testnet assets per
- *              workspace, so on devnet FIREBLOCKS_USDC_ASSET (and _USDT_ASSET) must be set.
+ *              SOLANA_DEVNET_USDT_MINT names a test mint (scripts/devnet-test-usdt.ts creates one).
+ *              Fireblocks names testnet assets per workspace: on devnet an asset is supported only
+ *              when its FIREBLOCKS_*_ASSET is set too.
  * The AssetId (`USDC_SOL`) is the same on both clusters; the network + contract differ, so a devnet
  * token can never be attributed on a mainnet deployment and vice versa.
  */
@@ -87,7 +88,9 @@ export function buildAssets(cluster: SolanaCluster): Record<AssetId, AssetDefini
     const contract = MINTS[cluster][id];
     const fireblocks = fireblocksId(id, cluster);
     return {
-      id, symbol, tokenIssuer, network, contract: contract ?? '', decimals: 6, supported: Boolean(contract),
+      // Mainnet: the canonical mint is enough. Devnet: the token must also be registered in the Fireblocks
+      // sandbox (FIREBLOCKS_*_ASSET), or wallets could not be issued an address for it.
+      id, symbol, tokenIssuer, network, contract: contract ?? '', decimals: 6, supported: Boolean(contract) && (cluster === 'mainnet' || Boolean(fireblocks)),
       // B2BinPay has no devnet: it is a later liquidity leg, and only ever mainnet.
       providerIds: { ...(fireblocks ? { fireblocks } : {}), ...(cluster === 'mainnet' ? { b2binpay } : {}) },
     };

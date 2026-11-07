@@ -103,7 +103,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ConfigReport {
     const fbSandbox = cfg.FIREBLOCKS_SANDBOX === 'true';
     if (fbSandbox && cfg.SOLANA_CLUSTER !== 'devnet') clusterProblems.push('FIREBLOCKS_SANDBOX=true settles on Solana devnet: set SOLANA_CLUSTER=devnet');
     if (!fbSandbox && cfg.SOLANA_CLUSTER === 'devnet') clusterProblems.push('SOLANA_CLUSTER=devnet requires FIREBLOCKS_SANDBOX=true (a live workspace holds mainnet assets)');
-    if (cfg.SOLANA_CLUSTER === 'devnet' && !cfg.FIREBLOCKS_USDC_ASSET) clusterProblems.push('SOLANA_CLUSTER=devnet requires FIREBLOCKS_USDC_ASSET (the workspace\'s id for Solana devnet USDC; `npm run fb:preflight` lists it)');
+    if (cfg.SOLANA_CLUSTER === 'devnet' && !cfg.FIREBLOCKS_USDC_ASSET && !(cfg.FIREBLOCKS_USDT_ASSET && process.env.SOLANA_DEVNET_USDT_MINT)) clusterProblems.push('SOLANA_CLUSTER=devnet requires a settlement asset registered in the Fireblocks sandbox: FIREBLOCKS_USDT_ASSET + SOLANA_DEVNET_USDT_MINT (test USDT) and/or FIREBLOCKS_USDC_ASSET (`npm run fb:preflight` lists the ids)');
     if (cfg.SOLANA_CLUSTER === 'devnet' && cfg.SOLANA_RPC_URL && /mainnet/i.test(cfg.SOLANA_RPC_URL)) clusterProblems.push('SOLANA_CLUSTER=devnet but SOLANA_RPC_URL looks like a mainnet node');
     if (cfg.SOLANA_CLUSTER === 'mainnet' && cfg.SOLANA_RPC_URL && /devnet|testnet/i.test(cfg.SOLANA_RPC_URL)) clusterProblems.push('SOLANA_CLUSTER=mainnet but SOLANA_RPC_URL looks like a devnet/testnet node');
     // On mainnet the Fireblocks ids are the canonical ones. A leftover testnet override would make deposit
