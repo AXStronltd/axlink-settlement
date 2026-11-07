@@ -36,7 +36,8 @@ FROM node:22-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production \
-    PORT=4000
+    PORT=4000 \
+    PORTAL_FILE=/app/apps/web/index.html
 
 # wget is used by the healthcheck; openssl is required by the Prisma engines.
 RUN apk add --no-cache wget openssl
