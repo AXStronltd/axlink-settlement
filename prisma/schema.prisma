@@ -753,6 +753,7 @@ model Institution {
   counterparties Counterparty[]
   settlementTransfers SettlementTransfer[]
   webhookEndpoints    WebhookEndpoint[]
+  portalUsers         PortalUser[]
 
   @@index([status])
 }
@@ -1074,4 +1075,40 @@ model OperationalException {
   @@index([kind, subject, currency, status])
   @@index([status, severity, lastSeenAt])
   @@index([institutionId, status])
+}
+
+// ── Institution portal users (people), distinct from API credentials (servers) ─────────────────────
+// A person signs in with email + password and gets an HttpOnly session cookie; API keys are created
+// from the dashboard for the bank's own backend. Passwords: scrypt (salted); sessions: only the
+// SHA-256 of the token is stored.
+model PortalUser {
+  id            String          @id @default(cuid())
+  institutionId String
+  institution   Institution     @relation(fields: [institutionId], references: [id])
+  email         String          @unique
+  name          String
+  passwordHash  String
+  role          String          @default("ADMIN") // ADMIN | MEMBER
+  status        String          @default("ACTIVE") // ACTIVE | DISABLED
+  failedLogins  Int             @default(0)
+  lockedUntil   DateTime?
+  lastLoginAt   DateTime?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  sessions      PortalSession[]
+
+  @@index([institutionId])
+}
+
+model PortalSession {
+  id         String     @id @default(cuid())
+  tokenHash  String     @unique
+  userId     String
+  user       PortalUser @relation(fields: [userId], references: [id])
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  lastSeenAt DateTime   @default(now())
+  createdAt  DateTime   @default(now())
+
+  @@index([userId])
 }

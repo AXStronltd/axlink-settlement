@@ -1,6 +1,8 @@
 const { chromium } = require('playwright');
 (async () => {
-  const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium', args: ['--no-sandbox'] }).catch(e => { console.error('launch', e.message); process.exit(2); });
+  const fs = require('fs');
+  const exe = process.env.PLAYWRIGHT_CHROMIUM_PATH ?? (fs.existsSync('/opt/pw-browsers/chromium') ? '/opt/pw-browsers/chromium' : undefined); // CI path, else Playwright's own install
+  const b = await chromium.launch({ ...(exe ? { executablePath: exe } : {}), args: ['--no-sandbox'] }).catch(e => { console.error('launch', e.message); process.exit(2); });
   const pg = await b.newPage(); const errors = [];
   pg.on('pageerror', e => errors.push('pageerror: ' + e.message)); pg.on('console', m => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
   await pg.goto('file://' + process.cwd() + '/apps/web/index.html');

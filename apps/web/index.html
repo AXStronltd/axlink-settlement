@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -385,6 +385,77 @@ a,button{transition:color .18s,background .2s,border-color .2s,opacity .2s}
 /* toast */
 #toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);background:var(--panel);border:1px solid var(--teal);border-radius:12px;padding:14px 20px;z-index:400;opacity:0;transition:all .4s cubic-bezier(.2,.7,.2,1);display:flex;align-items:center;gap:10px;font-size:14px;box-shadow:0 12px 40px -12px rgba(0,0,0,.6)}
 #toast.show{transform:translateX(-50%) translateY(0);opacity:1}
+
+/* ===== HOME v2 (institutional) ===== */
+.hx-hero{position:relative;padding:72px 0 28px;overflow:hidden;background:radial-gradient(70% 60% at 75% 30%,rgba(24,216,234,.10),transparent 70%)}
+.hx-hero-grid{display:grid;grid-template-columns:1.05fr .95fr;gap:40px;align-items:center}
+.hx-h1{font-size:clamp(34px,5.4vw,60px);font-weight:800;letter-spacing:-.03em;line-height:1.04;margin-top:16px}
+.hx-sub{color:var(--ink-2);font-size:clamp(15px,1.6vw,18px);max-width:520px;margin-top:20px;line-height:1.6}
+.hx-ctas{display:flex;gap:12px;flex-wrap:wrap;margin-top:30px}
+.hx-hero-art{display:flex;justify-content:center}
+.hx-map{width:100%;max-width:460px;height:auto;overflow:visible}
+.hx-arc{fill:none;stroke:var(--teal);stroke-width:1.4;stroke-dasharray:6 7;opacity:.75;animation:hxflow 2.6s linear infinite}
+.hx-pulse{fill:none;stroke:var(--teal);stroke-width:1.5;transform-box:fill-box;transform-origin:center;animation:hxpulse 2.8s ease-out infinite}
+@keyframes hxflow{to{stroke-dashoffset:-52}}
+@keyframes hxpulse{0%{transform:scale(1);opacity:.8}100%{transform:scale(4);opacity:0}}
+.hx-trust{display:flex;flex-wrap:wrap;justify-content:center;gap:10px 28px;margin-top:44px;padding:18px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);font-size:13px;color:var(--ink-2);font-weight:500;letter-spacing:.02em}
+.hx-trust span{display:inline-flex;align-items:center;gap:8px}
+.hx-trust span::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--teal)}
+.hx-sec{padding:88px 0}.hx-tight{padding:36px 0 20px}.hx-alt{background:var(--bg-2);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.hx-head{text-align:center;max-width:680px;margin:0 auto 44px}
+.hx-head h2,.hx-h2{font-size:clamp(26px,3.6vw,40px);font-weight:800;letter-spacing:-.025em;margin-top:12px}
+.hx-head .lead{margin-top:14px}
+.hx-stats{display:grid;grid-template-columns:repeat(5,1fr);border:1px solid var(--line);border-radius:16px;background:var(--panel);overflow:hidden}
+.hx-stat{padding:26px 20px;border-right:1px solid var(--line)}.hx-stat:last-child{border-right:0}
+.hx-stat-num{font-size:34px;font-weight:800;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.hx-stat-num span{font-size:18px;opacity:.7}
+.hx-stat-lbl{font-size:13.5px;font-weight:600;margin-top:6px}.hx-stat-sub{font-size:12px;color:var(--ink-3);margin-top:3px}
+.hx-steps{display:flex;align-items:stretch;gap:0}
+.hx-step{flex:1;background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:28px}
+.hx-step-ic{width:46px;height:46px;border-radius:12px;display:flex;align-items:center;justify-content:center;color:var(--teal);background:rgba(24,216,234,.10);border:1px solid var(--line-2)}
+.hx-step-n{font-size:11px;letter-spacing:.2em;color:var(--teal);margin-top:18px}
+.hx-step h4{font-size:19px;margin-top:6px}.hx-step p{color:var(--ink-2);font-size:14px;margin-top:8px;line-height:1.6}
+.hx-link{flex:0 0 46px;display:flex;align-items:center}
+.hx-link span{display:block;width:100%;height:2px;background:linear-gradient(90deg,transparent,var(--teal),transparent);background-size:200% 100%;animation:hxslide 2.2s linear infinite}
+@keyframes hxslide{from{background-position:100% 0}to{background-position:-100% 0}}
+.hx-feat .ic{width:44px;height:44px;border-radius:12px;display:flex;align-items:center;justify-content:center;background:rgba(24,216,234,.10);border:1px solid var(--line-2)}
+.hx-feat p{line-height:1.6}
+.hx-flow-grid{display:grid;grid-template-columns:.9fr 1.1fr;gap:48px;align-items:start}
+.hx-flow{list-style:none;position:relative;padding-left:0}
+.hx-flow::before{content:"";position:absolute;left:17px;top:18px;bottom:18px;width:2px;background:linear-gradient(var(--teal),rgba(24,216,234,.1))}
+.hx-flow-step{display:flex;gap:16px;align-items:flex-start;padding:12px 0;position:relative}
+.hx-flow-step.reveal.in{animation-delay:var(--d)}
+.hx-flow-dot{flex:0 0 36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:#03231d;background:var(--teal);box-shadow:0 0 0 6px var(--bg),0 0 18px var(--glow);position:relative;z-index:1}
+.hx-flow-step h5{font-size:15.5px;font-weight:700}.hx-flow-step p{color:var(--ink-2);font-size:13.5px;margin-top:4px;line-height:1.55}
+.hx-code-grid{display:grid;grid-template-columns:.85fr 1.15fr;gap:44px;align-items:center}
+.hx-code{background:#07111d;border:1px solid rgba(120,190,225,.18);border-radius:14px;overflow:hidden;box-shadow:0 24px 60px -30px rgba(0,0,0,.7)}
+.hx-code-bar{display:flex;align-items:center;gap:7px;padding:11px 14px;border-bottom:1px solid rgba(120,190,225,.12);color:#6b8199;font-size:12px}
+.hx-code-bar i{width:10px;height:10px;border-radius:50%;background:#1e3a52;display:inline-block}.hx-code-bar span{margin-left:8px}
+.hx-code pre{margin:0;padding:20px;overflow-x:auto;font-family:'SF Mono',ui-monospace,Menlo,monospace;font-size:13px;line-height:1.7;color:#d6e4f0}
+.hx-k{color:#c792ea}.hx-s{color:#9be7c4}.hx-c{color:#6b8199}
+.hx-scope{display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--line);border-radius:16px;overflow:hidden;background:var(--panel)}
+.hx-scope>div{padding:28px}.hx-scope>div+div{border-left:1px solid var(--line)}
+.hx-scope h4{font-size:15px;letter-spacing:.02em}.hx-scope ul{list-style:none;margin-top:14px}
+.hx-scope li{display:flex;gap:12px;align-items:center;padding:9px 0;border-top:1px solid var(--line);font-size:14.5px}
+.hx-mark{width:22px;height:22px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0}
+.hx-mark.ok{background:rgba(52,211,153,.14);color:var(--green)}.hx-mark.no{background:var(--panel-2);color:var(--ink-3)}
+.hx-cta{background:#06101b;color:#eef5fb;text-align:center;padding:96px 0;border-top:1px solid rgba(120,190,225,.14);background-image:radial-gradient(60% 80% at 50% 0%,rgba(24,216,234,.14),transparent 70%)}
+.hx-cta h2{font-size:clamp(30px,4.4vw,48px);font-weight:800;letter-spacing:-.025em}
+.hx-cta p{color:#a7bcd0;max-width:560px;margin:16px auto 30px;font-size:16.5px;line-height:1.6}
+@media(max-width:960px){
+  .hx-hero-grid,.hx-flow-grid,.hx-code-grid{grid-template-columns:1fr}
+  .hx-hero-art{order:1}.hx-map{max-width:260px}
+  .hx-stats{grid-template-columns:1fr 1fr}.hx-stat{border-bottom:1px solid var(--line)}
+  .hx-steps{flex-direction:column}.hx-link{flex-basis:28px;justify-content:center}.hx-link span{width:2px;height:100%;min-height:28px;background:linear-gradient(var(--teal),transparent)}
+}
+@media(max-width:560px){
+  .hx-sec{padding:60px 0}.hx-hero{padding:40px 0 20px}
+  .hx-stats{grid-template-columns:1fr}.hx-stat{border-right:0}
+  .hx-scope{grid-template-columns:1fr}.hx-scope>div+div{border-left:0;border-top:1px solid var(--line)}
+  .hx-ctas .btn{flex:1;justify-content:center}
+  .hx-code pre{font-size:11.5px;padding:16px}
+}
+@media(prefers-reduced-motion:reduce){.hx-arc,.hx-pulse,.hx-link span{animation:none}}
 </style>
 </head>
 <body>
@@ -560,11 +631,22 @@ function openModal(html){
   document.body.appendChild(bg);
 }
 function closeModal(){var m=document.getElementById('modalbg');if(m)m.remove();}
+function axCountUp(root){
+  var els=root.querySelectorAll?root.querySelectorAll('[data-count]'):[];
+  Array.prototype.forEach.call(els,function(el){
+    var target=el.getAttribute('data-count'); if(!/^\d+$/.test(target)||el._counted) return; el._counted=true;
+    var n=parseInt(target,10), suffix=el.querySelector('span')?el.querySelector('span').outerHTML:'', t0=null;
+    if(window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    function step(ts){ if(!t0) t0=ts; var p=Math.min(1,(ts-t0)/1100), v=Math.round(n*(1-Math.pow(1-p,3)));
+      el.innerHTML=v+suffix; if(p<1) requestAnimationFrame(step); }
+    requestAnimationFrame(step);
+  });
+}
 function observeReveals(){
   var els=document.querySelectorAll('.reveal:not(.in)');
   var root=document.querySelector('.site-scroll')||document.querySelector('.content')||null;
   if(!('IntersectionObserver' in window)){els.forEach(function(e){e.classList.add('in');});return;}
-  var io=new IntersectionObserver(function(en){en.forEach(function(x){if(x.isIntersecting){x.target.classList.add('in');io.unobserve(x.target);}});},{root:root,threshold:.05,rootMargin:'0px 0px -4% 0px'});
+  var io=new IntersectionObserver(function(en){en.forEach(function(x){if(x.isIntersecting){x.target.classList.add('in');axCountUp(x.target);io.unobserve(x.target);}});},{root:root,threshold:.05,rootMargin:'0px 0px -4% 0px'});
   var vh=(root?root.clientHeight:(window.innerHeight||800));
   var rootTop=root?root.getBoundingClientRect().top:0;
   els.forEach(function(e){var r=e.getBoundingClientRect();if((r.top-rootTop)<vh){e.classList.add('in');}else io.observe(e);});
@@ -740,80 +822,86 @@ function globe(){
 
 /* ---------- MARKETING PAGES ---------- */
 function pageHome(){
-  var feats=[['&#9889;','Instant Settlement','Move value through modern settlement infrastructure - real-time, 24/7.'],['&#9719;','24/7 Availability','Financial infrastructure built for always-on global operations.'],['&#9677;','Global Connectivity','Connect financial institutions across markets through one network.']];
-  var fh=feats.map(function(f){return '<div style="padding:30px;border-right:1px solid var(--line)"><div style="width:48px;height:48px;border-radius:50%;border:1px solid var(--line-2);display:flex;align-items:center;justify-content:center;color:var(--teal);font-size:20px;margin-bottom:14px">'+f[0]+'</div><h4 style="font-size:16.5px">'+f[1].split("|")[0]+'</h4><p style="color:var(--ink-2);font-size:13.5px;margin-top:7px">'+f[2]+'</p><a href="javascript:void(0)" onclick="return go(\'#/platform\')" class="lm">Learn more -></a></div>';}).join('');
-  var trust=['Banks','PSPs','Fintechs','Enterprises','Payment Providers'].map(function(t){return '<span style="display:inline-flex;align-items:center;gap:8px;color:var(--ink-2);font-size:14px;font-weight:500;padding:0 22px;border-right:1px solid var(--line)">'+t+'</span>';}).join('');
-  var checks=['API-first financial connectivity','Real-time settlement infrastructure','Institutional-grade security','Transparent transaction lifecycle','Scalable for global financial ecosystems'].map(function(c){return '<div style="display:flex;align-items:center;gap:13px;font-size:15px;margin-bottom:14px"><span style="width:22px;height:22px;border-radius:50%;background:rgba(46,230,197,.12);color:var(--teal);display:flex;align-items:center;justify-content:center;flex-shrink:0">&#10003;</span>'+c+'</div>';}).join('');
-  var caps=[['&#9889;','Payment Orchestration','Intelligent routing to optimize success, speed and cost across every corridor.'],['&#9677;','Liquidity Management','Access and manage deep liquidity across markets in real time.'],['&#9671;','Risk & Compliance','Built-in KYB, sanctions screening and continuous transaction monitoring.'],['&#9673;','Real-Time Visibility','End-to-end tracking across the entire transaction lifecycle.'],['&#8599;','Settlement & Reconciliation','Automated settlement and reconciliation with ledger-level accuracy.'],['&#9881;','API-First Infrastructure','Modern REST APIs, webhooks and SDKs built for institutional scale.']];
-  var capH=caps.map(function(c){return '<div class="card reveal"><div class="ic" style="font-size:22px">'+c[0]+'</div><h4>'+c[1]+'</h4><p>'+c[2]+'</p></div>';}).join('');
-  var metrics=[['Real-time','Settlement speed'],['24/7/365','Availability'],['1:1','Reserved backing'],['Multi-rail','Payment + FX + liquidity'],['ISO 20022','Message standard'],['40+','Target markets']];
-  var metricH=metrics.map(function(m){return '<div style="text-align:center;padding:22px 14px;border-right:1px solid var(--line)"><div style="font-weight:700;font-size:26px" class="gt">'+m[0]+'</div><div style="font-size:12.5px;color:var(--ink-3);margin-top:6px">'+m[1]+'</div></div>';}).join('');
-  var security=[['&#9673;','Regulated & Compliant','Operating within institutional regulatory frameworks with full KYB and sanctions screening on every counterparty.'],['&#9679;','Fully Reserved','Every balance is a public stablecoins (USDC and USDT) held in regulated custody. Nothing is minted, nothing is lent. Positions published daily.'],['&#9919;','Bank-Grade Security','End-to-end encryption, SOC 2 controls, real-time monitoring and segregated environments.'],['&#9878;','Non-Custodial by Design','Local banks retain custody of customer funds. AxLink is the settlement ledger and orchestration layer.']];
-  var secH=security.map(function(s){return '<div class="card reveal" style="display:flex;gap:16px;padding:26px"><span style="width:44px;height:44px;border-radius:12px;background:rgba(46,230,197,.10);color:var(--teal);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">'+s[0]+'</span><div><h4 style="font-size:16px;margin-bottom:6px">'+s[1]+'</h4><p style="font-size:13px;color:var(--ink-3);line-height:1.55">'+s[2]+'</p></div></div>';}).join('');
-  var eco=[['&#9677;','Banks','Enable faster cross-border payments and streamline liquidity management.'],['&#9646;','PSPs','Expand payment capabilities and reach new markets instantly.'],['&#10216;&#10217;','Fintechs','Build on robust financial infrastructure with a single API integration.'],['&#9673;','Enterprises','Move money globally with transparency and operational efficiency.'],['$','Payment Providers','Access a network of institutions and optimize settlement operations.'],['&#9670;','Remittance','Power diaspora corridors with instant, low-cost settlement.']];
-  var ecoH=eco.map(function(e){return '<div class="card reveal center"><div class="ic" style="font-size:24px">'+e[0]+'</div><h4 style="font-size:15px">'+e[1]+'</h4><p style="font-size:12.5px">'+e[2]+'</p></div>';}).join('');
-  var faqs=[['Is AxLink a custodian of funds?','No. Local banks retain custody of customer money. AxLink maintains the institutional transaction and settlement ledger and orchestrates the corridor - a non-custodial model.'],['What is the settlement asset?','USDC and USDT on Solana, held in regulated custody (Fireblocks). AxLink never issues a token: it moves existing public stablecoins between institution vaults, and every settlement is proven final on-chain. Reserves are instruments. We never lend out deposits, and the reserve portfolio is published daily for radical transparency.'],['Which institutions can join?','AxLink is available to regulated institutions - banks, PSPs, fintechs and payment providers - that complete full KYB, ID verification and sanctions screening.'],['How fast is settlement?','Institutional settlement occurs in real time - typically under 5 seconds - 24/7/365, with no correspondent chains or batch windows.']];
-  var faqH=faqs.map(function(f){return '<div class="card reveal" style="padding:22px 24px"><h4 style="font-size:15px;margin-bottom:8px">'+f[0]+'</h4><p style="font-size:13px;color:var(--ink-3);line-height:1.6">'+f[1]+'</p></div>';}).join('');
-  return siteWrap('Home',
-   /* HERO */
-   '<section class="hero-bg" style="padding:64px 0 20px;overflow:hidden"><div class="wrap grid-2">'+
-     '<div><div style="font-weight:800;font-size:52px;letter-spacing:.02em">AXLINK</div>'+
-     '<div style="font-weight:600;font-size:18px;color:var(--teal);margin-top:2px">The Open Financial Network</div>'+
-     '<div style="display:flex;align-items:center;gap:8px;margin-top:12px;font-size:11px;letter-spacing:.2em;color:var(--ink-3);text-transform:uppercase" class="mono"><span>Regulated Crypto Settlement - Global Reach</span></div>'+
-     '<h1 style="font-size:54px;margin-top:24px">Settlement infrastructure for <span class="gt">the world\'s institutions.</span></h1>'+
-     '<p class="lead mt20" style="max-width:460px">AxLink connects banks, PSPs, fintechs and regulated institutions through modern, API-based settlement infrastructure - real-time, 1:1 reserved, and built for institutional scale.</p>'+
-     '<div style="display:flex;gap:14px;margin-top:32px;flex-wrap:wrap"><a href="javascript:void(0)" onclick="return go(\'#/onboarding\')" class="btn btn-primary" style="padding:13px 24px;font-size:15px">Request a Demo -></a><a href="javascript:void(0)" onclick="return go(\'#/platform\')" class="btn btn-ghost" style="padding:13px 24px;font-size:15px">Explore the Platform -></a></div></div>'+
-     globe()+
-   '</div>'+
-   '<div class="wrap reveal" style="margin-top:44px"><div style="font-size:13px;color:var(--ink-3)"><b style="color:var(--ink-2)">Built for</b> banks, PSPs, fintechs and regulated institutions</div>'+
-   '<div style="display:flex;align-items:center;flex-wrap:wrap;margin-top:16px">'+trust+'</div></div></section>'+
-   /* LIVE METRICS BAR */
-   '<section style="padding:10px 0 40px"><div class="wrap"><div class="panel reveal" style="display:grid;grid-template-columns:repeat(6,1fr);overflow:hidden">'+metricH+'</div></div></section>'+
-   /* 3 FEATURE PANEL */
-   '<section style="padding:20px 0 40px"><div class="wrap"><div class="panel reveal" style="border-radius:18px;background:linear-gradient(180deg,var(--panel),rgba(10,24,38,.4))"><div style="display:grid;grid-template-columns:repeat(3,1fr)">'+fh+'</div></div></div></section>'+
-   /* WHY AXLINK */
-   '<section class="section" style="background:linear-gradient(180deg,var(--bg),var(--bg-2));border-top:1px solid var(--line)"><div class="wrap grid-2">'+
-   '<div class="reveal"><span class="eyebrow">Why AxLink</span><h2 style="font-size:40px;margin-top:18px">Financial infrastructure built <span class="gt">beyond</span> traditional settlement.</h2>'+
-   '<p class="lead mt20" style="max-width:420px">AxLink provides the connectivity, orchestration and infrastructure institutions need to move value faster, with greater transparency and operational efficiency.</p>'+
-   '<div style="margin-top:26px">'+checks+'</div><a href="javascript:void(0)" onclick="return go(\'#/platform\')" class="btn btn-ghost mt26">Discover the Platform -></a></div>'+
-   isoNetwork()+'</div></section>'+
-   /* PLATFORM CAPABILITIES */
-   '<section style="padding:80px 0 40px"><div class="wrap"><div class="reveal" style="text-align:center;max-width:620px;margin:0 auto 36px"><span class="eyebrow">Platform Capabilities</span><h2 style="font-size:38px;margin-top:14px">Everything you need to move value globally.</h2></div><div class="cards c3">'+capH+'</div></div></section>'+
-   '<section style="padding:60px 0 40px;background:var(--bg-2);border-top:1px solid var(--line)"><div class="wrap"><div class="reveal" style="text-align:center;max-width:660px;margin:0 auto 40px"><span class="eyebrow">Why AxLink</span><h2 style="font-size:38px;margin-top:14px">What makes AxLink <span class="gt">the institutional choice.</span></h2><p class="lead mt16">Purpose-built settlement infrastructure — not a messaging network, not a consumer wallet. Here is what sets AxLink apart.</p></div>'+
-   '<div class="cards reveal d1" style="grid-template-columns:repeat(3,1fr);gap:16px">'+
-   [
-     ['&#9889;','Real-time, 24/7 settlement','Value moves in seconds, any hour, any day — not constrained by correspondent chains, cut-off times or batch windows.'],
-     ['&#9673;','Unified infrastructure layer','Connectivity, orchestration, FX, liquidity and settlement in one API — replacing a patchwork of intermediaries with a single integration.'],
-     ['&#9670;','Programmable by design','Set the terms; when conditions are met, money moves. Native programmability across the entire settlement lifecycle.'],
-     ['&#9878;','Non-custodial architecture','Local banks retain custody of customer funds. AxLink is the settlement ledger and orchestration layer — never a custodian of your money.'],
-     ['&#9679;','Fully reserved settlement','Every balance is USDC or USDT held in regulated custody; nothing is minted or lent, and every vault is reconciled against the ledger. Positions published reserves — settlement you can prove.'],
-     ['&#9677;','Global reach, one network','40+ countries and 200+ corridors through a single connection — expand into new markets without new integrations.'],
-     ['&#9671;','Compliance built in','KYB, sanctions screening and continuous monitoring on every verified counterparty — institutional controls at the core, not bolted on.'],
-     ['&#8599;','Ledger-level transparency','End-to-end visibility across the transaction lifecycle with automated reconciliation and a complete, auditable settlement record.'],
-     ['&#9919;','Built for institutions only','Designed for banks, PSPs, fintechs and regulated institutions — enterprise-grade security, reliability and 99.99% uptime.']
-   ].map(function(c){return '<div class="card reveal"><div class="ic" style="font-size:22px">'+c[0]+'</div><h4>'+c[1]+'</h4><p>'+c[2]+'</p></div>';}).join('')+
-   '</div>'+
-   '<div class="reveal d2" style="margin-top:36px"><div class="panel" style="padding:0;overflow:hidden"><div style="display:grid;grid-template-columns:repeat(4,1fr)">'+
-   [['Real-time','Settlement speed'],['24/7/365','Always-on'],['1:1','Reserved backing'],['Non-custodial','By design']].map(function(m,i){return '<div style="padding:26px 20px;text-align:center;'+(i<3?'border-right:1px solid var(--line)':'')+'"><div style="font-weight:700;font-size:24px" class="gt">'+m[0]+'</div><div style="font-size:12.5px;color:var(--ink-3);margin-top:6px">'+m[1]+'</div></div>';}).join('')+
-   '</div></div></div>'+
-   '<div class="reveal d2" style="text-align:center;margin-top:32px"><a href="javascript:void(0)" onclick="return go(\'#/about\')" class="btn btn-ghost">See how AxLink compares to SWIFT -></a></div></div></section>'+
+  /* ── Home v2 (institutional): every figure on this page is verifiable from the code or the sandbox ── */
+  function ic(path){return '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+path+'</svg>';}
+  var I={
+    key:ic('<circle cx="7.5" cy="15.5" r="4.5"/><path d="M10.7 12.3 20 3M16 7l3 3M14 9l2 2"/>'),
+    route:ic('<circle cx="5" cy="6" r="2.5"/><circle cx="19" cy="18" r="2.5"/><path d="M7.5 6H15a4 4 0 0 1 0 8H9a4 4 0 0 0 0 8h7.5"/>'),
+    check:ic('<path d="M9 12l2 2 4-4"/><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/>'),
+    vault:ic('<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="12" cy="12" r="3.5"/><path d="M12 8.5V7M12 17v-1.5M15.5 12H17M7 12h1.5"/>'),
+    coin:ic('<circle cx="12" cy="12" r="9"/><path d="M14.8 9.2c-.5-.9-1.6-1.4-2.8-1.4-1.7 0-3 .9-3 2.2 0 3 6 1.6 6 4.4 0 1.3-1.3 2.2-3 2.2-1.3 0-2.4-.6-2.9-1.5M12 6v1.8M12 16.6V18"/>'),
+    sign:ic('<path d="M4 4h12l4 4v12H4z"/><path d="M8 13l2.5 2.5L16 10"/>'),
+    book:ic('<path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M8 7h7M8 11h7"/>'),
+    code:ic('<path d="M8 8l-4 4 4 4M16 8l4 4-4 4M13.5 5l-3 14"/>'),
+    gauge:ic('<path d="M4 18a8 8 0 1 1 16 0"/><path d="M12 18l4-6"/><path d="M4 18h16"/>')
+  };
+  var docs='return go(\'#/developers\')', apply='return go(\'#/onboarding\')';
 
-   /* FOUR-LAYER SETTLEMENT (reuse layerDiagram) */
-   '<section style="padding:40px 0;background:linear-gradient(180deg,var(--bg),var(--bg-2));border-top:1px solid var(--line)"><div class="wrap"><div class="reveal" style="text-align:center;max-width:640px;margin:0 auto 40px"><span class="eyebrow">How Settlement Works</span><h2 style="font-size:36px;margin-top:14px">Four layers. <span class="gt">One instant settlement.</span></h2><p class="lead mt16">AxLink orchestrates the transaction and settlement ledger between local banks, settling in real time over the AxLink stablecoin rail. Local banks hold customer funds - AxLink never takes custody.</p></div><div class="reveal d1" style="max-width:900px;margin:0 auto">'+layerDiagram()+'</div><div class="reveal d2" style="text-align:center;margin-top:30px"><a href="javascript:void(0)" onclick="return go(\'#/lifecycle\')" class="btn btn-ghost">See the full settlement model -></a></div></div></section>'+
-   /* SECURITY / TRUST */
-   '<section style="padding:80px 0 40px"><div class="wrap"><div class="reveal" style="text-align:center;max-width:620px;margin:0 auto 36px"><span class="eyebrow">Built on Trust</span><h2 style="font-size:38px;margin-top:14px">Institutional-grade from the ground up.</h2></div><div class="cards" style="grid-template-columns:1fr 1fr;gap:16px">'+secH+'</div></div></section>'+
-   /* USE CASES */
-   '<section style="padding:40px 0"><div class="wrap"><div class="reveal" style="text-align:center;max-width:620px;margin:0 auto 36px"><span class="eyebrow">Built for Every Institution</span><h2 style="font-size:38px;margin-top:14px">Infrastructure for every financial ecosystem.</h2></div><div class="cards c3">'+ecoH+'</div></div></section>'+
-   /* FAQ */
-   '<section style="padding:40px 0 60px"><div class="wrap"><div class="reveal" style="text-align:center;max-width:620px;margin:0 auto 36px"><span class="eyebrow">Common Questions</span><h2 style="font-size:34px;margin-top:14px">What institutions ask us.</h2></div><div class="cards" style="grid-template-columns:1fr 1fr;gap:14px">'+faqH+'</div></div></section>'+
-   /* CTA */
-   '<section style="border-top:1px solid var(--line);text-align:center;padding:90px 0;background:radial-gradient(120% 100% at 50% 0%,rgba(46,230,197,.06),transparent 60%)"><div class="wrap reveal">'+
-   '<span class="eyebrow">Get Started</span><h2 style="font-size:44px;max-width:720px;margin:16px auto 0">Ready to build on the future of settlement?</h2>'+
-   '<p class="lead" style="max-width:540px;margin:16px auto 0">Connect your institution to a modern, always-on financial network with global reach and real-time settlement.</p>'+
-   '<div style="display:flex;gap:14px;justify-content:center;margin-top:32px;flex-wrap:wrap"><a href="javascript:void(0)" onclick="return go(\'#/onboarding\')" class="btn btn-primary">Request a Demo -></a><a href="javascript:void(0)" onclick="return go(\'#/signin\')" class="btn btn-ghost">Sign In -></a></div></div></section>'
+  /* Network map: institutions as nodes on a stylised globe, settlement flows as animated arcs (pure SVG + CSS). */
+  var N=[[118,150],[178,92],[262,78],[338,118],[372,206],[330,292],[248,330],[160,300],[104,226],[228,196]];
+  var F=[[0,4],[1,6],[2,7],[3,8],[9,0],[9,3],[9,5],[5,1],[6,2],[8,4]];
+  var arcs=F.map(function(f,i){var a=N[f[0]],b=N[f[1]],mx=(a[0]+b[0])/2,my=(a[1]+b[1])/2-60;
+    return '<path class="hx-arc" style="animation-delay:'+(i*0.45).toFixed(2)+'s" d="M'+a[0]+' '+a[1]+' Q'+mx+' '+my+' '+b[0]+' '+b[1]+'"/>';}).join('');
+  var nodes=N.map(function(n,i){return '<g><circle class="hx-pulse" style="animation-delay:'+(i*0.3).toFixed(1)+'s" cx="'+n[0]+'" cy="'+n[1]+'" r="5"/><circle cx="'+n[0]+'" cy="'+n[1]+'" r="4.2" fill="var(--teal)"/></g>';}).join('');
+  var mapSvg='<svg class="hx-map" viewBox="0 0 440 420" role="img" aria-label="Institutions connected by settlement flows">'+
+    '<defs><radialGradient id="hxg" cx="45%" cy="40%" r="60%"><stop offset="0" stop-color="var(--teal)" stop-opacity=".16"/><stop offset="1" stop-color="var(--teal)" stop-opacity="0"/></radialGradient></defs>'+
+    '<circle cx="240" cy="205" r="175" fill="url(#hxg)" stroke="var(--line-2)"/>'+
+    '<ellipse cx="240" cy="205" rx="175" ry="60" fill="none" stroke="var(--line)"/><ellipse cx="240" cy="205" rx="175" ry="120" fill="none" stroke="var(--line)"/>'+
+    '<ellipse cx="240" cy="205" rx="60" ry="175" fill="none" stroke="var(--line)"/><ellipse cx="240" cy="205" rx="120" ry="175" fill="none" stroke="var(--line)"/>'+
+    arcs+nodes+'</svg>';
+
+  /* Stats: facts only (owner decision 2026-11-07). Numbers count up when scrolled into view. */
+  var stats=[['2','','Settlement assets','USDC + USDT on Solana'],['1:1','','Reserved','Nothing minted, nothing lent'],['64','/64','Sandbox end-to-end checks','Real custody, devnet, both assets'],['0','','Failed sandbox settlements','Every settlement proven on-chain'],['24/7','','On-chain settlement','No cut-off times, no banking hours']];
+  var statH=stats.map(function(s){return '<div class="hx-stat reveal"><div class="hx-stat-num gt" data-count="'+s[0]+'">'+s[0]+'<span>'+s[1]+'</span></div><div class="hx-stat-lbl">'+s[2]+'</div><div class="hx-stat-sub">'+s[3]+'</div></div>';}).join('');
+
+  var steps=[[I.key,'Connect','One API key. Your bank joins the network in days, not a year.'],[I.route,'Settle','Submit a settlement. AxLink routes it through custody, executes it on Solana and proves it on-chain.'],[I.book,'Reconcile','A signed webhook carries the proof to your systems. Ledger entries are posted automatically.']];
+  var stepH=steps.map(function(s,i){return (i?'<div class="hx-link" aria-hidden="true"><span></span></div>':'')+'<div class="hx-step reveal"><div class="hx-step-ic">'+s[0]+'</div><div class="hx-step-n mono">STEP '+(i+1)+'</div><h4>'+s[1]+'</h4><p>'+s[2]+'</p></div>';}).join('');
+
+  var feats=[[I.vault,'Institutional Custody','Every wallet is its own Fireblocks MPC vault. Keys never sit on AxLink servers.'],[I.coin,'Stablecoin Settlement','USDC and USDT on Solana. A settlement completes only when a Solana node reports it finalized.'],[I.sign,'Signed Webhooks','HMAC-SHA256 signed events with replay protection: deposit.settled, transfer.settled, settlement.received.'],[I.book,'Double-Entry Ledger','Append-only journal. Every movement balances to zero per currency before it is written.'],[I.code,'TypeScript SDK','@axlink/sdk for your backend. 9 resource namespaces, full types, idempotent writes.'],[I.gauge,'Ops Dashboard','Real-time settlement view, stuck queue, reconciliation and a public proof for every settlement.']];
+  var featH=feats.map(function(f){return '<div class="card reveal hx-feat"><div class="ic">'+f[0]+'</div><h4>'+f[1]+'</h4><p>'+f[2]+'</p></div>';}).join('');
+
+  var flow=[['Settlement Request','Institution A submits the recipient institution, asset, network and amount, with an idempotency key.'],['Authorization & Compliance','AxLink checks permissions, balance, network, the receiving wallet and risk limits.'],['Funds Reserved','The ledger records an atomic reservation of the amount before anything leaves custody.'],['Blockchain Execution','The custody adapter (Fireblocks) executes the transfer on Solana.'],['Finality Verification','AxLink checks the signature, token mint, destination and finality against a Solana node.'],['Ledger & Reconciliation','Custody records and chain evidence are reconciled with the journal.'],['Institution Notification','Both institutions receive a signed confirmation carrying the on-chain proof.']];
+  var flowH=flow.map(function(f,i){return '<li class="hx-flow-step reveal" style="--d:'+(i*0.12).toFixed(2)+'s"><span class="hx-flow-dot mono">'+(i+1)+'</span><div><h5>'+f[0]+'</h5><p>'+f[1]+'</p></div></li>';}).join('');
+
+  function kw(t){return '<span class="hx-k">'+t+'</span>';} function st(t){return '<span class="hx-s">'+t+'</span>';} function cm(t){return '<span class="hx-c">'+t+'</span>';}
+  var code=[kw('import')+' { AxLinkClient } '+kw('from')+' '+st("'@axlink/sdk'")+';','',
+    kw('const')+' axlink = '+kw('new')+' AxLinkClient({','  baseUrl: '+st("'https://axlink-settlement.onrender.com'")+',','  apiKey:  process.env.AXLINK_API_KEY,','});','',
+    cm('// Settle 10,000 USDT to Galaxy Bank'),
+    kw('const')+' result = '+kw('await')+' axlink.settlements.create({','  walletId:       '+st("'wal_treasury'")+',','  counterpartyId: '+st("'cp_galaxybank_01'")+',','  asset:          '+st("'USDT_SOL'")+',','  amount:         '+st("'10000'")+',','  reference:      '+st("'INV-2026-001'")+',','  idempotencyKey: '+st("'INV-2026-001'")+',  '+cm('// a retry never pays twice'),'});',
+    cm("// { id: '…', status: 'PROCESSING' }  →  'COMPLETED', proof.txHash on finality")].join('\n');
+
+  var inScope=['USDC and USDT custody','Stablecoin deposits and transfers','Institution-to-institution settlement','Custody and ledger reconciliation'];
+  var outScope=['Stablecoin-to-fiat conversion','Local bank and mobile money payout','Cross-chain bridging'];
+  function li(arr,ok){return arr.map(function(t){return '<li><span class="hx-mark '+(ok?'ok':'no')+'">'+(ok?'&#10003;':'&#8212;')+'</span>'+t+'</li>';}).join('');}
+
+  return siteWrap('Home',
+   /* 1 HERO */
+   '<section class="hx-hero"><div class="wrap hx-hero-grid">'+
+     '<div class="hx-hero-copy"><span class="eyebrow">AxLink Settlement Network</span>'+
+     '<h1 class="hx-h1">The Settlement Network for the <span class="gt">World\'s Banks</span></h1>'+
+     '<p class="hx-sub">USDC and USDT on Solana. Instant, final, on-chain. Your bank connects once, then settles with any institution on the network.</p>'+
+     '<div class="hx-ctas"><a href="javascript:void(0)" onclick="'+apply+'" class="btn btn-primary">Request API Access &#8594;</a><a href="javascript:void(0)" onclick="'+docs+'" class="btn btn-ghost">Read the Docs</a></div></div>'+
+     '<div class="hx-hero-art">'+mapSvg+'</div></div>'+
+     '<div class="wrap"><div class="hx-trust"><span>Custody via Fireblocks MPC</span><span>Settles on Solana</span><span>USDC by Circle</span><span>USDT by Tether</span><span>Sandbox live</span></div></div></section>'+
+   /* 2 NETWORK STATS */
+   '<section class="hx-sec hx-tight"><div class="wrap"><div class="hx-stats">'+statH+'</div></div></section>'+
+   /* 3 HOW IT WORKS */
+   '<section class="hx-sec"><div class="wrap"><div class="hx-head reveal"><span class="eyebrow">How it works</span><h2>Three steps from API key to on-chain proof.</h2></div><div class="hx-steps">'+stepH+'</div></div></section>'+
+   /* 4 WHAT BANKS GET */
+   '<section class="hx-sec hx-alt"><div class="wrap"><div class="hx-head reveal"><span class="eyebrow">What banks get</span><h2>Institutional infrastructure, not a wallet app.</h2></div><div class="cards c3 hx-feats">'+featH+'</div></div></section>'+
+   /* 5 SETTLEMENT FLOW */
+   '<section class="hx-sec"><div class="wrap hx-flow-grid"><div class="hx-head reveal" style="text-align:left;margin:0"><span class="eyebrow">Settlement flow</span><h2>Seven checks between request and proof.</h2><p class="lead">Example: Institution A settles 10,000 USDC on Solana to Institution B. Nothing is credited until finality is verified on-chain.</p></div><ol class="hx-flow">'+flowH+'</ol></div></section>'+
+   /* 6 SDK */
+   '<section class="hx-sec hx-alt"><div class="wrap hx-code-grid"><div class="reveal"><span class="eyebrow">Developers</span><h2 class="hx-h2">Drop the SDK into your backend.</h2><p class="lead">Typed client for every endpoint. Writes are idempotent: the same key never pays twice. Webhooks are verified with one call.</p><div class="hx-ctas"><a href="javascript:void(0)" onclick="'+docs+'" class="btn btn-ghost">API reference &#8594;</a></div></div>'+
+     '<div class="hx-code reveal"><div class="hx-code-bar"><i></i><i></i><i></i><span class="mono">settle.ts</span></div><pre><code>'+code+'</code></pre></div></div></section>'+
+   /* 7 SCOPE */
+   '<section class="hx-sec"><div class="wrap"><div class="hx-head reveal"><span class="eyebrow">Scope</span><h2>Exactly what AxLink does today.</h2><p class="lead">Leg A ends at verified digital-asset receipt by the receiving institution.</p></div>'+
+     '<div class="hx-scope reveal"><div><h4>In scope (Leg A)</h4><ul>'+li(inScope,true)+'</ul></div><div><h4>Out of scope</h4><ul>'+li(outScope,false)+'</ul></div></div></div></section>'+
+   /* 8 CTA */
+   '<section class="hx-cta"><div class="wrap reveal"><h2>Ready to settle on-chain?</h2><p>AxLink is onboarding its founding network members. Apply for API access and go live in days.</p>'+
+     '<a href="javascript:void(0)" onclick="'+apply+'" class="btn btn-primary">Apply for API Access &#8594;</a></div></section>'
   );
 }
-
 function isoNetwork(){
   // nodes: [label, x, y, labelY]
   var nodes=[['Banks',330,120,86],['PSPs',180,190,156],['Fintechs',480,190,156],['Payment Providers',150,410,462],['Enterprises',510,410,462]];
@@ -1318,25 +1406,35 @@ function appStub(title){
 
 /* ===== SIGN IN (institution portal) ===== */
 function pageSignIn(){
+  /* auth_v1: people sign in with email + password; the session is an HttpOnly cookie. */
   return siteHeader('')+'<div class="site-body">'+
-   '<section style="padding:60px 0 100px;min-height:72vh;display:flex;align-items:center"><div class="wrap" style="max-width:440px;margin:0 auto"><div class="reveal" style="text-align:center;margin-bottom:26px">'+markSized(40)+'<h1 style="font-size:28px;margin-top:14px">Sign in to AxLink</h1><p class="lead" style="font-size:14px;margin-top:6px">Institution portal - the open financial network.</p></div>'+
-   '<div class="panel reveal d1" style="padding:28px">'+
-   '<div class="field"><label>Work email</label><input placeholder="you@institution.com"/></div>'+
-   '<div class="field"><label>Password</label><input type="password" placeholder="&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;"/></div>'+
-   '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;font-size:12.5px"><label style="display:flex;align-items:center;gap:7px;color:var(--ink-2)"><input type="checkbox" style="width:auto"/> Remember this device</label><a href="javascript:void(0)" onclick="return toast(\'Reset link sent\')" style="color:var(--teal)">Forgot password?</a></div>'+
-   '<button class="btn btn-ghost" style="width:100%;justify-content:center" onclick="loginAsClient()">Explore the demo</button>'+
-   '<div style="margin:18px 0 10px;padding-top:14px;border-top:1px solid var(--line);font-size:12.5px;color:var(--ink-2)"><b>Connect with your API key</b><div style="font-size:11.5px;color:var(--ink-3);margin-top:4px">Sandbox or production key issued by AxLink operations (axlk_test_… / axlk_live_…). Kept in this tab only.</div></div>'+
-   '<div class="field"><label>API key</label><input id="ax-key" type="password" placeholder="axlk_test_…" autocomplete="off"/></div>'+
-   (axBase()?'':'<div class="field"><label>API base URL</label><input id="ax-base" placeholder="https://sandbox.api.axlink.network/api/v1"/></div>')+
-   '<button class="btn btn-primary" style="width:100%;justify-content:center" onclick="return connectWithKey(document.getElementById(\'ax-key\').value,(document.getElementById(\'ax-base\')||{}).value)">Connect</button>'+
-   '<div style="text-align:center;margin-top:16px;font-size:12.5px;color:var(--ink-3)">SSO available for enterprise -<span style="color:var(--teal);cursor:pointer" onclick="toast(\'SSO redirect\')"> Use SSO</span></div>'+
+   '<section style="padding:60px 0 100px;min-height:72vh;display:flex;align-items:center"><div class="wrap" style="max-width:440px;margin:0 auto"><div class="reveal" style="text-align:center;margin-bottom:26px">'+markSized(40)+'<h1 style="font-size:28px;margin-top:14px">Sign in to AxLink</h1><p class="lead" style="font-size:14px;margin-top:6px">Institution portal: your wallets, deposits and settlements.</p></div>'+
+   '<form class="panel reveal d1" style="padding:28px" onsubmit="return portalSignIn()">'+
+   '<div class="field"><label for="si-email">Work email</label><input id="si-email" type="email" autocomplete="username" placeholder="you@institution.com" required/></div>'+
+   '<div class="field"><label for="si-pass">Password</label><input id="si-pass" type="password" autocomplete="current-password" required/></div>'+
+   '<button id="si-btn" type="submit" class="btn btn-primary" style="width:100%;justify-content:center;margin-top:4px">Sign in</button>'+
+   '<div style="text-align:center;margin-top:14px;font-size:12.5px;color:var(--ink-3)">Two-factor authentication is required for production access.</div>'+
    '<div style="text-align:center;margin-top:14px;padding-top:14px;border-top:1px solid var(--line);font-size:11.5px;color:var(--ink-3)">AxLink staff? <span style="color:var(--ink-2);cursor:pointer;font-weight:600" onclick="document.getElementById(\'ops-box\').style.display=\'\'">Operator sign-in</span></div>'+
-   '<div id="ops-box" style="display:none;margin-top:10px"><div class="field"><label>Operator key</label><input id="ax-ops" type="password" placeholder="OPS_API_KEY" autocomplete="off"/></div><button class="btn btn-ghost" style="width:100%;justify-content:center" onclick="return connectAsOperator(document.getElementById(\'ax-ops\').value)">Connect operator console</button><div style="text-align:center;margin-top:8px;font-size:11.5px;color:var(--ink-3);cursor:pointer" onclick="loginAsOperator()">or explore the operator demo</div></div>'+
-   '</div>'+
-   '<p class="reveal d2" style="text-align:center;color:var(--ink-3);font-size:13px;margin-top:22px">New institution? <a href="javascript:void(0)" onclick="return go(\'#/onboarding\')" style="color:var(--teal);font-weight:600">Get started -></a></p>'+
+   '<div id="ops-box" style="display:none;margin-top:10px"><div class="field"><label>Operator key</label><input id="ax-ops" type="password" placeholder="OPS_API_KEY" autocomplete="off"/></div><button type="button" class="btn btn-ghost" style="width:100%;justify-content:center" onclick="return connectAsOperator(document.getElementById(\'ax-ops\').value)">Connect operator console</button></div>'+
+   '</form>'+
+   '<p class="reveal d2" style="text-align:center;color:var(--ink-3);font-size:13px;margin-top:22px">New institution? <a href="javascript:void(0)" onclick="return go(\'#/onboarding\')" style="color:var(--teal);font-weight:600">Create a sandbox account &#8594;</a></p>'+
    '</div></section>'+siteFooter();
 }
-/* ===== OPERATOR (SUPER ADMIN) SIGN-IN — separate secure panel ===== */
+function portalSignIn(){
+  var email=(document.getElementById('si-email')||{}).value||'', pass=(document.getElementById('si-pass')||{}).value||'';
+  var base=axBase(); if(!base){ toast('Open this page from the AxLink site to sign in','!'); return false; }
+  var btn=document.getElementById('si-btn'); if(btn){ btn.disabled=true; btn.textContent='Signing in…'; }
+  fetch(base+'/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({email:email.trim(),password:pass})})
+   .then(function(r){ return r.json().catch(function(){return {};}).then(function(j){ if(!r.ok) throw new Error((j.error&&j.error.message)||'Sign-in failed'); }); })
+   .then(function(){ return portalEnter(); })
+   .catch(function(e){ toast(liveEsc(e.message),'!'); if(btn){ btn.disabled=false; btn.textContent='Sign in'; } });
+  return false;
+}
+/* Signed in (cookie): load the institution and open its dashboard. */
+function portalEnter(){
+  try{ sessionStorage.removeItem('AX_API_KEY'); }catch(e){}
+  return axApi('GET','/institutions/me').then(function(me){ LIVE.me=me; LIVE.error=null; ROLE='client'; ENV=me.environment; toast('Signed in · '+liveUnesc(me.institution.slug)); go('#/app'); refreshLive(); });
+}
 function pageOperatorSignIn(){
   return '<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;background:radial-gradient(120% 90% at 50% 0%,var(--glow),transparent 60%)">'+
    '<div style="max-width:420px;width:100%">'+
@@ -1358,55 +1456,69 @@ function pageOperatorSignIn(){
 /* login handlers set the role, then enter the dashboard */
 function loginAsOperator(){ ROLE='operator'; toast('Signed in · Operator Console'); go('#/app'); }
 function loginAsClient(){ ROLE='client'; toast('Signed in · Institution Portal'); go('#/app'); }
-function signOut(){ var wasOp=(ROLE==='operator'); disconnectLive(); disconnectOps(); toast('Signed out'); go(wasOp?'#/operator':'#/signin'); }
+function signOut(){ var wasOp=(ROLE==='operator'); if(!wasOp&&axBase()){ fetch(axBase()+'/auth/logout',{method:'POST',credentials:'same-origin'}).catch(function(){}); } disconnectLive(); disconnectOps(); toast('Signed out'); go(wasOp?'#/operator':'#/signin'); }
 
 /* ===== ONBOARDING FLOW (Get Verified -> Fund -> Transact) ===== */
 var ONB={step:1,type:'institution'};
 function onboarding(){
-  var steps=['Institution','Verification (KYB)','Identity Passport','Fund Account','Go Live'];
-  var stepH='<div class="steps">';
-  for(var i=0;i<steps.length;i++){
-    var cls=(i+1<ONB.step?'done':(i+1===ONB.step?'active':''));
-    stepH+='<div class="st '+cls+'"><span class="num">'+(i+1<ONB.step?'&#10003;':(i+1))+'</span><span class="lb">'+steps[i]+'</span></div>';
-    if(i<steps.length-1) stepH+='<div class="line '+(i+1<ONB.step?'done':'')+'"></div>';
-  }
-  stepH+='</div>';
-  var body='';
-  if(ONB.step===1){
-    body='<h2 style="font-size:24px;margin-bottom:6px">Create your institution account</h2><p class="lead" style="font-size:14px;margin-bottom:22px">AxLink is available to regulated institutions - banks, PSPs, fintechs and payment providers.</p>'+
-    '<div class="field"><label>Legal entity name</label><input placeholder="e.g. Axstron Finance Inc."/></div>'+
-    '<div class="grid-2" style="gap:14px"><div class="field"><label>Entity type</label><select><option>Bank</option><option>Payment Service Provider</option><option>Fintech</option><option>Payment Provider</option><option>Money Services Business</option></select></div>'+
-    '<div class="field"><label>Country of registration</label><select><option>United States</option><option>United Kingdom</option><option>Canada</option><option>Singapore</option><option>UAE</option><option>Kenya</option><option>Lithuania</option></select></div></div>'+
-    '<div class="field"><label>Work email</label><input placeholder="you@institution.com"/></div>'+
-    '<div class="field"><label>Estimated monthly settlement volume</label><select><option>$1M - $10M</option><option>$10M - $50M</option><option>$50M - $250M</option><option>$250M+</option></select></div>'+
-    '<button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:8px" onclick="onbNext()">Continue to Verification -></button>';
-  }else if(ONB.step===2){
-    body='<h2 style="font-size:24px;margin-bottom:6px">Business verification (KYB)</h2><p class="lead" style="font-size:14px;margin-bottom:22px">Institutional onboarding requires full KYB, ID verification and sanctions screening - powered by Sumsub, SEON and Chainalysis.</p>'+
-    ['Certificate of incorporation','Beneficial ownership (UBO) structure','Regulatory license / MSB registration','AML/CFT policy & MLRO details','Authorized signatory ID'].map(function(d){return '<label style="display:flex;align-items:center;gap:12px;padding:12px 14px;background:var(--panel-2);border:1px solid var(--line);border-radius:10px;margin-bottom:10px;cursor:pointer;font-size:13.5px"><span style="width:20px;height:20px;border-radius:6px;border:1px solid var(--teal);color:var(--teal);display:flex;align-items:center;justify-content:center;font-size:11px">&#10003;</span>'+d+' <span style="margin-left:auto;color:var(--ink-3);font-size:11.5px">Uploaded</span></label>';}).join('')+
-    '<div class="chip" style="margin:8px 0 18px"><span class="d" style="background:var(--amber)"></span> Screening in progress - typically 1-3 business days</div>'+
-    '<button class="btn btn-primary" style="width:100%;justify-content:center" onclick="onbNext()">Continue -> Identity Passport</button>';
-  }else if(ONB.step===3){
-    body='<h2 style="font-size:24px;margin-bottom:6px">On-chain Identity Passport</h2><p class="lead" style="font-size:14px;margin-bottom:22px">Once verified, your institution is issued an on-chain Identity Passport (KYB NFT). Every counterparty on the network holds one - settlement only occurs between verified parties in the closed-loop network.</p>'+
-    '<div style="text-align:center;padding:26px;background:var(--panel-2);border:1px solid var(--line-2);border-radius:14px;margin-bottom:20px">'+markSized(46)+'<div style="font-weight:700;font-size:18px;margin-top:12px">Identity Passport</div><div class="mono" style="font-size:11px;color:var(--teal);margin-top:6px">PASS_0x8f7a...1cC8</div><div style="font-size:12px;color:var(--ink-3);margin-top:8px">KYB - Sanctions cleared - Tier 1</div><span class="chip" style="margin-top:14px"><span class="d pulse-dot" style="background:var(--green)"></span> Verified &amp; minted</span></div>'+
-    '<button class="btn btn-primary" style="width:100%;justify-content:center" onclick="onbNext()">Continue -> Fund Account</button>';
-  }else if(ONB.step===4){
-    body='<h2 style="font-size:24px;margin-bottom:6px">Fund your account</h2><p class="lead" style="font-size:14px;margin-bottom:22px">Send USDC to your vault address, or wire USD and AxLink converts it to USDC through its liquidity providers. Your balance is held in a segregated custody vault; we never lend it out.</p>'+
-    '<div style="background:var(--panel-2);border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:18px;font-size:13px">'+
-    [['Beneficiary','Axstron Finance Inc. (AxLink)'],['Bank','AxLink Settlement (regulated, US)'],['Account','**** **** 8842'],['Routing','091000019'],['Reference','AXL-'+((Math.random()*90000+10000)|0)]].map(function(r){return '<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--line)"><span style="color:var(--ink-3)">'+r[0]+'</span><span class="mono" style="font-size:12px">'+r[1]+'</span></div>';}).join('')+'</div>'+
-    '<div class="chip" style="margin-bottom:18px"><span class="d" style="background:var(--blue)"></span> 1:1 backed - cash + short-term U.S. Treasuries</div>'+
-    '<button class="btn btn-primary" style="width:100%;justify-content:center" onclick="onbNext()">I have sent the wire -> Finish</button>';
+  /* Self-service SANDBOX signup — real: POST /v1/onboarding/sandbox. Production access is never self-service. */
+  var r=ONB.result;
+  var steps=['Your institution','Dashboard','API keys (when you integrate)','Go live (KYB + 2FA)'];
+  var at=r?2:1;
+  var stepH='<div class="steps">'+steps.map(function(s,i){var cls=(i+1<at?'done':(i+1===at?'active':''));return '<div class="st '+cls+'"><span class="num">'+(i+1<at?'&#10003;':(i+1))+'</span><span class="lb">'+s+'</span></div>'+(i<steps.length-1?'<div class="line '+(i+1<at?'done':'')+'"></div>':'');}).join('')+'</div>';
+  var body;
+  if(!r){
+    var countries=[['KE','Kenya'],['NG','Nigeria'],['GH','Ghana'],['ZA','South Africa'],['EG','Egypt'],['ET','Ethiopia'],['SO','Somalia'],['TZ','Tanzania'],['UG','Uganda'],['RW','Rwanda'],['AE','United Arab Emirates'],['SA','Saudi Arabia'],['QA','Qatar'],['BH','Bahrain'],['GB','United Kingdom'],['US','United States'],['SG','Singapore'],['DE','Germany'],['FR','France'],['NL','Netherlands']];
+    body='<h2 style="font-size:24px;margin-bottom:6px">Create your sandbox account</h2>'+
+    '<p class="lead" style="font-size:14px;margin-bottom:20px">Try AxLink end to end with test tokens on Solana devnet: real Fireblocks sandbox custody, no real money. You are signed in to your dashboard as soon as you sign up.</p>'+
+    '<div class="field"><label for="ob-name">Legal entity name</label><input id="ob-name" maxlength="200" placeholder="e.g. Galaxy Bank Ltd" autocomplete="organization"/></div>'+
+    '<div class="grid-2" style="gap:14px"><div class="field"><label for="ob-kind">Institution type</label><select id="ob-kind"><option value="BANK">Bank</option><option value="PSP">Payment service provider</option><option value="FINTECH">Fintech</option><option value="EXCHANGE">Exchange</option><option value="OTHER">Other</option></select></div>'+
+    '<div class="field"><label for="ob-country">Country of registration</label><select id="ob-country">'+countries.map(function(c){return '<option value="'+c[0]+'">'+c[1]+'</option>';}).join('')+'</select></div></div>'+
+    '<div class="grid-2" style="gap:14px"><div class="field"><label for="ob-contact">Your name</label><input id="ob-contact" maxlength="120" autocomplete="name"/></div>'+
+    '<div class="field"><label for="ob-email">Work email</label><input id="ob-email" type="email" maxlength="200" placeholder="you@institution.com" autocomplete="email"/></div></div>'+
+    '<div class="grid-2" style="gap:14px"><div class="field"><label for="ob-pass">Password</label><input id="ob-pass" type="password" autocomplete="new-password" placeholder="12+ characters, letters and digits"/></div>'+
+    '<div class="field"><label for="ob-pass2">Confirm password</label><input id="ob-pass2" type="password" autocomplete="new-password"/></div></div>'+
+    '<label style="display:flex;gap:10px;align-items:flex-start;font-size:13px;color:var(--ink-2);margin:4px 0 16px;cursor:pointer"><input id="ob-ack" type="checkbox" style="margin-top:3px"/> I understand this is a sandbox: test tokens only, no real funds. Production access requires KYB with AxLink.</label>'+
+    '<button id="ob-submit" class="btn btn-primary" style="width:100%;justify-content:center" onclick="return onbSubmit()">Create sandbox account &#8594;</button>'+
+    '<p style="text-align:center;font-size:13px;color:var(--ink-3);margin-top:16px">Already have a key? <a href="javascript:void(0)" onclick="return go(\'#/signin\')" style="color:var(--teal);font-weight:600">Sign in</a></p>';
   }else{
-    body='<div style="text-align:center;padding:10px 0"><div style="width:66px;height:66px;border-radius:50%;background:rgba(52,211,153,.14);color:var(--green);display:flex;align-items:center;justify-content:center;font-size:30px;margin:0 auto 18px">&#10003;</div>'+
-    '<h2 style="font-size:26px;margin-bottom:8px">You are live on AxLink</h2><p class="lead" style="font-size:14px;max-width:380px;margin:0 auto 24px">Your institution is verified, funded and connected to the open financial network. Start moving value instantly.</p>'+
-    '<button class="btn btn-primary" style="justify-content:center;padding:13px 26px" onclick="loginAsClient()">Open your dashboard -></button></div>';
+    body='<div style="display:flex;gap:14px;align-items:center;margin-bottom:16px"><div style="width:48px;height:48px;border-radius:50%;background:rgba(52,211,153,.14);color:var(--green);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">&#10003;</div>'+
+    '<div><h2 style="font-size:22px">'+r.legalName+' is on the sandbox</h2><p style="color:var(--ink-3);font-size:13px;margin-top:2px">Institution id <span class="mono">'+r.slug+'</span> · environment SANDBOX</p></div></div>'+
+    '<div class="field"><label>Your sandbox API key: shown once, store it now</label>'+
+    '<div style="display:flex;gap:8px"><input id="ob-key" class="mono" readonly value="'+r.apiKey+'" style="font-size:12.5px"/><button class="btn btn-ghost btn-sm" onclick="onbCopy()">Copy</button></div>'+
+    '<div class="hint">Keep it in your secret manager. AxLink stores only a hash and cannot show it again.</div></div>'+
+    '<button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:6px" onclick="return onbOpenDashboard()">Open my dashboard &#8594;</button>'+
+    '<div style="margin-top:20px;padding:14px 16px;border:1px solid var(--line);border-radius:10px;font-size:13px;color:var(--ink-2);line-height:1.6"><b style="color:var(--ink)">Next in the dashboard:</b> create a wallet (a Fireblocks sandbox vault), announce a deposit, register a counterparty bank and settle to it. <br/><b style="color:var(--ink)">Going live</b> is not self-service: AxLink operations completes KYB with you, then enables production and issues a live key.</div>';
   }
   return siteHeader('')+'<div class="site-body">'+
-   '<section style="padding:50px 0 90px;min-height:70vh"><div class="wrap" style="max-width:680px"><span class="eyebrow reveal">Onboarding</span><h1 class="reveal d1" style="font-size:34px;margin:14px 0 8px">Get your institution on the network</h1>'+
+   '<section style="padding:50px 0 90px;min-height:70vh"><div class="wrap" style="max-width:680px"><span class="eyebrow reveal">Sandbox access</span><h1 class="reveal d1" style="font-size:34px;margin:14px 0 8px">Get your institution on the network</h1>'+
    '<div class="reveal d2">'+stepH+'</div>'+
    '<div class="panel reveal d2" style="padding:28px">'+body+'</div>'+
-   '<p style="text-align:center;color:var(--ink-3);font-size:12px;margin-top:20px">AxLink · Crypto Settlement Network — regulated · fully reserved · nothing minted</p></div></section>'+
+   '<p style="text-align:center;color:var(--ink-3);font-size:12px;margin-top:20px">AxLink sandbox · Fireblocks sandbox custody · Solana devnet · test tokens only</p></div></section>'+
    siteFooter()+'</div>';
 }
+function onbSubmit(){
+  var v=function(id){var e=document.getElementById(id);return e?(e.value||'').trim():'';};
+  var pw=(document.getElementById('ob-pass')||{}).value||'', pw2=(document.getElementById('ob-pass2')||{}).value||'';
+  var data={legalName:v('ob-name'),kind:v('ob-kind'),country:v('ob-country'),contactName:v('ob-contact'),email:v('ob-email'),password:pw};
+  if(pw.length<12||!/[a-zA-Z]/.test(pw)||!/[0-9]/.test(pw)){ toast('Password: at least 12 characters, with letters and digits','!'); return false; }
+  if(pw!==pw2){ toast('The passwords do not match','!'); return false; }
+  if(data.legalName.length<2||data.contactName.length<2||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)){ toast('Fill in the institution, your name and a valid work email','!'); return false; }
+  if(!(document.getElementById('ob-ack')||{}).checked){ toast('Please confirm you understand this is a sandbox','!'); return false; }
+  var base=axBase(); if(!base){ toast('Open this page from the AxLink site to sign up','!'); return false; }
+  var btn=document.getElementById('ob-submit'); if(btn){ btn.disabled=true; btn.textContent='Creating your sandbox…'; }
+  fetch(base+'/onboarding/sandbox',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify(data)})
+   .then(function(res){ return res.json().catch(function(){return {};}).then(function(j){ return {ok:res.ok,j:j}; }); })
+   .then(function(x){
+     if(!x.ok){ var m=(x.j&&x.j.error&&x.j.error.message)||'Signup failed'; toast(liveEsc(m),'!'); if(btn){ btn.disabled=false; btn.innerHTML='Create sandbox account &#8594;'; } return; }
+     // Signed in by the HttpOnly cookie the signup set: straight to the dashboard (no key to copy).
+     toast('Welcome to AxLink · '+liveEsc(x.j.institution.legalName)); portalEnter();
+   })
+   .catch(function(){ toast('Network error — try again','!'); if(btn){ btn.disabled=false; btn.innerHTML='Create sandbox account &#8594;'; } });
+  return false;
+}
+function onbCopy(){ var k=ONB._rawKey||''; try{ navigator.clipboard.writeText(k).then(function(){toast('API key copied');}); }catch(e){ var i=document.getElementById('ob-key'); if(i){ i.select(); } } }
+function onbOpenDashboard(){ var k=ONB._rawKey; ONB.result=null; ONB._rawKey=null; return connectWithKey(k,''); }
 function onbNext(){ONB.step=Math.min(5,ONB.step+1);render();}
 
 /* ===== WALLET / TREASURY ===== */
@@ -2076,8 +2188,8 @@ function axBaseOk(b){ return /^https:\/\/[^\s\/]+(\/[^\s]*)?$/.test(b)||/^http:\
 function axKey(){ try{ return sessionStorage.getItem('AX_API_KEY')||''; }catch(e){ return ''; } }
 function axApi(method,path,body,headers){
   var base=axBase(); if(!base) return Promise.reject(new Error('No API base configured'));
-  var h={'Authorization':'Bearer '+axKey()}; if(body) h['Content-Type']='application/json'; if(headers) for(var k in headers) h[k]=headers[k];
-  return fetch(base+path,{method:method,headers:h,body:body?JSON.stringify(body):undefined}).then(function(r){
+  var k0=axKey(); var h=k0?{'Authorization':'Bearer '+k0}:{'X-AxLink-Portal':'1'}; if(body) h['Content-Type']='application/json'; if(headers) for(var k in headers) h[k]=headers[k];
+  return fetch(base+path,{method:method,headers:h,credentials:'same-origin',body:body?JSON.stringify(body):undefined}).then(function(r){
     return r.text().then(function(t){ var j=null; try{ j=t?JSON.parse(t):null; }catch(e){}
       if(!r.ok){ var err=new Error((j&&j.error&&j.error.message)||('HTTP '+r.status)); /* shown via toast (text node) or escaped at LIVE.error */ err.code=liveEsc((j&&j.error&&j.error.code)||('HTTP_'+r.status)); err.status=r.status; err.details=liveSan(j&&j.error&&j.error.details); throw err; }
       return liveSan(j); });
@@ -2107,10 +2219,25 @@ function refreshLive(){
    .then(function(){ return Promise.all((LIVE.endpoints||[]).map(function(ep){ return axApi('GET','/webhook-endpoints/'+ep.id+'/deliveries').then(function(d){ LIVE.deliveries[ep.id]=d; }).catch(function(){}); })); })
    .then(function(){ LIVE.loading=false; render(); });
 }
+function portalCreateKey(){
+  openModal('<h3 style="font-size:19px;margin-bottom:14px">Create API key</h3><div class="field"><label for="pk-label">Label</label><input id="pk-label" maxlength="80" placeholder="e.g. Core banking server"/></div><button class="btn btn-primary" style="width:100%;justify-content:center" onclick="portalDoCreateKey()">Create</button>');
+}
+function portalDoCreateKey(){
+  var label=((document.getElementById('pk-label')||{}).value||'').trim(); if(!label){ toast('Give the key a label','!'); return; }
+  axApi('POST','/portal/credentials',{label:label}).then(function(k){
+    LIVE.keys=null;
+    openModal('<h3 style="font-size:19px;margin-bottom:8px">Your new API key</h3><p style="color:var(--ink-3);font-size:13px;margin-bottom:14px">Shown once. Store it in your server&#39;s secret manager; AxLink keeps only a hash.</p><div style="display:flex;gap:8px"><input id="pk-key" class="mono" readonly value="'+k.apiKey+'" style="font-size:12.5px"/><button class="btn btn-ghost btn-sm" onclick="var i=document.getElementById(\'pk-key\');i.select();try{navigator.clipboard.writeText(i.value);toast(\'Copied\');}catch(e){}">Copy</button></div><button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:16px" onclick="closeModal();render()">Done</button>');
+  }).catch(function(e){ toast(e.message,'!'); });
+}
+function portalRevokeKey(id){ axApi('POST','/portal/credentials/'+encodeURIComponent(id)+'/revoke',{}).then(function(){ LIVE.keys=null; toast('Key revoked'); render(); }).catch(function(e){ toast(e.message,'!'); }); }
+function axNet(){
+  var n=(LIVE.assets&&LIVE.assets.networks&&LIVE.assets.networks[0]&&LIVE.assets.networks[0].id)||((LIVE.wallets||[])[0]||{}).network||'';
+  return n==='solana-devnet'?'Solana devnet (sandbox, test tokens)':n==='solana-mainnet'?'Solana mainnet':'Solana';
+}
 function liveAmt(a){ return a===undefined||a===null?'—':String(a); }
 function liveWhen(iso){ if(!iso) return '—'; var d=new Date(iso); var s=(Date.now()-d.getTime())/1000; if(s<60) return 'just now'; if(s<3600) return Math.floor(s/60)+' min ago'; if(s<86400) return Math.floor(s/3600)+' hr ago'; return d.toISOString().slice(0,10); }
 function liveBadge(st){ return '<span class="badge badge-'+(st==='COMPLETED'||st==='ACTIVE'||st==='SETTLED'?'completed':st==='FAILED'||st==='DISABLED'||st==='REJECTED'||st==='CANCELLED'||st==='EXPIRED'||st==='ABANDONED'?'failed':'pending')+'">'+st+'</span>'; }
-function liveHead(){ return '<div style="background:rgba(46,230,197,.08);border:1px solid rgba(46,230,197,.25);border-radius:8px;padding:8px 14px;font-size:11.5px;color:var(--ink-2);margin-bottom:16px;display:flex;align-items:center;gap:8px;justify-content:space-between"><span>&#9679; Live · '+LIVE.me.institution.slug+' · '+LIVE.me.environment.toLowerCase()+' · '+liveEsc(axBase())+(LIVE.error?' · <span style="color:#f87171">'+LIVE.error+'</span>':'')+'</span><span><button class="btn btn-ghost btn-sm" onclick="refreshLive();toast(\'Refreshing\')">Refresh</button></span></div>'; }
+function liveHead(){ return '<div style="background:rgba(46,230,197,.08);border:1px solid rgba(46,230,197,.25);border-radius:8px;padding:8px 14px;font-size:11.5px;color:var(--ink-2);margin-bottom:16px;display:flex;align-items:center;gap:8px;justify-content:space-between"><span>&#9679; Live · '+LIVE.me.institution.slug+' · '+LIVE.me.environment.toLowerCase()+(LIVE.me.environment==='SANDBOX'?' · <b style="color:var(--amber)">Sandbox: test tokens on Solana devnet, no real money</b>':'')+(LIVE.error?' · <span style="color:#f87171">'+LIVE.error+'</span>':'')+'</span><span><button class="btn btn-ghost btn-sm" onclick="refreshLive();toast(\'Refreshing\')">Refresh</button></span></div>'; }
 /* ---- screens ---- */
 function liveOverview(){
   var b=LIVE.balances?LIVE.balances.balances:[];
@@ -2125,13 +2252,13 @@ function liveWallet(){
   var ws=LIVE.wallets||[];
   var rows=ws.map(function(w){ return '<tr><td style="font-weight:500">'+w.label+'</td><td class="mono" style="font-size:11px;color:var(--teal)">'+w.custody.provider+' · '+w.custody.vaultId+'</td><td class="mono" style="font-size:11px">'+(w.depositAddress||'— not issued —')+'</td><td class="mono">'+w.balances.map(function(b){return b.asset+' '+b.available+(b.drift?' <span style="color:#f87171">drift</span>':'');}).join('<br>')+'</td><td>'+liveBadge(w.status)+'</td></tr>'; }).join('')||'<tr><td colspan="5" style="color:var(--ink-3)">No wallet yet — create one.</td></tr>';
   var b=LIVE.balances?LIVE.balances.balances:[];
-  return appShell('#/app/treasury', liveHead()+pageHead('Wallet','Your custody vaults in '+LIVE.me.environment.toLowerCase()+'. Balances are read from the double-entry journal (GET /v1/balances), never from a cache.','<button class="btn btn-ghost btn-sm" onclick="liveOpenDeposit()">Announce a deposit</button><button class="btn btn-primary btn-sm" onclick="liveOpenCreateWallet()">+ New wallet</button>')+
+  return appShell('#/app/treasury', liveHead()+pageHead('Wallet','Your custody vaults on '+axNet()+'. Balances come from the double-entry ledger, never from a cache.','<button class="btn btn-ghost btn-sm" onclick="liveOpenDeposit()">Announce a deposit</button><button class="btn btn-primary btn-sm" onclick="liveOpenCreateWallet()">+ New wallet</button>')+
    '<div class="kpi-cards reveal" style="grid-template-columns:repeat(4,1fr)">'+b.map(function(x,i){ return kpiCard('&#9670;',x.symbol+' available',liveAmt(x.available),x.network,'flat',6+i,i?'#34d399':'#2ee6c5'); }).join('')+kpiCard('&#9737;','Wallets',String(ws.length),'custody vaults','flat',8,'#a78bfa')+'</div>'+
-   tableCard('Wallets — GET /v1/wallets',['Label','Custody','Deposit address','Balances','Status'],rows)+
-   tableCard('Deposit instructions — GET /v1/deposits',['Instruction','Tracking id','Asset','Amount','Status','Finality','When',''],(LIVE.deposits||[]).map(function(d){ return '<tr><td class="txid">'+d.id+'</td><td class="mono" style="font-size:11px">'+(d.trackingId||'')+'</td><td>'+d.asset+'</td><td class="mono">'+liveAmt(d.expectedAmount||d.amount)+'</td><td>'+liveBadge(d.status)+(d.attention?' <span style="color:#f87171">attention</span>':'')+'</td><td style="font-size:12px;color:var(--ink-2)">'+(d.proof&&d.proof.finality||'—')+'</td><td style="color:var(--ink-3)">'+liveWhen(d.createdAt)+'</td><td>'+(d.status==='PROCESSING'&&(d.instructionStatus==='PENDING')?'<button class="btn btn-ghost btn-sm" onclick="liveCancelDeposit(\''+d.id+'\')">Cancel</button>':'')+'</td></tr>'; }).join('')||'<tr><td colspan="8" style="color:var(--ink-3)">No deposit instructions yet.</td></tr>'));
+   tableCard('Wallets',['Label','Custody','Deposit address','Balances','Status'],rows)+
+   tableCard('Deposit instructions',['Instruction','Tracking id','Asset','Amount','Status','Finality','When',''],(LIVE.deposits||[]).map(function(d){ return '<tr><td class="txid">'+d.id+'</td><td class="mono" style="font-size:11px">'+(d.trackingId||'')+'</td><td>'+d.asset+'</td><td class="mono">'+liveAmt(d.expectedAmount||d.amount)+'</td><td>'+liveBadge(d.status)+(d.attention?' <span style="color:#f87171">attention</span>':'')+'</td><td style="font-size:12px;color:var(--ink-2)">'+(d.proof&&d.proof.finality||'—')+'</td><td style="color:var(--ink-3)">'+liveWhen(d.createdAt)+'</td><td>'+(d.status==='PROCESSING'&&(d.instructionStatus==='PENDING')?'<button class="btn btn-ghost btn-sm" onclick="liveCancelDeposit(\''+d.id+'\')">Cancel</button>':'')+'</td></tr>'; }).join('')||'<tr><td colspan="8" style="color:var(--ink-3)">No deposit instructions yet.</td></tr>'));
 }
 function liveOpenCreateWallet(){
-  openModal('<h3 style="font-size:19px;margin-bottom:14px">New wallet</h3><div class="field"><label>Label</label><input id="lw-label" placeholder="Treasury"/></div><div class="hint" style="margin-bottom:12px">POST /v1/wallets — a custody vault on solana-mainnet with one deposit address for USDC and USDT.</div><div style="display:flex;gap:10px"><button class="btn btn-ghost" style="flex:1;justify-content:center" onclick="closeModal()">Cancel</button><button class="btn btn-primary" style="flex:1;justify-content:center" onclick="liveCreateWallet()">Create</button></div>');
+  openModal('<h3 style="font-size:19px;margin-bottom:14px">New wallet</h3><div class="field"><label>Label</label><input id="lw-label" placeholder="Treasury"/></div><div class="hint" style="margin-bottom:12px">Creates a dedicated custody vault (Fireblocks) on '+axNet()+', with one deposit address for USDC and USDT.</div><div style="display:flex;gap:10px"><button class="btn btn-ghost" style="flex:1;justify-content:center" onclick="closeModal()">Cancel</button><button class="btn btn-primary" style="flex:1;justify-content:center" onclick="liveCreateWallet()">Create</button></div>');
 }
 function liveCreateWallet(){ var label=(document.getElementById('lw-label').value||'').trim(); axApi('POST','/wallets',{label:label}).then(function(w){ closeModal(); toast('Wallet '+liveUnesc(w.label)+' created'); refreshLive(); }).catch(function(e){ toast(e.message,'!'); }); }
 function liveOpenDeposit(){
@@ -2139,7 +2266,7 @@ function liveOpenDeposit(){
   openModal('<h3 style="font-size:19px;margin-bottom:14px">Announce a deposit</h3>'+
    '<div class="field"><label>Wallet</label><select id="ld-wallet">'+ws.map(function(w){return '<option value="'+w.id+'">'+w.label+'</option>';}).join('')+'</select></div>'+
    '<div class="grid-2" style="gap:14px"><div class="field"><label>Asset</label><select id="ld-asset"><option>USDC_SOL</option><option>USDT_SOL</option></select></div><div class="field"><label>Amount (exact)</label><input id="ld-amount" placeholder="12.5"/></div></div>'+
-   '<div class="field"><label>Your reference</label><input id="ld-ref" placeholder="INV-2026-0142"/><div class="hint">POST /v1/deposits — returns the address and a tracking id to put in the sender\'s transfer.</div></div>'+
+   '<div class="field"><label>Your reference</label><input id="ld-ref" placeholder="INV-2026-0142"/><div class="hint">You get the deposit address and a tracking id. Send exactly the announced amount; it is credited once, when Solana confirms it.</div></div>'+
    '<div style="display:flex;gap:10px"><button class="btn btn-ghost" style="flex:1;justify-content:center" onclick="closeModal()">Cancel</button><button class="btn btn-primary" style="flex:1;justify-content:center" onclick="liveCreateDeposit()">Create instruction</button></div>');
 }
 function liveCreateDeposit(){
@@ -2150,7 +2277,7 @@ function liveCancelDeposit(id){ axApi('POST','/deposits/'+id+'/cancel').then(fun
 function liveSettlements(){
   var rows=(LIVE.transfers||[]).map(function(t){ return '<tr><td class="txid">'+t.id+'</td><td>'+(t.counterparty&&t.counterparty.label||'—')+(t.counterparty&&t.counterparty.address?' <span class="mono" style="font-size:10.5px;color:var(--ink-3)">'+t.counterparty.address.slice(0,4)+'…'+t.counterparty.address.slice(-4)+'</span>':'')+'</td><td class="mono">'+t.amount+'</td><td style="color:var(--ink-2)">'+t.asset+'</td><td><span class="chip" style="padding:2px 8px">'+t.stage+'</span></td><td>'+liveBadge(t.status)+(t.attention?' <span style="color:#f87171" title="'+(t.reason||'')+'">attention</span>':'')+'</td><td style="font-size:12px;color:var(--ink-2)">'+(t.proof?(t.proof.finality+(t.proof.txHash?' · <a href="'+t.proof.explorerUrl+'" target="_blank" rel="noopener" style="color:var(--teal)">tx</a>':'')):'—')+'</td><td style="color:var(--ink-3)">'+liveWhen(t.createdAt)+'</td><td>'+(t.stage==='AWAITING_APPROVAL'?'<button class="btn btn-ghost btn-sm" onclick="liveCancelTransfer(\''+t.id+'\')">Cancel</button>':'')+'</td></tr>'; }).join('')||'<tr><td colspan="9" style="color:var(--ink-3)">No settlements yet.</td></tr>';
   var open=(LIVE.transfers||[]).filter(function(t){return t.stage==='AWAITING_APPROVAL';}).length;
-  return appShell('#/app/payments', liveHead()+pageHead('Settlements','Outbound settlements from your wallet to an approved counterparty — GET /v1/transfers. COMPLETED only when a Solana node reports the transfer finalized.','<button class="btn btn-primary btn-sm" onclick="liveOpenSettlement()">+ New settlement</button>')+
+  return appShell('#/app/payments', liveHead()+pageHead('Settlements','Settlements from your wallet to an approved counterparty. Completed only when Solana reports the transfer final.','<button class="btn btn-primary btn-sm" onclick="liveOpenSettlement()">+ New settlement</button>')+
    '<div class="kpi-cards reveal" style="grid-template-columns:repeat(4,1fr)">'+kpiCard('&#8644;','Settlements',String((LIVE.transfers||[]).length),'in this environment','flat',6)+kpiCard('&#10003;','Completed',String((LIVE.transfers||[]).filter(function(t){return t.status==='COMPLETED';}).length),'finalized','flat',7,'#34d399')+kpiCard('&#9202;','Awaiting approval',String(open),'operator queue','flat',5,'#fbbf24')+kpiCard('&#9888;','Attention',String((LIVE.transfers||[]).filter(function(t){return t.attention;}).length),'needs a person','flat',8,'#f87171')+'</div>'+
    tableCard('Transfers',['ID','Counterparty','Amount','Asset','Stage','Status','Finality','When',''],rows));
 }
@@ -2161,7 +2288,7 @@ function liveOpenSettlement(){
    '<div class="field"><label>From wallet</label><select id="ls-wallet">'+ws.map(function(w){return '<option value="'+w.id+'">'+w.label+' · '+w.balances.map(function(b){return b.asset+' '+b.available;}).join(' · ')+'</option>';}).join('')+'</select></div>'+
    '<div class="field"><label>Counterparty (ACTIVE only)</label><select id="ls-cp">'+cps.map(function(c){return '<option value="'+c.id+'">'+c.label+' — '+c.address.slice(0,6)+'…'+c.address.slice(-6)+'</option>';}).join('')+'</select></div>'+
    '<div class="grid-2" style="gap:14px"><div class="field"><label>Amount (exact, in the asset)</label><input id="ls-amount" placeholder="120.5"/></div><div class="field"><label>Asset</label><select id="ls-asset"><option>USDC_SOL</option><option>USDT_SOL</option></select></div></div>'+
-   '<div class="field"><label>Your reference</label><input id="ls-ref" placeholder="SETTLE-2026-0442"/><div class="hint">POST /v1/transfers with an Idempotency-Key · above the approval threshold it waits for an operator.</div></div>'+
+   '<div class="field"><label>Your reference</label><input id="ls-ref" placeholder="SETTLE-2026-0442"/><div class="hint">Safe to retry: the same settlement is never sent twice. Large settlements wait for AxLink approval.</div></div>'+
    '<div style="display:flex;gap:10px"><button class="btn btn-ghost" style="flex:1;justify-content:center" onclick="closeModal()">Cancel</button><button class="btn btn-primary" style="flex:1;justify-content:center" onclick="liveCreateSettlement()">Create settlement</button></div>');
 }
 function liveCreateSettlement(){
@@ -2171,11 +2298,11 @@ function liveCreateSettlement(){
 function liveCancelTransfer(id){ axApi('POST','/transfers/'+id+'/cancel').then(function(){ toast('Settlement cancelled'); refreshLive(); }).catch(function(e){ toast(e.message,'!'); }); }
 function liveCounterparties(){
   var rows=(LIVE.counterparties||[]).map(function(c){ return '<tr><td style="font-weight:500">'+c.label+'</td><td style="color:var(--ink-2)">'+c.network+'</td><td class="mono" style="font-size:11px;color:var(--teal)" title="'+(c.address||'')+'">'+(c.kind==='NETWORK'?'<span class="chip" style="padding:2px 8px"><span class="d" style="background:var(--teal)"></span>network · '+c.participant+'</span>':(c.address.slice(0,8)+'…'+c.address.slice(-8)))+'</td><td style="color:var(--ink-2)">'+(c.kind==='NETWORK'?'inside AxLink custody':(c.screening?'screened '+c.screening.verdict+' · ':'')+(c.custodyWhitelisted?'custody whitelisted':(c.status==='PENDING_APPROVAL'?'awaiting operator':c.status==='ACTIVE'?'sandbox auto':'—')))+'</td><td>'+liveBadge(c.status)+'</td><td>'+(c.status==='ACTIVE'?'<button class="btn btn-primary btn-sm" onclick="liveOpenSettlement()">Settle</button> <button class="btn btn-ghost btn-sm" onclick="liveDisableCounterparty(\''+c.id+'\')">Disable</button>':'')+'</td></tr>'; }).join('')||'<tr><td colspan="6" style="color:var(--ink-3)">No counterparties yet — register one.</td></tr>';
-  return appShell('#/app/contacts', liveHead()+pageHead('Counterparties','Who you may settle to — GET /v1/counterparties. A network participant (another AxLink institution) is active at once and settles inside custody. An external address: sandbox ACTIVE at once, production after an operator confirms custody whitelisting.','<button class="btn btn-primary btn-sm" onclick="liveOpenCounterparty()">+ Register counterparty</button>')+
+  return appShell('#/app/contacts', liveHead()+pageHead('Counterparties','Who you may settle to. A network participant (another AxLink institution) is active at once and settles inside custody. An external address: sandbox ACTIVE at once, production after an operator confirms custody whitelisting.','<button class="btn btn-primary btn-sm" onclick="liveOpenCounterparty()">+ Register counterparty</button>')+
    tableCard('Counterparties',['Label','Network','Address','Approval','Status',''],rows));
 }
 function liveOpenCounterparty(){
-  openModal('<h3 style="font-size:19px;margin-bottom:14px">Register counterparty</h3><div class="field"><label>Label</label><input id="lc-label" placeholder="Partner Bank"/></div><div class="field"><label>Kind</label><select id="lc-kind" onchange="document.getElementById(\'lc-ext\').style.display=this.value===\'EXTERNAL\'?\'\':\'none\';document.getElementById(\'lc-net\').style.display=this.value===\'NETWORK\'?\'\':\'none\'"><option value="EXTERNAL">External address — outside AxLink custody</option><option value="NETWORK">Network participant — another AxLink institution (settles inside custody)</option></select></div><div class="field" id="lc-net" style="display:none"><label>Participant slug</label><input id="lc-part" placeholder="e.g. axlink-reference"/><div class="hint">The institution\'s AxLink slug; it must be active and hold a wallet in this environment.</div></div><div class="field" id="lc-ext"><label>Solana address</label><input id="lc-addr" placeholder="base58 address"/></div><div class="field"><label>Note (optional)</label><input id="lc-note" placeholder="Settlement account at Partner Bank"/><div class="hint">POST /v1/counterparties — AxLink\'s own custody wallets are refused here.</div></div><div style="display:flex;gap:10px"><button class="btn btn-ghost" style="flex:1;justify-content:center" onclick="closeModal()">Cancel</button><button class="btn btn-primary" style="flex:1;justify-content:center" onclick="liveRegisterCounterparty()">Register</button></div>');
+  openModal('<h3 style="font-size:19px;margin-bottom:14px">Register counterparty</h3><div class="field"><label>Label</label><input id="lc-label" placeholder="Partner Bank"/></div><div class="field"><label>Kind</label><select id="lc-kind" onchange="document.getElementById(\'lc-ext\').style.display=this.value===\'EXTERNAL\'?\'\':\'none\';document.getElementById(\'lc-net\').style.display=this.value===\'NETWORK\'?\'\':\'none\'"><option value="EXTERNAL">External address — outside AxLink custody</option><option value="NETWORK">Network participant — another AxLink institution (settles inside custody)</option></select></div><div class="field" id="lc-net" style="display:none"><label>Participant slug</label><input id="lc-part" placeholder="e.g. axlink-reference"/><div class="hint">The institution\'s AxLink slug; it must be active and hold a wallet in this environment.</div></div><div class="field" id="lc-ext"><label>Solana address</label><input id="lc-addr" placeholder="base58 address"/></div><div class="field"><label>Note (optional)</label><input id="lc-note" placeholder="Settlement account at Partner Bank"/><div class="hint">AxLink\'s own custody wallets cannot be added here.</div></div><div style="display:flex;gap:10px"><button class="btn btn-ghost" style="flex:1;justify-content:center" onclick="closeModal()">Cancel</button><button class="btn btn-primary" style="flex:1;justify-content:center" onclick="liveRegisterCounterparty()">Register</button></div>');
 }
 function liveRegisterCounterparty(){ var kind=(document.getElementById('lc-kind')||{}).value||'EXTERNAL'; var body={label:(document.getElementById('lc-label').value||'').trim()}; if(kind==='NETWORK') body.participant=(document.getElementById('lc-part').value||'').trim(); else body.address=(document.getElementById('lc-addr').value||'').trim(); var n=(document.getElementById('lc-note').value||'').trim(); if(n) body.note=n; axApi('POST','/counterparties',body).then(function(c){ closeModal(); toast('Counterparty '+liveUnesc(c.label)+' · '+c.status); refreshLive(); }).catch(function(e){ toast(e.message,'!'); }); }
 function liveDisableCounterparty(id){ axApi('DELETE','/counterparties/'+id).then(function(){ toast('Counterparty disabled'); refreshLive(); }).catch(function(e){ toast(e.message,'!'); }); }
@@ -2184,22 +2311,26 @@ function liveWebhooks(){
   var epRows=eps.map(function(ep){ return '<tr><td class="mono" style="font-size:12px;color:var(--teal)">'+ep.url+'</td><td style="color:var(--ink-2)">'+(ep.events||[]).join(', ')+'</td><td>'+liveBadge(ep.status)+'</td><td style="color:var(--ink-3)">'+liveWhen(ep.createdAt)+'</td><td>'+(ep.status==='ACTIVE'?'<button class="btn btn-ghost btn-sm" onclick="liveDisableEndpoint(\''+ep.id+'\')">Disable</button>':'')+'</td></tr>'; }).join('')||'<tr><td colspan="5" style="color:var(--ink-3)">No endpoint yet — add one to receive signed events.</td></tr>';
   var dl=[]; eps.forEach(function(ep){ (LIVE.deliveries[ep.id]||[]).forEach(function(d){ dl.push(d); }); }); dl.sort(function(a,b){ return a.createdAt<b.createdAt?1:-1; });
   var dRows=dl.slice(0,50).map(function(d){ return '<tr><td class="txid">'+d.id+'</td><td>'+d.type+'</td><td style="color:var(--ink-2)">'+(d.lastStatus||'—')+(d.status==='PENDING'&&d.nextAttemptAt?' → retry '+liveWhen(d.nextAttemptAt).replace(' ago',''):'')+'</td><td style="color:var(--ink-3)">'+liveWhen(d.createdAt)+'</td><td>'+liveBadge(d.status==='DELIVERED'?'COMPLETED':d.status==='ABANDONED'||d.status==='FAILED'?'FAILED':'PROCESSING')+'</td></tr>'; }).join('')||'<tr><td colspan="5" style="color:var(--ink-3)">No deliveries yet.</td></tr>';
-  return appShell('#/app/webhooks', liveHead()+pageHead('Webhooks','Signed event deliveries for '+LIVE.me.environment.toLowerCase()+' — GET /v1/webhook-endpoints. Events: deposit.received · settled · rejected · expired · transfer.submitted · settled · failed.','<button class="btn btn-primary btn-sm" onclick="liveOpenEndpoint()">+ Add endpoint</button>')+
+  return appShell('#/app/webhooks', liveHead()+pageHead('Webhooks','Signed event deliveries for '+LIVE.me.environment.toLowerCase()+'. Events: deposit.received · settled · rejected · expired · transfer.submitted · settled · failed.','<button class="btn btn-primary btn-sm" onclick="liveOpenEndpoint()">+ Add endpoint</button>')+
    tableCard('Endpoints',['URL','Events','Status','Created',''],epRows)+tableCard('Recent deliveries',['Event','Type','Response','When','Status'],dRows));
 }
 function liveOpenEndpoint(){
-  openModal('<h3 style="font-size:19px;margin-bottom:14px">Add webhook endpoint</h3><div class="field"><label>HTTPS URL</label><input id="le-url" placeholder="https://api.yourbank.com/axlink/events"/><div class="hint">POST /v1/webhook-endpoints — the signing secret is shown once. Private and link-local hosts are refused.</div></div><div style="display:flex;gap:10px"><button class="btn btn-ghost" style="flex:1;justify-content:center" onclick="closeModal()">Cancel</button><button class="btn btn-primary" style="flex:1;justify-content:center" onclick="liveCreateEndpoint()">Add</button></div>');
+  openModal('<h3 style="font-size:19px;margin-bottom:14px">Add webhook endpoint</h3><div class="field"><label>HTTPS URL</label><input id="le-url" placeholder="https://api.yourbank.com/axlink/events"/><div class="hint">The signing secret is shown once. Private and link-local hosts are refused.</div></div><div style="display:flex;gap:10px"><button class="btn btn-ghost" style="flex:1;justify-content:center" onclick="closeModal()">Cancel</button><button class="btn btn-primary" style="flex:1;justify-content:center" onclick="liveCreateEndpoint()">Add</button></div>');
 }
 function liveCreateEndpoint(){ axApi('POST','/webhook-endpoints',{url:(document.getElementById('le-url').value||'').trim()}).then(function(ep){ closeModal(); openModal('<h3 style="font-size:19px;margin-bottom:10px">Endpoint added</h3><div class="hint" style="margin-bottom:8px">Signing secret — shown once, store it now:</div><pre style="background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:12px;font-size:12px;word-break:break-all;white-space:pre-wrap">'+ep.secret+'</pre><div class="hint">Verify <span class="mono">X-AxLink-Signature: t=&lt;unix&gt;,v1=HMAC-SHA256(secret, t + "." + body)</span></div><div style="margin-top:12px"><button class="btn btn-primary" style="width:100%;justify-content:center" onclick="closeModal()">Stored</button></div>'); refreshLive(); }).catch(function(e){ toast(e.message,'!'); }); }
 function liveDisableEndpoint(id){ axApi('DELETE','/webhook-endpoints/'+id).then(function(){ toast('Endpoint disabled'); refreshLive(); }).catch(function(e){ toast(e.message,'!'); }); }
 function liveDevelopers(){
   var me=LIVE.me; var base=axBase();
-  var code='GET '+base+'/institutions/me\nAuthorization: Bearer '+axKey().slice(0,14)+'…\n\n200 OK\n'+JSON.stringify(me,null,2);
+  if(!LIVE.keys){ LIVE.keys=[]; axApi('GET','/portal/credentials').then(function(k){ LIVE.keys=k; if(CURRENT==='#/app/developers') render(); }).catch(function(){}); }
+  var code='GET '+base+'/institutions/me\nAuthorization: Bearer axlk_test_…\n\n200 OK\n'+JSON.stringify(me,null,2);
   var ep=[['GET','/institutions/me'],['GET','/assets'],['POST','/wallets'],['POST','/custody/deposit-addresses'],['GET','/balances'],['POST','/deposits'],['GET','/settlements/{id}'],['GET','/ledger/entries'],['POST','/counterparties'],['POST','/transfers'],['POST','/settlements'],['POST','/webhook-endpoints']].map(function(e){ return '<div style="display:flex;align-items:center;gap:10px"><span class="badge badge-'+(e[0]==='GET'?'review':'active')+'" style="min-width:44px;justify-content:center">'+e[0]+'</span><span class="mono" style="color:var(--ink);font-size:12px">'+e[1]+'</span></div>'; }).join('');
-  return appShell('#/app/developers', liveHead()+pageHead('Developers','Your credential as the API sees it. Full reference: <a href="'+base.replace(/\/v1$/,'')+'/docs" target="_blank" rel="noopener" style="color:var(--teal)">'+base.replace(/\/v1$/,'')+'/docs</a>')+
+  var keyRows=(LIVE.keys||[]).map(function(k){ return '<tr><td style="font-weight:500">'+k.label+'</td><td class="mono" style="font-size:12px;color:var(--teal)">'+k.prefix+'…</td><td style="color:var(--ink-3)">'+liveWhen(k.createdAt)+'</td><td style="color:var(--ink-3)">'+(k.lastUsedAt?liveWhen(k.lastUsedAt):'never')+'</td><td>'+(k.revokedAt?'<span class="badge badge-failed">Revoked</span>':'<button class="btn btn-ghost btn-sm" onclick="portalRevokeKey(\''+k.id+'\')">Revoke</button>')+'</td></tr>'; }).join('')||'<tr><td colspan="5" style="color:var(--ink-3)">No API keys yet. Create one for your core-banking or treasury server.</td></tr>';
+  var keysCard='<div class="chart-card reveal" style="margin-bottom:14px"><div class="ch"><h4>API keys for your servers</h4><button class="btn btn-primary btn-sm" onclick="portalCreateKey()">+ Create API key</button></div><p style="color:var(--ink-3);font-size:12.5px;margin-bottom:10px">People sign in with email and password; your backend uses an API key (Bearer). A key is shown once when created. Sandbox keys start with axlk_test_.</p><table><thead><tr><th>Label</th><th>Prefix</th><th>Created</th><th>Last used</th><th></th></tr></thead><tbody>'+keyRows+'</tbody></table></div>';
+  return appShell('#/app/developers', liveHead()+keysCard+pageHead('Developers','Your credential as the API sees it. Full reference: <a href="'+base.replace(/\/v1$/,'')+'/docs" target="_blank" rel="noopener" style="color:var(--teal)">'+base.replace(/\/v1$/,'')+'/docs</a>')+
    '<div class="grid-2" style="gap:14px"><div class="chart-card reveal"><h4 style="margin-bottom:8px">Who am I</h4><pre style="background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:14px;font-size:11.5px;line-height:1.55;overflow-x:auto;color:var(--ink)">'+code.replace(/</g,'&lt;')+'</pre></div><div class="chart-card reveal d1"><h4 style="margin-bottom:8px">Endpoints (all live)</h4><div style="display:grid;gap:8px">'+ep+'</div><div class="hint" style="margin-top:10px">Your scopes: <span class="mono">'+(me.scopes||[]).join(' ')+'</span></div></div></div>');
 }
 /* restore a session on reload (same tab) */
+(function(){ if(!axKey()&&axBase()&&location.protocol.indexOf('http')===0){ fetch(axBase()+'/auth/session',{credentials:'same-origin'}).then(function(r){ if(r.ok) return axApi('GET','/institutions/me').then(function(me){ LIVE.me=me; ROLE='client'; ENV=me.environment; if(CURRENT.indexOf('#/app')!==0&&CURRENT!=='#/'&&CURRENT!=='') CURRENT='#/app'; render(); refreshLive(); }); }).catch(function(){}); } })();
 (function(){ if(axKey()&&axBase()){ axApi('GET','/institutions/me').then(function(me){ LIVE.me=me; ROLE='client'; ENV=me.environment; if(CURRENT.indexOf('#/app')!==0) CURRENT='#/app'; refreshLive(); }).catch(function(){ disconnectLive(); }); } })();
 /* deep links: #/app/treasury etc. open the screen directly (the in-page router ignored the URL hash before) */
 (function(){ function fromHash(){ var h=location.hash; if(h&&ROUTES[h]&&CURRENT!==h){ CURRENT=h; render(); } } window.addEventListener('hashchange',fromHash); if(location.hash&&ROUTES[location.hash]){ CURRENT=location.hash; render(); } })();
@@ -2281,13 +2412,13 @@ LIVE.entries=null; LIVE.entriesCursor=null;
 function liveTransactions(){
   if(LIVE.entries===null){ LIVE.entries=[]; axApi('GET','/ledger/entries?limit=50').then(function(v){ LIVE.entries=v.entries; LIVE.entriesCursor=v.nextCursor; render(); }).catch(function(e){ toast(e.message,'!'); }); }
   var rows=(LIVE.entries||[]).map(function(e){ return e.lines.map(function(l,i){ return '<tr>'+(i===0?'<td class="txid" rowspan="'+e.lines.length+'">'+e.id.slice(-10)+'</td><td rowspan="'+e.lines.length+'" style="color:var(--ink-2)">'+e.eventType+'<div style="font-size:10.5px;color:var(--ink-3)">'+e.entityType+' · '+String(e.entityId||'').slice(-10)+'</div></td>':'')+'<td class="mono" style="font-size:11px">'+l.account.split(':')[0]+'</td><td style="color:var(--ink-2)">'+l.asset+'</td><td class="mono" style="font-size:12px;color:'+(l.amount.charAt(0)==='-'?'#f87171':'var(--teal)')+'">'+l.amount+'</td>'+(i===0?'<td rowspan="'+e.lines.length+'" style="color:var(--ink-3)">'+new Date(e.postedAt).toLocaleString()+'</td>':'')+'</tr>'; }).join(''); }).join('')||'<tr><td colspan="6" style="color:var(--ink-3)">No ledger entries yet.</td></tr>';
-  return appShell('#/app/transactions', liveHead()+pageHead('Transactions','Your statement, straight from the double-entry journal — GET /v1/ledger/entries. Every row is one posting on an account you own; the other side of each entry stays with its owner.',(LIVE.entriesCursor?'<button class="btn btn-ghost btn-sm" onclick="liveMoreEntries()">Older</button>':''))+
+  return appShell('#/app/transactions', liveHead()+pageHead('Transactions','Your statement, straight from the double-entry ledger. Every row is one posting on an account you own; the other side of each entry stays with its owner.',(LIVE.entriesCursor?'<button class="btn btn-ghost btn-sm" onclick="liveMoreEntries()">Older</button>':''))+
    tableCard('Ledger entries',['Entry','Event','Account','Asset','Amount','Posted'],rows));
 }
 function liveMoreEntries(){ axApi('GET','/ledger/entries?limit=50&cursor='+encodeURIComponent(liveUnesc(LIVE.entriesCursor))).then(function(v){ LIVE.entries=LIVE.entries.concat(v.entries); LIVE.entriesCursor=v.nextCursor; render(); }).catch(function(e){ toast(e.message,'!'); }); }
 function liveBalances(){
   var b=LIVE.balances; var rows=((b&&b.balances)||[]).map(function(x){ return '<tr><td style="font-weight:500">'+x.symbol+'</td><td style="color:var(--ink-2)">'+x.asset+' · '+x.network+'</td><td class="mono" style="font-size:13px">'+x.available+'</td><td style="color:var(--ink-2);font-size:12px">'+x.wallets.map(function(w){ return w.walletId.slice(-6)+': '+w.available; }).join(' · ')+'</td></tr>'; }).join('')||'<tr><td colspan="4" style="color:var(--ink-3)">No balances yet.</td></tr>';
-  return appShell('#/app/balances', liveHead()+pageHead('Balances','Journal-derived, exact decimals, per asset and per wallet — GET /v1/balances. Transfers awaiting operator approval are reserved against these figures.','')+
+  return appShell('#/app/balances', liveHead()+pageHead('Balances','From the ledger, exact decimals, per asset and per wallet. Transfers awaiting operator approval are reserved against these figures.','')+
    tableCard('Balances'+(b?' · as of '+new Date(b.asOf).toLocaleTimeString():''),['Asset','Id · network','Available','By wallet'],rows));
 }
 </script>

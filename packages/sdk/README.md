@@ -33,19 +33,26 @@ const wallet = await axlink.wallets.create({ label: 'Main settlement wallet' });
 const addr = await axlink.wallets.depositAddress({ walletId: wallet.id });
 console.log(addr.address);   // e.g. "7xKX..."  — share this with your sender
 
-// --- Send a settlement ---
-const transfer = await axlink.transfers.create({
-  counterpartyId: 'cp_galaxybank_01',
-  assetId:        'USDT_SOL',
-  amount:         '10000',           // in token units, not cents
-  externalRef:    'INV-2026-001',    // your idempotency key; safe to retry
-  note:           'Invoice payment',
+// --- Announce a deposit, then send exactly that amount to addr.address ---
+const dep = await axlink.deposits.announce({ walletId: wallet.id, asset: 'USDT_SOL', amount: '25000', reference: 'TOPUP-001' });
+// credited once at on-chain finality → webhook deposit.settled
+
+// --- Settle to another bank on the network ---
+const galaxy = await axlink.counterparties.create({ label: 'Galaxy Bank', participant: 'galaxy-bank' });
+const s = await axlink.settlements.create({
+  walletId:       wallet.id,
+  counterpartyId: galaxy.id,
+  asset:          'USDT_SOL',
+  amount:         '10000',            // token units as a decimal string, max 6 decimals
+  reference:      'INV-2026-001',
+  idempotencyKey: 'INV-2026-001',     // sent as Idempotency-Key: a retry with the same key never pays twice
 });
-// { id: 'tr_...', status: 'PENDING', ... }
+// { id: '…', status: 'PROCESSING', stage: 'APPROVED', … }
+// To an external Solana address instead: counterparties.create({ label, address }) + transfers.create({ … }).
 
 // --- Poll or use webhooks ---
-const status = await axlink.transfers.get(transfer.id);
-// { status: 'SETTLED', proof: { txHash: '...', network: 'solana-mainnet', slot: 300000000 } }
+const status = await axlink.settlements.get(s.id);
+// { status: 'COMPLETED', proof: { txHash: '…', finality: 'ON_CHAIN_FINALIZED', explorerUrl: '…' } }
 ```
 
 ## Webhooks
@@ -57,7 +64,7 @@ import { verifyAxLinkWebhook, AxLinkWebhookVerificationError } from '@axlink/sdk
 import express from 'express';
 
 // 1. Register your endpoint (do this once, store the secret)
-const { endpoint, secret } = await axlink.webhooks.create({
+const { id, secret } = await axlink.webhooks.create({
   url: 'https://your-bank.example.com/webhooks/axlink',
   events: ['transfer.settled', 'deposit.settled', 'settlement.received'],
 });
@@ -74,13 +81,13 @@ app.post('/webhooks/axlink', express.raw({ type: 'application/json' }), (req, re
 
     switch (event.type) {
       case 'transfer.settled':
-        console.log('Settled:', event.data.transferId, event.data.txHash);
+        console.log('Settled:', event.data.transferId, event.data.txHash, event.data.explorerUrl);
         break;
       case 'deposit.settled':
-        console.log('Deposit confirmed:', event.data.depositId);
+        console.log('Deposit confirmed:', event.data.settlementId, event.data.amount, event.data.asset);
         break;
       case 'settlement.received':
-        console.log('Incoming settlement:', event.data.settlementId, event.data.amount);
+        console.log('Incoming settlement from', event.data.from.participant, event.data.amount, event.data.asset);
         break;
     }
 

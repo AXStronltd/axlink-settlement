@@ -69,16 +69,20 @@ export interface Wallet {
   id: string;
   label: string;
   network: string;
-  status: 'PENDING' | 'ACTIVE' | 'SUSPENDED';
-  depositAddress?: string;
+  status: 'ACTIVE' | 'SUSPENDED' | 'CLOSED';
+  depositAddress: string | null;
   custody: { provider: string; vaultId: string };
+  environment?: 'SANDBOX' | 'PRODUCTION';
+  balances?: WalletBalance[];
   createdAt: string;
 }
 
 export interface WalletBalance {
-  assetId: string;
+  asset: 'USDC_SOL' | 'USDT_SOL';
+  /** Authoritative (from the journal), decimal string. */
   available: string;
   pending: string;
+  updatedAt?: string;
 }
 
 export interface DepositAddress {
@@ -90,30 +94,43 @@ export interface DepositAddress {
   note: string;
 }
 
-export type DepositStatus = 'PENDING' | 'RECEIVED' | 'CONFIRMING' | 'SETTLED' | 'REJECTED' | 'EXPIRED' | 'CANCELLED';
+/** Public status of a deposit or transfer. The detailed stage is in `instructionStatus` / `stage`. */
+export type SettlementStatus = 'PROCESSING' | 'COMPLETED' | 'FAILED';
+export type DepositStatus = SettlementStatus;
+export type DepositInstructionStage = 'PENDING' | 'RECEIVED' | 'SETTLED' | 'EXPIRED' | 'CANCELLED';
+
+/** Custody evidence and on-chain finality, stated separately. */
+export interface SettlementProof {
+  custodyTxId: string | null;
+  txHash: string | null;
+  explorerUrl: string | null;
+  finality: 'PENDING' | 'CUSTODY_CONFIRMED' | 'ON_CHAIN_FINALIZED' | 'SANDBOX_SIMULATED' | 'UNDER_REVIEW' | string;
+  slot?: string | number | null;
+}
 
 export interface DepositInstruction {
   id: string;
-  walletId: string;
-  assetId: string;
-  expectedAmount?: string;
-  receivedAmount?: string;
+  kind: 'DEPOSIT';
   status: DepositStatus;
-  expiresAt?: string;
+  instructionStatus: DepositInstructionStage;
+  walletId: string;
+  asset: 'USDC_SOL' | 'USDT_SOL';
+  expectedAmount: string;
+  receivedAmount: string | null;
+  reference: string | null;
+  /** Put this in your custody transfer's external id when your custodian allows it; otherwise the exact amount matches. */
+  trackingId: string;
+  depositAddress: string | null;
+  expiresAt: string;
+  receivedAt: string | null;
+  settledAt: string | null;
   createdAt: string;
-  proof?: SettlementProof;
-}
-
-export interface SettlementProof {
-  txHash: string;
-  network: string;
-  slot?: number;
-  confirmedAt?: string;
-  explorer?: string;
+  attention: { at: string; reason: string } | null;
+  proof: SettlementProof | null;
 }
 
 export interface Balance {
-  assetId: string;
+  asset: 'USDC_SOL' | 'USDT_SOL';
   available: string;
   pending: string;
 }
@@ -124,36 +141,45 @@ export interface BalancesResponse {
   balances: Balance[];
 }
 
-export type TransferStatus =
-  | 'AWAITING_APPROVAL'
-  | 'APPROVED'
-  | 'PENDING'
-  | 'SUBMITTED'
-  | 'CONFIRMING'
-  | 'SETTLED'
-  | 'FAILED'
-  | 'CANCELLED';
+export type TransferStatus = SettlementStatus;
+export type TransferStage =
+  | 'AWAITING_APPROVAL' | 'APPROVED' | 'SUBMITTING' | 'SUBMITTED' | 'CONFIRMED' | 'SETTLED'
+  | 'UNDER_REVIEW' | 'FAILED' | 'REJECTED' | 'CANCELLED';
 
 export interface Transfer {
   id: string;
-  counterpartyId: string;
-  assetId: string;
-  amount: string;
+  kind: 'TRANSFER';
   status: TransferStatus;
-  externalRef?: string;
-  note?: string;
+  stage: TransferStage;
+  walletId: string;
+  counterparty: { id: string; label?: string; address?: string; network?: string };
+  asset: 'USDC_SOL' | 'USDT_SOL';
+  amount: string;
+  reference: string | null;
+  idempotencyKey: string;
+  approval: { required: boolean; by: string | null; at?: string } | null;
+  proof: SettlementProof | null;
+  attention?: true;
+  reason?: string;
+  submittedAt: string | null;
+  confirmedAt: string | null;
+  settledAt: string | null;
   createdAt: string;
-  settledAt?: string;
-  proof?: SettlementProof;
 }
 
 export interface Counterparty {
   id: string;
   label: string;
-  assetId: string;
-  address: string;
+  /** NETWORK = another AxLink institution (vault-to-vault); EXTERNAL = an on-chain address. */
+  kind: 'NETWORK' | 'EXTERNAL';
   network: string;
-  status: 'PENDING_APPROVAL' | 'APPROVED' | 'DISABLED';
+  address: string | null;
+  participant: string | null;
+  status: 'PENDING_APPROVAL' | 'ACTIVE' | 'DISABLED';
+  screening: { verdict: string; provider: string; at: string } | null;
+  approvedAt: string | null;
+  custodyWhitelisted: boolean;
+  note: string | null;
   createdAt: string;
 }
 
@@ -211,7 +237,7 @@ class Http {
     return `${this.opts.baseUrl.replace(/\/$/, '')}/api/v1${path}`;
   }
 
-  async request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  async request<T>(method: string, path: string, body?: unknown, extraHeaders: Record<string, string> = {}): Promise<T> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.opts.timeoutMs);
 
@@ -223,6 +249,7 @@ class Http {
           'Authorization': `Bearer ${this.opts.apiKey}`,
           'Content-Type': 'application/json',
           'Accept': 'application/json',
+          ...extraHeaders,
         },
         body: body !== undefined ? JSON.stringify(body) : undefined,
         signal: controller.signal,
@@ -251,8 +278,21 @@ class Http {
   }
 
   get<T>(path: string)                       { return this.request<T>('GET',    path); }
-  post<T>(path: string, body: unknown)       { return this.request<T>('POST',   path, body); }
+  post<T>(path: string, body: unknown, headers?: Record<string, string>) { return this.request<T>('POST', path, body, headers); }
   delete<T>(path: string, body?: unknown)    { return this.request<T>('DELETE', path, body); }
+}
+
+/** Body of POST /v1/transfers and /v1/settlements. */
+export interface TransferCreateParams {
+  /** Your wallet the funds leave from. */
+  walletId: string;
+  counterpartyId: string;
+  asset: 'USDC_SOL' | 'USDT_SOL';
+  /** Decimal string, at most the asset's 6 decimals. */
+  amount: string;
+  reference?: string;
+  /** Sent as the Idempotency-Key header. */
+  idempotencyKey: string;
 }
 
 // ── Resource clients ──────────────────────────────────────────────────────────
@@ -284,7 +324,7 @@ class WalletsResource {
   }
 
   /** List your wallets in this environment. */
-  list(): Promise<{ wallets: Wallet[] }> {
+  list(): Promise<Wallet[]> {
     return this.http.get('/wallets');
   }
 
@@ -313,21 +353,22 @@ class DepositsResource {
    */
   announce(params: {
     walletId: string;
-    assetId: 'USDC_SOL' | 'USDT_SOL';
-    expectedAmount?: string;
-    externalRef?: string;
-    expiresInSeconds?: number;
+    asset: 'USDC_SOL' | 'USDT_SOL';
+    /** Exact amount you will send, as a decimal string (e.g. "10000" or "250.5"). The receipt must match it. */
+    amount: string;
+    /** Your own reference, echoed on events. */
+    reference?: string;
+    /** How long the instruction stays open (default 72h, max 720h). */
+    ttlHours?: number;
   }): Promise<DepositInstruction> {
     return this.http.post('/deposits', params);
   }
 
   /** List deposit instructions (newest first). */
-  list(params?: Pagination & { status?: DepositStatus }): Promise<{ instructions: DepositInstruction[] }> {
+  list(params?: { status?: DepositInstructionStage }): Promise<DepositInstruction[]> {
     const q = new URLSearchParams();
-    if (params?.limit)  q.set('limit',  String(params.limit));
-    if (params?.cursor) q.set('cursor', params.cursor);
     if (params?.status) q.set('status', params.status);
-    return this.http.get(`/deposits?${q}`);
+    return this.http.get(`/deposits${q.size ? `?${q}` : ''}`);
   }
 
   /** One deposit instruction by id. */
@@ -351,6 +392,17 @@ class SettlementsResource {
   get(id: string): Promise<{ id: string; status: TransferStatus | DepositStatus; proof?: SettlementProof }> {
     return this.http.get(`/settlements/${id}`);
   }
+
+  /**
+   * Settle to a counterparty (the blueprint's POST /v1/settlements; same contract as transfers.create).
+   * For a network counterparty the funds move vault-to-vault inside custody and the receiver is credited
+   * at on-chain finality.
+   */
+  async create(params: TransferCreateParams): Promise<Transfer> {
+    const { idempotencyKey, ...body } = params;
+    if (!idempotencyKey) throw new AxLinkError(0, 'IDEMPOTENCY_KEY_REQUIRED', 'settlements.create needs an idempotencyKey');
+    return this.http.post('/settlements', body, { 'Idempotency-Key': idempotencyKey });
+  }
 }
 
 class CounterpartiesResource {
@@ -360,18 +412,17 @@ class CounterpartiesResource {
    * Register a counterparty — an external wallet address to settle funds to.
    * Counterparties require operator approval before use.
    */
-  create(params: {
-    label: string;
-    assetId: 'USDC_SOL' | 'USDT_SOL';
-    address: string;
-    network: string;
-    externalRef?: string;
-  }): Promise<Counterparty> {
+  create(params: { label: string; note?: string; network?: string } & (
+    /** Another institution on the AxLink network, by its slug — settled vault-to-vault inside custody. */
+    | { participant: string; address?: never }
+    /** An external Solana wallet address. */
+    | { address: string; participant?: never }
+  )): Promise<Counterparty> {
     return this.http.post('/counterparties', params);
   }
 
   /** List your registered counterparties. */
-  list(): Promise<{ counterparties: Counterparty[] }> {
+  list(): Promise<Counterparty[]> {
     return this.http.get('/counterparties');
   }
 
@@ -393,25 +444,20 @@ class TransfersResource {
    * Initiate an outbound settlement of USDC or USDT to a registered counterparty.
    * This is the primary action of the AxLink API.
    *
-   * @param params.externalRef - Your own idempotency key (safe to retry with same key)
+   * @param params.idempotencyKey - Required. Retrying with the same key returns the original transfer and never
+   *   pays twice; use a fresh key for a new payment (e.g. your payment instruction id).
    */
-  create(params: {
-    counterpartyId: string;
-    assetId: 'USDC_SOL' | 'USDT_SOL';
-    amount: string;
-    externalRef?: string;
-    note?: string;
-  }): Promise<Transfer> {
-    return this.http.post('/transfers', params);
+  async create(params: TransferCreateParams): Promise<Transfer> {
+    const { idempotencyKey, ...body } = params;
+    if (!idempotencyKey) throw new AxLinkError(0, 'IDEMPOTENCY_KEY_REQUIRED', 'transfers.create needs an idempotencyKey');
+    return this.http.post('/transfers', body, { 'Idempotency-Key': idempotencyKey });
   }
 
   /** List transfers. */
-  list(params?: Pagination & { status?: TransferStatus }): Promise<{ transfers: Transfer[] }> {
+  list(params?: { stage?: TransferStage }): Promise<Transfer[]> {
     const q = new URLSearchParams();
-    if (params?.limit)  q.set('limit',  String(params.limit));
-    if (params?.cursor) q.set('cursor', params.cursor);
-    if (params?.status) q.set('status', params.status);
-    return this.http.get(`/transfers?${q}`);
+    if (params?.stage) q.set('status', params.stage);
+    return this.http.get(`/transfers${q.size ? `?${q}` : ''}`);
   }
 
   /** Transfer status, stage and on-chain proof. */
@@ -436,7 +482,7 @@ class LedgerResource {
     asset?: 'USDC_SOL' | 'USDT_SOL';
     entityType?: string;
     entityId?: string;
-  }): Promise<{ entries: LedgerEntry[]; next?: string }> {
+  }): Promise<{ entries: LedgerEntry[]; nextCursor: string | null }> {
     const q = new URLSearchParams();
     if (params?.limit)       q.set('limit',      String(params.limit));
     if (params?.cursor)      q.set('cursor',     params.cursor);
@@ -462,12 +508,12 @@ class WebhooksResource {
       | 'transfer.submitted' | 'transfer.settled' | 'transfer.failed'
       | 'settlement.received' | '*'
     >;
-  }): Promise<{ endpoint: WebhookEndpoint; secret: string }> {
+  }): Promise<WebhookEndpoint & { secret: string; note: string }> {
     return this.http.post('/webhook-endpoints', params);
   }
 
   /** List your webhook endpoints. */
-  list(): Promise<{ endpoints: WebhookEndpoint[] }> {
+  list(): Promise<WebhookEndpoint[]> {
     return this.http.get('/webhook-endpoints');
   }
 
