@@ -3,10 +3,11 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { requireOps } from '../platform/ops-auth';
 import { createWallet, listInstitutionWallets, serializeWallet } from '../../../../packages/core/wallets/wallet.service';
-import { createInstitution, getInstitution, listInstitutions, issueCredential, revokeCredential, CreateInstitution } from '../../../../packages/core/institutions/institution.service';
+import { createInstitution, getInstitution, listInstitutions, issueCredential, revokeCredential, setInstitutionStatus, CreateInstitution } from '../../../../packages/core/institutions/institution.service';
 import { notFound, ApiError } from '../../../../packages/shared/errors';
 import { prisma } from '../../../../packages/core/ledger/ledger.service';
 import { requireInstitution } from '../../../../packages/core/tenancy/tenancy.middleware';
+import { ACTIVE_NETWORK } from '../../../../packages/core/assets/registry';
 
 /** Every scope the API checks. Issuing an unknown scope (a typo) is refused here rather than failing silently at call time. */
 export const KNOWN_SCOPES = ['*', 'wallets:read', 'wallets:write', 'wallets:*', 'deposits:read', 'deposits:write', 'deposits:*', 'settlements:read', 'settlements:write', 'settlements:*', 'ledger:read', 'ledger:*', 'webhooks:read', 'webhooks:write', 'webhooks:*', 'counterparties:read', 'counterparties:write', 'counterparties:*', 'transfers:read', 'transfers:write', 'transfers:*'] as const;
@@ -33,6 +34,12 @@ router.patch('/:id/environments/:kind/policy', wrap(async (req, res) => {
   res.json({ environment: kind, policy: { transferDailyLimit: u.transferDailyLimit?.toFixed() ?? null, transferMaxAmount: u.transferMaxAmount?.toFixed() ?? null, transferMaxPerHour: u.transferMaxPerHour, settlementWalletId: u.settlementWalletId } });
 }));
 
+const SetStatus = z.object({ status: z.enum(['ACTIVE', 'SUSPENDED', 'CLOSED']), reason: z.string().min(3).max(500) });
+router.post('/:id/status', wrap(async (req, res) => {
+  const b = SetStatus.parse(req.body);
+  res.json(await setInstitutionStatus(req.params.id as string, b.status, b.reason));
+}));
+
 router.post('/:id/credentials', wrap(async (req, res) => {
   const d = z.object({ environment: z.enum(['SANDBOX', 'PRODUCTION']), label: z.string().min(1).max(80), scopes: z.array(z.enum(KNOWN_SCOPES)).default([]) }).parse(req.body);
   const r = await issueCredential(req.params.id as string, d.environment, d.label, d.scopes);
@@ -42,7 +49,7 @@ router.post('/:id/credentials/:credId/revoke', wrap(async (req, res) => { res.js
 export default router;
 
 // ── Wallets (Step 2) — operator creates; institutions read their own through /api/wallets ──
-const CreateWallet = z.object({ environment: z.enum(['SANDBOX', 'PRODUCTION']), label: z.string().min(1).max(80), network: z.literal('solana-mainnet').optional() });
+const CreateWallet = z.object({ environment: z.enum(['SANDBOX', 'PRODUCTION']), label: z.string().min(1).max(80), network: z.literal(ACTIVE_NETWORK).optional() });
 router.post('/:id/wallets', wrap(async (req, res) => {
   const body = CreateWallet.parse(req.body);
   const w = await createWallet({ institutionId: req.params.id as string, environmentKind: body.environment, label: body.label, network: body.network });

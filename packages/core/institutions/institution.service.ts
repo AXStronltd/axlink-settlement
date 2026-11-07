@@ -45,6 +45,22 @@ export async function createInstitution(input: CreateInstitutionInput) {
   log.info('institution.created', { institutionId: inst.id, slug: inst.slug });
   return inst;
 }
+/**
+ * Operations moves an institution through onboarding. Nothing works for a PENDING institution (no
+ * credentials, no wallets); ACTIVE is the go-live decision; SUSPENDED stops it without deleting
+ * anything. CLOSED is terminal. Every change is logged with who asked and why.
+ */
+const STATUS_MOVES: Record<string, string[]> = { PENDING: ['ACTIVE', 'CLOSED'], ACTIVE: ['SUSPENDED', 'CLOSED'], SUSPENDED: ['ACTIVE', 'CLOSED'], CLOSED: [] };
+export async function setInstitutionStatus(id: string, status: 'ACTIVE' | 'SUSPENDED' | 'CLOSED', reason: string, actor = 'ops') {
+  const inst = await prisma.institution.findUnique({ where: { id } });
+  if (!inst) throw new ApiError('NOT_FOUND', 'institution not found', 404);
+  if (inst.status === status) return inst;
+  if (!STATUS_MOVES[inst.status]?.includes(status)) throw new ApiError('INVALID_STATUS_CHANGE', `institution is ${inst.status}; it cannot become ${status}`, 409);
+  const updated = await prisma.institution.update({ where: { id }, data: { status } });
+  log.info('institution.status_changed', { institutionId: id, from: inst.status, to: status, reason, actor });
+  return updated;
+}
+
 export function getInstitution(id: string) { return prisma.institution.findUnique({ where: { id }, include: { environments: true } }); }
 export function listInstitutions() { return prisma.institution.findMany({ orderBy: { createdAt: 'desc' }, include: { environments: true } }); }
 
