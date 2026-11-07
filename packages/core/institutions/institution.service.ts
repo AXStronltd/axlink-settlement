@@ -56,7 +56,10 @@ export async function setInstitutionStatus(id: string, status: 'ACTIVE' | 'SUSPE
   if (!inst) throw new ApiError('NOT_FOUND', 'institution not found', 404);
   if (inst.status === status) return inst;
   if (!STATUS_MOVES[inst.status]?.includes(status)) throw new ApiError('INVALID_STATUS_CHANGE', `institution is ${inst.status}; it cannot become ${status}`, 409);
-  const updated = await prisma.institution.update({ where: { id }, data: { status } });
+  // Conditional on the status we checked: two concurrent changes cannot both pass (CLOSED stays terminal).
+  const moved = await prisma.institution.updateMany({ where: { id, status: inst.status }, data: { status } });
+  if (moved.count !== 1) throw new ApiError('STATUS_CHANGED', 'institution status changed concurrently; re-read and retry', 409);
+  const updated = (await prisma.institution.findUnique({ where: { id } }))!;
   log.info('institution.status_changed', { institutionId: id, from: inst.status, to: status, reason, actor });
   return updated;
 }

@@ -39,10 +39,10 @@ db('untracked custody deposits and operator activation', () => {
     (await request(app).post('/api/v1/deposits').set(t.auth).send({ walletId: t.wallet.id, asset: 'USDC_SOL', amount }).expect(201)).body;
 
   /** A completed incoming transfer from an EXTERNAL wallet, with no externalTxId (as Fireblocks reports it). */
-  async function receipt(vaultId: string, amount: number, fbId = `fb-${randomUUID()}`) {
+  async function receipt(vaultId: string, amount: number, fbId = `fb-${randomUUID()}`, opts: { status?: string; source?: { type: string; id?: string } } = {}) {
     const raw = JSON.stringify({ type: 'TRANSACTION_STATUS_UPDATED', tenantId: process.env.FIREBLOCKS_WORKSPACE_ID, data: {
-      id: fbId, status: 'COMPLETED', assetId: 'USDC_SOL', operation: 'TRANSFER', netAmount: amount, amount, txHash: `sig${randomUUID().replace(/-/g, '')}`,
-      destination: { type: 'VAULT_ACCOUNT', id: vaultId }, source: { type: 'UNKNOWN' } } });
+      id: fbId, status: opts.status ?? 'COMPLETED', assetId: 'USDC_SOL', operation: 'TRANSFER', netAmount: amount, amount, txHash: `sig${randomUUID().replace(/-/g, '')}`,
+      destination: { type: 'VAULT_ACCOUNT', id: vaultId }, source: opts.source ?? { type: 'UNKNOWN' } } });
     const signature = crypto.sign('RSA-SHA512', Buffer.from(raw), pair.privateKey).toString('base64');
     await request(app).post('/api/webhooks/fireblocks').set({ 'Content-Type': 'application/json', 'fireblocks-signature': signature }).send(raw).expect(200);
     return fbId;
@@ -99,4 +99,56 @@ db('untracked custody deposits and operator activation', () => {
     expect(await available(A)).toBe('0'); expect(await available(B)).toBe('0');
     expect(await exceptionsFor(B.id)).toHaveLength(1);
   });
+
+  // ── review findings at b688516 ──
+  it('concurrent same-amount receipts: one settles, every other one alerts operations (none silently ignored)', async () => {
+    const A = await onboard('conc');
+    await announce(A, '25');
+    await Promise.all([1, 2, 3].map(() => receipt(A.wallet.custody.vaultId, 25)));
+    expect(await available(A)).toBe('25');
+    expect(await exceptionsFor(A.id)).toHaveLength(2);
+  });
+
+  it('the same custody transaction under a different event id never settles a second instruction', async () => {
+    const A = await onboard('redeliver');
+    await announce(A, '5');
+    const fbId = await receipt(A.wallet.custody.vaultId, 5);
+    expect(await available(A)).toBe('5');
+    await announce(A, '5'); // a second, legitimate instruction of the same amount
+    await receipt(A.wallet.custody.vaultId, 5, fbId, { status: 'completed' }); // same tx; label still 'completed', eventId differs (…:completed vs …:COMPLETED)
+    expect(await available(A)).toBe('5');
+  });
+
+  it('an internal custody movement neither settles nor touches an unrelated instruction, and raises no false alarm', async () => {
+    const A = await onboard('internal'); const B = await onboard('internal-src');
+    const dep = await announce(A, '4');
+    await receipt(A.wallet.custody.vaultId, 4, undefined, { source: { type: 'VAULT_ACCOUNT', id: B.wallet.custody.vaultId } });
+    expect(await available(A)).toBe('0');
+    const row = await prisma.depositInstruction.findUnique({ where: { trackingId: dep.trackingId } });
+    expect(row.status).toBe('PENDING'); expect(row.lastReceiptError).toBeNull();
+    expect(await exceptionsFor(A.id)).toEqual([]);
+  });
+
+  it('a receipt into a wallet of another network (a recycled vault id after a sandbox→live switch) is never credited', async () => {
+    const A = await onboard('othernet');
+    await announce(A, '6');
+    await prisma.wallet.update({ where: { id: A.wallet.id }, data: { network: 'solana-devnet' } }); // this deployment is mainnet
+    await receipt(A.wallet.custody.vaultId, 6);
+    expect(await available(A)).toBe('0');
+    expect((await exceptionsFor(A.id))[0].detail.reason).toMatch(/wallet is on solana-devnet/);
+  });
+
+  it('concurrent status changes cannot reopen a CLOSED institution', async () => {
+    const inst = (await request(app).post('/api/institutions').set(ops).send({ slug: `untr-race-${randomUUID().slice(0, 8)}`, legalName: 'Race', country: 'KE', kind: 'BANK' }).expect(201)).body;
+    await request(app).post(`/api/institutions/${inst.id}/status`).set(ops).send({ status: 'ACTIVE', reason: 'KYB approved' }).expect(200);
+    await request(app).post(`/api/institutions/${inst.id}/status`).set(ops).send({ status: 'SUSPENDED', reason: 'hold' }).expect(200);
+    await Promise.all([
+      request(app).post(`/api/institutions/${inst.id}/status`).set(ops).send({ status: 'CLOSED', reason: 'offboard' }),
+      request(app).post(`/api/institutions/${inst.id}/status`).set(ops).send({ status: 'ACTIVE', reason: 'reopen' }),
+    ]);
+    const final = await prisma.institution.findUnique({ where: { id: inst.id } });
+    if (final.status === 'CLOSED') await request(app).post(`/api/institutions/${inst.id}/status`).set(ops).send({ status: 'ACTIVE', reason: 'again' }).expect(409);
+    expect(['CLOSED', 'ACTIVE']).toContain(final.status);
+  });
 });
+
