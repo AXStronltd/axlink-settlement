@@ -85,7 +85,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ConfigReport {
     if ([cfg.B2BINPAY_CLIENT_ID, cfg.B2BINPAY_CLIENT_SECRET].some(v => v && !PLACEHOLDER.test(v)) && (!cfg.B2BINPAY_CALLBACK_SECRET || PLACEHOLDER.test(cfg.B2BINPAY_CALLBACK_SECRET))) prodProblems.push('B2BINPAY_CALLBACK_SECRET is required in production');
     // Things that must be true in production (CLAUDE.md): a dedicated Solana node, deliberate outbound enablement,
     // sane limits, and a conscious choice about screening.
-    if (!cfg.SOLANA_RPC_URL || /api\.(mainnet-beta|devnet|testnet)\.solana\.com/.test(cfg.SOLANA_RPC_URL)) prodProblems.push('SOLANA_RPC_URL must point at a dedicated node in production (the public endpoint rate-limits finality checks and settlements pile up unproven)');
+    // A dedicated node is required where money is real (mainnet). The devnet sandbox may use the public
+    // endpoint (owner decision 2026-11-07): low volume, test tokens only.
+    if (cfg.SOLANA_CLUSTER === 'mainnet' && (!cfg.SOLANA_RPC_URL || /api\.(mainnet-beta|devnet|testnet)\.solana\.com/.test(cfg.SOLANA_RPC_URL))) prodProblems.push('SOLANA_RPC_URL must point at a dedicated node in production (the public endpoint rate-limits finality checks and settlements pile up unproven)');
     for (const k of ['TRANSFER_MAX_AMOUNT', 'TRANSFER_DAILY_LIMIT', 'TRANSFER_MAX_PER_HOUR'] as const) { const v = cfg[k]; if (v !== undefined && !(Number(v) > 0)) prodProblems.push(`${k} must be a positive number`); }
     if (cfg.OUTBOUND_SETTLEMENT_ENABLED !== undefined && !['true', 'false'].includes(cfg.OUTBOUND_SETTLEMENT_ENABLED)) prodProblems.push('OUTBOUND_SETTLEMENT_ENABLED must be "true" or "false"');
     if (cfg.SCREENING_OPTIONAL === 'true') console.warn('[config] SCREENING_OPTIONAL=true: external counterparties can be registered in PRODUCTION without sanctions screening — this must be a documented decision');

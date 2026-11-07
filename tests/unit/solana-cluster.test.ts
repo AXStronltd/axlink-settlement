@@ -78,6 +78,11 @@ describe('workspace and cluster must agree', () => {
     expect(await load({ ...env, FIREBLOCKS_USDC_ASSET: 'X', SOLANA_RPC_URL: 'https://mainnet.helius-rpc.com/?api-key=z' })).toThrow(/looks like a mainnet node/);
     expect(await load({ ...env, FIREBLOCKS_USDC_ASSET: 'X', SOLANA_RPC_URL: 'https://devnet.helius-rpc.com/?api-key=z' })).not.toThrow();
   });
+  it('production: the public Solana endpoint is refused on mainnet, allowed for the devnet sandbox', async () => {
+    const prod = { ...base, NODE_ENV: 'production', OPS_API_KEY: 'k'.repeat(32), FIREBLOCKS_WORKSPACE_ID: 'w', FIREBLOCKS_API_KEY: 'k', WEBHOOK_ENCRYPTION_KEY: 'a'.repeat(64) };
+    expect(await load({ ...prod, FIREBLOCKS_WEBHOOK_JWKS_URL: 'https://keys.fireblocks.io/.well-known/jwks.json', SOLANA_RPC_URL: 'https://api.mainnet-beta.solana.com' })).toThrow(/dedicated node/);
+    expect(await load({ ...prod, FIREBLOCKS_WEBHOOK_JWKS_URL: 'https://sandbox-keys.fireblocks.io/.well-known/jwks.json', FIREBLOCKS_SANDBOX: 'true', SOLANA_CLUSTER: 'devnet', FIREBLOCKS_USDC_ASSET: 'X', SOLANA_RPC_URL: 'https://api.devnet.solana.com' })).not.toThrow();
+  });
   it('mainnet refuses a non-canonical Fireblocks asset override (a leftover testnet id)', async () => {
     expect(await load({ ...base, FIREBLOCKS_API_KEY: 'k', FIREBLOCKS_USDC_ASSET: 'USDC_SOL_TEST' })).toThrow(/FIREBLOCKS_USDC_ASSET unset or USDC_SOL/);
     expect(await load({ ...base, FIREBLOCKS_API_KEY: 'k', FIREBLOCKS_USDT_ASSET: 'X' })).toThrow(/FIREBLOCKS_USDT_ASSET unset or USDT_SOL/);

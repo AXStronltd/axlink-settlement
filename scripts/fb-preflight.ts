@@ -81,7 +81,8 @@ async function main() {
 
   // ── 2. asset ids ──
   console.log('\nAsset ids in this workspace');
-  let assets: { id: string; name?: string; type?: string; contractAddress?: string; nativeAsset?: string; decimals?: number }[] = [];
+  // On Solana, Fireblocks reports the SPL mint in `issuerAddress` (contractAddress is empty).
+  let assets: { id: string; name?: string; type?: string; contractAddress?: string; issuerAddress?: string; nativeAsset?: string; decimals?: number }[] = [];
   try { assets = (await getSupportedAssets()) as typeof assets; } catch (e) { bad(`supported assets: ${(e as Error).message}`); return; }
   const want = MINTS[cluster];
   const solNative = assets.filter(a => a.type === 'BASE_ASSET' && /^SOL/.test(a.id) && (cluster === 'devnet' ? /TEST|DEV/i.test(a.id) : a.id === 'SOL'));
@@ -89,9 +90,13 @@ async function main() {
   for (const id of ['USDC_SOL', 'USDT_SOL'] as const) {
     const mint = want[id];
     if (!mint) { info(`${id}: not supported on ${cluster} (no public mint) — skipped`); continue; }
-    const hits = assets.filter(a => a.contractAddress === mint);
+    const hits = assets.filter(a => a.issuerAddress === mint || a.contractAddress === mint);
     const configured = ASSETS[id].providerIds.fireblocks;
-    if (!hits.length) { (id === 'USDC_SOL' ? bad : info)(`${id}: no Fireblocks asset with mint ${mint} in this workspace`); continue; }
+    if (!hits.length) {
+      (id === 'USDC_SOL' ? bad : info)(`${id}: no Fireblocks asset with mint ${mint} in this workspace`);
+      if (cluster === 'devnet') info(`register it once (Fireblocks "register new asset", blockchain SOL_TEST, address ${mint}) and set FIREBLOCKS_USDC_ASSET to the id Fireblocks returns`);
+      continue;
+    }
     ok(`${id} (mint ${mint.slice(0, 6)}…) → Fireblocks id ${hits.map(h => h.id).join(' or ')}`);
     if (configured && hits.some(h => h.id === configured)) ok(`${id}: configured id ${configured} matches`);
     else bad(`${id}: set ${id === 'USDC_SOL' ? 'FIREBLOCKS_USDC_ASSET' : 'FIREBLOCKS_USDT_ASSET'}=${hits[0].id} (currently ${configured ?? 'unset'})`);
