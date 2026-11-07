@@ -50,7 +50,7 @@ async function main() {
   else {
     const host = (() => { try { return new URL(url).host; } catch { return '(invalid URL)'; } })();
     info(`host: ${host}`);
-    if (/^api\.(mainnet-beta|devnet|testnet)\.solana\.com$/.test(host)) bad('public Solana endpoint: use a dedicated node (it rate-limits finality checks)');
+    if (/^api\.(mainnet-beta|devnet|testnet)\.solana\.com$/.test(host)) (cluster === 'mainnet' ? bad : info)(cluster === 'mainnet' ? 'public Solana endpoint: use a dedicated node (it rate-limits finality checks)' : 'public devnet endpoint (allowed for the sandbox; rate-limited)');
     try {
       const g = String(await rpc(url, 'getGenesisHash'));
       const real = GENESIS[g] ?? 'unknown';
