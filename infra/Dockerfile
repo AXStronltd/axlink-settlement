@@ -40,7 +40,8 @@ WORKDIR /app
 # without it a deploy with real credentials silently ran on the custody stub.
 ENV NODE_ENV=production \
     PORT=4000 \
-    FIREBLOCKS_SECRET_KEY_PATH=/app/secrets/fireblocks_secret.key
+    FIREBLOCKS_SECRET_KEY_PATH=/app/secrets/fireblocks_secret.key \
+    PORTAL_FILE=/app/apps/web/index.html
 
 # wget is used by the healthcheck; openssl is required by the Prisma engines.
 RUN apk add --no-cache wget openssl
